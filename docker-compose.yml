@@ -30,7 +30,7 @@ services:
       - ./database/triggers:/docker-entrypoint-initdb.d/triggers:ro
       - ./database/seeds:/docker-entrypoint-initdb.d/seeds:ro
     ports:
-      - "5433:5432"
+      - "5437:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sst_user} -d ${POSTGRES_DB:-sst_esocial_db}"]
       interval: 10s
@@ -46,7 +46,7 @@ services:
     volumes:
       - sst_redis_data:/data
     ports:
-      - "6380:6379"
+      - "6382:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -65,7 +65,7 @@ services:
       POSTGRES_HOST: db
       REDIS_HOST: redis
     ports:
-      - "8001:8000"
+      - "8003:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -105,7 +105,7 @@ services:
     container_name: sst_esocial_frontend
     restart: unless-stopped
     ports:
-      - "3001:3000"
+      - "3004:3000"
     environment:
       VITE_API_URL: http://localhost:8001
     depends_on:
