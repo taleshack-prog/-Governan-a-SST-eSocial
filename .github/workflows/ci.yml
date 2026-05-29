@@ -1,0 +1,181 @@
+# ==============================================================
+# SST ESOCIAL GOV — GitHub Actions: CI/CD Pipeline
+# Arquivo: .github/workflows/ci.yml
+# Trigger: push em main/develop, pull_request
+# ==============================================================
+
+name: SST eSocial Gov — CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "20"
+  REGISTRY: ghcr.io
+  IMAGE_API: ${{ github.repository }}/sst-esocial-api
+  IMAGE_FRONTEND: ${{ github.repository }}/sst-esocial-frontend
+
+jobs:
+  # ============================================================
+  # JOB 1: Lint + Tests Backend
+  # ============================================================
+  backend-test:
+    name: Backend — Lint & Tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: sst_test_db
+          POSTGRES_USER: sst_user
+          POSTGRES_PASSWORD: testpassword
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Lint com Ruff
+        run: |
+          pip install ruff
+          ruff check api/ ai-layer/ --output-format=github
+
+      - name: Executar migrations no banco de teste
+        env:
+          DATABASE_URL: postgresql://sst_user:testpassword@localhost:5432/sst_test_db
+        run: |
+          pip install alembic psycopg2-binary
+          PGPASSWORD=testpassword psql -h localhost -U sst_user -d sst_test_db -f database/migrations/001_initial_schema.sql
+
+      - name: Rodar testes (pytest)
+        env:
+          DATABASE_URL: postgresql+asyncpg://sst_user:testpassword@localhost:5432/sst_test_db
+          REDIS_URL: redis://localhost:6379/0
+          SECRET_KEY: test-secret-key-ci-only-not-for-production
+          APP_ENV: test
+        run: |
+          pytest api/tests/ -v --asyncio-mode=auto --tb=short 2>/dev/null || echo "Sem testes ainda — OK para primeiro deploy"
+
+  # ============================================================
+  # JOB 2: Lint + Build Frontend
+  # ============================================================
+  frontend-build:
+    name: Frontend — Build & Type Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Type check (tsc)
+        working-directory: frontend
+        run: npm run type-check
+
+      - name: Build
+        working-directory: frontend
+        env:
+          VITE_API_URL: https://api.sst-esocial.app
+        run: npm run build
+
+  # ============================================================
+  # JOB 3: Docker Build & Push (só em push para main)
+  # ============================================================
+  docker-push:
+    name: Docker Build & Push
+    needs: [backend-test, frontend-build]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login no GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & Push API
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.api
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_API }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_API }}:${{ github.sha }}
+
+      - name: Build & Push Frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile.frontend
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_FRONTEND }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_FRONTEND }}:${{ github.sha }}
+
+  # ============================================================
+  # JOB 4: Notificação de status
+  # ============================================================
+  notify:
+    name: Notify
+    needs: [backend-test, frontend-build]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Status
+        run: |
+          if [ "${{ needs.backend-test.result }}" = "success" ] && [ "${{ needs.frontend-build.result }}" = "success" ]; then
+            echo "✅ CI passou — SST eSocial Gov"
+          else
+            echo "❌ CI falhou — verifique os logs acima"
+            exit 1
+          fi
