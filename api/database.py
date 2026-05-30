@@ -9,7 +9,6 @@ from sqlalchemy import text
 from api.config import settings
 
 
-# Engine assíncrona
 engine = create_async_engine(
     settings.get_database_url(),
     echo=settings.app_env == "development",
@@ -26,19 +25,14 @@ AsyncSessionLocal = async_sessionmaker(
 
 
 class Base(DeclarativeBase):
-    """Base para todos os modelos ORM do projeto SST."""
     pass
 
 
 async def get_db() -> AsyncSession:
-    """Dependency injection: fornece sessão AsyncSQL para os endpoints."""
     async with AsyncSessionLocal() as session:
         yield session
 
 
 async def set_tenant(session: AsyncSession, empresa_id: str) -> None:
-    """Define o contexto do tenant (RLS) na sessão PostgreSQL."""
-    await session.execute(
-        text("SET LOCAL app.current_tenant_id = :tenant_id"),
-        {"tenant_id": str(empresa_id)},
-    )
+    tenant_id = str(empresa_id)
+    await session.execute(text(f"SET LOCAL app.current_tenant_id = '{tenant_id}'"))

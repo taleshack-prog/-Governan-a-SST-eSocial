@@ -46,7 +46,7 @@ export const authApi = {
 };
 
 export const documentosApi = {
-  listar: (tipo?: string) => apiClient.get("/documentos", { params: { tipo } }),
+  listar: (tipo?: string) => apiClient.get("/documentos/", { params: { tipo } }),
   obter: (id: string) => apiClient.get(`/documentos/${id}`),
   upload: (formData: FormData) =>
     apiClient.post("/documentos/upload", formData, {
@@ -56,32 +56,32 @@ export const documentosApi = {
 };
 
 export const trabalhadoresApi = {
-  listar: () => apiClient.get("/trabalhadores"),
+  listar: () => apiClient.get("/trabalhadores/"),
   obter: (id: string) => apiClient.get(`/trabalhadores/${id}`),
   criar: (data: object) => apiClient.post("/trabalhadores", data),
 };
 
 export const agentesApi = {
-  listar: () => apiClient.get("/agentes"),
+  listar: () => apiClient.get("/agentes/"),
   criar: (data: object) => apiClient.post("/agentes", data),
 };
 
 export const examesApi = {
-  listar: () => apiClient.get("/exames"),
+  listar: () => apiClient.get("/exames/"),
   criar: (data: object) => apiClient.post("/exames", data),
 };
 
 export const catApi = {
-  listar: () => apiClient.get("/cat"),
+  listar: () => apiClient.get("/cat/"),
   registrar: (data: object) => apiClient.post("/cat", data),
 };
 
 export const validacoesApi = {
-  listar: () => apiClient.get("/validacoes"),
+  listar: () => apiClient.get("/validacoes/"),
   obter: (id: string) => apiClient.get(`/validacoes/${id}`),
   feedback: (id: string, data: object) => apiClient.post(`/validacoes/${id}/feedback`, data),
 };
 
 export const auditoriaApi = {
-  listar: (tabela?: string) => apiClient.get("/auditoria", { params: { tabela } }),
+  listar: (tabela?: string) => apiClient.get("/auditoria/", { params: { tabela } }),
 };
