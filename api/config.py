@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     embedding_dimension: int = 384
 
     # CORS
-    cors_origins: List[str] = ["http://localhost:3001", "http://localhost:3000"]
+    cors_origins: List[str] = ["http://localhost:3004", "http://localhost:3003", "http://localhost:3000", "http://localhost:8003"]
 
     # Logs
     log_level: str = "INFO"

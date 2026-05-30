@@ -107,7 +107,7 @@ services:
     ports:
       - "3004:3000"
     environment:
-      VITE_API_URL: http://localhost:8001
+      VITE_API_URL: http://localhost:8003
     depends_on:
       - api
 
