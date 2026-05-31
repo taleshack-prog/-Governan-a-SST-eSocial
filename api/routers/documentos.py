@@ -62,6 +62,10 @@ async def upload_documento(
     contents = await file.read()
     content_hash = hashlib.sha256(contents).hexdigest()
 
+    # Extrair texto do PDF/DOCX
+    from api.services.pdf_extractor import extrair_texto
+    texto_extraido = extrair_texto(contents, file.filename or "documento.pdf")
+
     doc = DocumentoTecnico(
         empresa_id=current_user.empresa_id,
         tipo=tipo,
@@ -69,10 +73,11 @@ async def upload_documento(
         data_emissao=date.fromisoformat(data_emissao),
         responsavel_tecnico_nome=responsavel_nome,
         responsavel_tecnico_registro=responsavel_registro,
-        status="rascunho",
+        status="ativo",
         content_hash=content_hash,
         storage_path=f"uploads/{tipo}/{file.filename}",
         created_by=current_user.id,
+        metadata_doc={"texto_extraido": texto_extraido[:50000], "paginas": texto_extraido.count("\x0c") + 1},
     )
     db.add(doc)
     await db.commit()
@@ -140,7 +145,12 @@ async def solicitar_validacao(
         sys.path.insert(0, "/app")
         from ai_layer.pipeline import SSTAIPipeline
         pipeline = SSTAIPipeline()
-        texto = f"Documento: {doc.titulo}\nTipo: {doc.tipo}\nResponsável: {doc.responsavel_tecnico_nome}\nEmpresa: empresa_id={doc.empresa_id}"
+        # Usar texto extraído do PDF se disponível
+        texto_pdf = doc.metadata_doc.get("texto_extraido", "") if doc.metadata_doc else ""
+        if texto_pdf and len(texto_pdf) > 100:
+            texto = texto_pdf
+        else:
+            texto = f"Documento: {doc.titulo}\nTipo: {doc.tipo}\nResponsável: {doc.responsavel_tecnico_nome}\nEmpresa: empresa_id={doc.empresa_id}"
         pipe_result = await pipeline.run(str(doc_id), str(current_user.empresa_id), texto, doc.tipo)
 
         val.status = "concluido"

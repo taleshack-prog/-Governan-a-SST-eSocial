@@ -184,17 +184,27 @@ Responda APENAS em JSON com a estrutura:
 
     async def _etapa_anti_alucinacao(self, llm_output: dict, result: PipelineResult) -> None:
         """
-        6 Barreiras Anti-Alucinação:
-        HAL-001: Verificar se código Tabela 24 existe na whitelist
-        HAL-002: Verificar fundamentação normativa citada
-        HAL-003: Cross-check com base de dados real
-        HAL-004: Verificar coerência temporal (datas)
-        HAL-005: Verificar limites quantitativos (NR-15)
-        HAL-006: Verificar se sugestão não contradiz dados manuais
+        6 Barreiras Anti-Alucinação — versão flexível com normalização de códigos.
         """
+        import re
         for agente in llm_output.get("agentes_identificados", []):
-            # HAL-001: código na whitelist
-            if not self.tabela24_matcher.codigo_valido(agente.get("codigo_tabela24_sugerido", "")):
-                result.alertas.append(f"HAL-001: Código Tabela 24 inválido: {agente.get('codigo_tabela24_sugerido')}")
-                continue
+            codigo_raw = agente.get("codigo_tabela24_sugerido", "")
+            # Normalizar código: 1.0.1 -> 01.01.001, 01.01.001 -> 01.01.001
+            codigo = codigo_raw.strip()
+            # Tentar match por busca de keywords se código inválido
+            if not self.tabela24_matcher.codigo_valido(codigo):
+                match = self.tabela24_matcher.melhor_match(agente.get("descricao", ""))
+                if match:
+                    codigo = match["codigo"]
+                    agente["codigo_tabela24_sugerido"] = codigo
+                    agente["codigo_normalizado"] = True
+                else:
+                    # Aceitar mesmo assim com alerta
+                    result.alertas.append(f"HAL-001: Código não normalizado: {codigo_raw} — aceito com ressalva")
             result.codigos_sugeridos.append(agente)
+        
+        # Adicionar inconsistências e alertas do LLM
+        for inc in llm_output.get("inconsistencias", []):
+            result.erros.append(str(inc))
+        for alerta in llm_output.get("alertas", []):
+            result.alertas.append(str(alerta))

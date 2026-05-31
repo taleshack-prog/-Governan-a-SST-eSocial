@@ -55,3 +55,4 @@ uploads/
 *.key
 *.crt
 secrets/
+seeds/*.pdf

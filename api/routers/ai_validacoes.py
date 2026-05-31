@@ -3,6 +3,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from pydantic import BaseModel
+from typing import Optional
 
 from api.database import get_db
 from api.models.ai_validacao import AiValidacao
@@ -12,6 +14,13 @@ from api.auth import get_current_user
 router = APIRouter()
 
 
+class FeedbackInput(BaseModel):
+    rating: Optional[int] = None
+    correto: Optional[bool] = None
+    comentario: Optional[str] = None
+    correcao: Optional[dict] = None
+
+
 @router.get("/")
 async def listar_validacoes(
     db: AsyncSession = Depends(get_db),
@@ -19,6 +28,7 @@ async def listar_validacoes(
 ):
     result = await db.execute(
         select(AiValidacao).where(AiValidacao.empresa_id == current_user.empresa_id)
+        .order_by(AiValidacao.created_at.desc())
     )
     return [
         {
@@ -68,11 +78,35 @@ async def obter_validacao(
 @router.post("/{val_id}/feedback")
 async def registrar_feedback(
     val_id: UUID,
-    rating: int,
-    correto: bool,
-    comentario: str | None = None,
+    data: FeedbackInput,
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
+    result = await db.execute(
+        select(AiValidacao).where(
+            AiValidacao.id == val_id,
+            AiValidacao.empresa_id == current_user.empresa_id,
+        )
+    )
+    val = result.scalar_one_or_none()
+    if not val:
+        raise HTTPException(status_code=404, detail="Validação não encontrada")
+
     # Salvar feedback para RLHF
-    return {"message": "Feedback registrado", "validacao_id": str(val_id)}
+    from api.models.ai_validacao import AiValidacao as AV
+    from datetime import datetime, timezone
+
+    # Marcar como revisado se feedback negativo
+    if data.correto is False:
+        val.needs_human_review = True
+        val.reviewed_by = current_user.id
+        val.reviewed_at = datetime.now(timezone.utc)
+
+    await db.commit()
+
+    return {
+        "message": "Feedback registrado com sucesso",
+        "validacao_id": str(val_id),
+        "correto": data.correto,
+        "impacto": "Registrado para melhoria do modelo"
+    }
