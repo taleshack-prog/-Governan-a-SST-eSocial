@@ -14,6 +14,7 @@ import { ExamesMedicos } from "./pages/ExamesMedicos";
 import { Cat } from "./pages/Cat";
 import { ValidacoesIA } from "./pages/ValidacoesIA";
 import { Auditoria } from "./pages/Auditoria";
+import Afastamentos from "./pages/Afastamentos";
 
 export const router = createBrowserRouter([
   {
@@ -30,6 +31,7 @@ export const router = createBrowserRouter([
       { path: "trabalhadores",  element: <Trabalhadores /> },
       { path: "agentes",        element: <AgentesNocivos /> },
       { path: "exames",         element: <ExamesMedicos /> },
+      { path: "afastamentos",   element: <Afastamentos /> },
       { path: "cat",            element: <Cat /> },
       { path: "validacoes",     element: <ValidacoesIA /> },
       { path: "auditoria",      element: <Auditoria /> },

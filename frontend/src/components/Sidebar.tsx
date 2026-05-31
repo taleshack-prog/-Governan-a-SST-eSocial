@@ -7,7 +7,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, FileText, Users, ShieldAlert,
   Stethoscope, AlertOctagon, Brain, ScrollText,
-  LogOut, ChevronRight, Activity,
+  LogOut, ChevronRight, Activity, HeartPulse,
 } from "lucide-react";
 import { useAuthStore } from "../store/authStore";
 
@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { path: "/trabalhadores",label: "Trabalhadores",   icon: Users },
   { path: "/agentes",      label: "Agentes Nocivos", icon: ShieldAlert },
   { path: "/exames",       label: "Exames Médicos",  icon: Stethoscope },
+  { path: "/afastamentos", label: "Afastamentos",    icon: HeartPulse },
   { path: "/cat",          label: "CAT",             icon: AlertOctagon },
   { path: "/validacoes",   label: "Validações IA",   icon: Brain },
   { path: "/auditoria",    label: "Auditoria",       icon: ScrollText },

@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
 from api.config import settings
+from api.routers.afastamentos import router as afastamentos_router
 from api.routers import (
     auth, empresas, trabalhadores, documentos,
     agentes_nocivos, exames_medicos, cat, ai_validacoes, auditoria
@@ -55,6 +56,7 @@ app.include_router(agentes_nocivos.router,  prefix=f"{API_PREFIX}/agentes",     
 app.include_router(exames_medicos.router,   prefix=f"{API_PREFIX}/exames",      tags=["Exames Médicos"])
 app.include_router(cat.router,              prefix=f"{API_PREFIX}/cat",         tags=["CAT"])
 app.include_router(ai_validacoes.router,    prefix=f"{API_PREFIX}/validacoes",  tags=["IA Validações"])
+app.include_router(afastamentos_router,     prefix=f"{API_PREFIX}/afastamentos", tags=["Afastamentos"])
 app.include_router(auditoria.router,        prefix=f"{API_PREFIX}/auditoria",   tags=["Auditoria"])
 
 
