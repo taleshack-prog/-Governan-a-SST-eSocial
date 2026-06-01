@@ -8,6 +8,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "../api/client";
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
+  // Fluxo interno empresa
   recebido:               { label: "Recebido",               color: "bg-blue-100 text-blue-800" },
   em_analise:             { label: "Em Análise",             color: "bg-yellow-100 text-yellow-800" },
   pendente:               { label: "Pendente",               color: "bg-orange-100 text-orange-800" },
@@ -15,7 +16,12 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   retorno_proximo:        { label: "Retorno Próximo",        color: "bg-teal-100 text-teal-800" },
   aguardando_confirmacao: { label: "Aguard. Confirmação",    color: "bg-cyan-100 text-cyan-800" },
   encerrado:              { label: "Encerrado",              color: "bg-gray-100 text-gray-800" },
-  reaberto:               { label: "Reaberto",              color: "bg-red-100 text-red-800" },
+  reaberto:               { label: "Reaberto",               color: "bg-red-100 text-red-800" },
+  // Fluxo previdenciário INSS
+  em_beneficio:           { label: "Em Benefício",           color: "bg-green-100 text-green-800" },
+  em_analise_inss:        { label: "Em Análise INSS",        color: "bg-yellow-100 text-yellow-900" },
+  limbo:                  { label: "Limbo (Via Judicial)",   color: "bg-red-100 text-red-900" },
+  alta_inss:              { label: "Alta INSS",              color: "bg-indigo-100 text-indigo-800" },
 };
 
 const TIPO_LABELS: Record<string, string> = {
@@ -121,7 +127,7 @@ export default function Afastamentos() {
 
       {/* Filtros */}
       <div className="flex gap-2 flex-wrap">
-        {["", "recebido", "em_analise", "pendente", "retorno_proximo", "encerrado"].map((s) => (
+        {["", "recebido", "em_analise", "pendente", "em_beneficio", "em_analise_inss", "alta_inss", "limbo", "retorno_proximo", "encerrado"].map((s) => (
           <button
             key={s}
             onClick={() => setFiltroStatus(s)}
@@ -389,6 +395,39 @@ export default function Afastamentos() {
                   <p className="text-xs font-bold text-red-700">⚠️ Afastamento superior a 15 dias</p>
                   <p className="text-xs text-red-600 mt-1">
                     A partir do 16º dia, o ônus passa para o INSS. Verifique se o benefício foi requerido.
+                  </p>
+                </div>
+              )}
+
+              {/* Alerta Limbo */}
+              {detalhe.status === "limbo" && (
+                <div className="bg-red-50 border-2 border-red-500 rounded-lg p-3">
+                  <p className="text-xs font-bold text-red-800">🚨 LIMBO — Via Judicial</p>
+                  <p className="text-xs text-red-700 mt-1">
+                    INSS negou o benefício. Trabalhador sem renda e sem poder trabalhar.
+                    Acionar advogado previdenciário imediatamente. Prazo recurso: 30 dias.
+                  </p>
+                </div>
+              )}
+
+              {/* Alerta Alta INSS */}
+              {detalhe.status === "alta_inss" && (
+                <div className="bg-indigo-50 border border-indigo-300 rounded-lg p-3">
+                  <p className="text-xs font-bold text-indigo-800">🏥 Alta do INSS — Retorno Pendente</p>
+                  <p className="text-xs text-indigo-700 mt-1">
+                    INSS concedeu alta. Trabalhador deve passar por avaliação do médico do trabalho
+                    antes de retornar às atividades. Agendar consulta com urgência.
+                  </p>
+                </div>
+              )}
+
+              {/* Alerta Em Benefício */}
+              {detalhe.status === "em_beneficio" && (
+                <div className="bg-green-50 border border-green-300 rounded-lg p-3">
+                  <p className="text-xs font-bold text-green-800">✅ Benefício INSS Ativo</p>
+                  <p className="text-xs text-green-700 mt-1">
+                    Trabalhador recebendo auxílio-doença. Monitorar data de vencimento
+                    e acompanhar possibilidade de prorrogação (15 dias antes do vencimento).
                   </p>
                 </div>
               )}
