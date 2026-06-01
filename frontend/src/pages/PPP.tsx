@@ -19,6 +19,31 @@ export default function PPP() {
   const [selecionado, setSelecionado] = useState<string | null>(null);
   const [validando, setValidando] = useState(false);
   const [resultadoIA, setResultadoIA] = useState<any>(null);
+  const [baixando, setBaixando] = useState(false);
+
+  const baixarPDF = async (trabId: string, nome: string) => {
+    setBaixando(true);
+    try {
+      const token = localStorage.getItem("sst_access_token") || "";
+      const resp = await fetch(`http://localhost:8003/api/ppp/${trabId}/pdf`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!resp.ok) throw new Error("Erro na API");
+      const blob = new Blob([await resp.arrayBuffer()], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `PPP_${nome.replace(/ /g, "_")}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch (e) {
+      alert("Erro ao gerar PDF");
+    } finally {
+      setBaixando(false);
+    }
+  };
 
   const { data: ppps = [], isLoading } = useQuery({
     queryKey: ["ppps"],
@@ -141,6 +166,13 @@ export default function PPP() {
                       className="bg-purple-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-purple-700 disabled:opacity-50"
                     >
                       {validando ? "⏳ Validando..." : "🤖 Validar com IA"}
+                    </button>
+                    <button
+                      onClick={() => baixarPDF(selecionado, pppDetalhe?.trabalhador?.nome || "PPP")}
+                      disabled={baixando}
+                      className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-green-700 disabled:opacity-50"
+                    >
+                      {baixando ? "⏳ Gerando..." : "📥 Baixar PDF"}
                     </button>
                   </div>
                 </div>

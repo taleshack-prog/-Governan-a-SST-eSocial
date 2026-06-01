@@ -18,6 +18,7 @@ from api.models.agente_nocivo import AgenteNocivo
 from api.models.documento import DocumentoTecnico
 from api.models.usuario import Usuario
 from api.auth import get_current_user
+from fastapi.responses import Response
 
 router = APIRouter()
 
@@ -298,3 +299,25 @@ Retorne APENAS JSON:
         "score_conformidade": completude.get("percentual", 0) / 100,
         "completude": completude,
     }
+
+
+@router.get("/{trabalhador_id}/pdf")
+async def exportar_ppp_pdf(
+    trabalhador_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Exporta o PPP em PDF conforme modelo INSS."""
+    from api.services.ppp_pdf import gerar_ppp_pdf
+
+    ppp = await obter_ppp(trabalhador_id, db, current_user)
+    pdf_bytes = gerar_ppp_pdf(ppp)
+
+    nome = ppp.get("trabalhador", {}).get("nome", "trabalhador").replace(" ", "_")
+    filename = f"PPP_{nome}_{date.today().strftime('%Y%m%d')}.pdf"
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
