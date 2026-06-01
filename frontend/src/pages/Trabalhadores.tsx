@@ -7,8 +7,6 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "../api/client";
 
-const SEXO = { M: "Masculino", F: "Feminino" };
-
 const GES_OPCOES = [
   "GES1001 - Administração - Administrativo",
   "GES1002 - Administrativo - Acesso Produção",
@@ -41,6 +39,143 @@ const FORM_VAZIO = {
   cargo: "", setor: "", matricula: "",
   data_admissao: "", data_nascimento: "", ges: "",
 };
+
+// Modal como componente EXTERNO para evitar bug de re-render
+interface ModalProps {
+  editando: any;
+  form: any;
+  setForm: (f: any) => void;
+  onSalvar: () => void;
+  onFechar: () => void;
+  isPending: boolean;
+}
+
+function TrabalhadorModal({ editando, form, setForm, onSalvar, onFechar, isPending }: ModalProps) {
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
+        <h2 className="text-lg font-bold text-gray-900 mb-4">
+          {editando ? `Editar — ${editando.nome}` : "Novo Trabalhador"}
+        </h2>
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs font-medium text-gray-600">Nome completo *</label>
+            <input
+              type="text"
+              className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              value={form.nome}
+              onChange={e => setForm({ ...form, nome: e.target.value })}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-gray-600">CPF *</label>
+              <input
+                type="text"
+                placeholder="00000000000"
+                className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                value={form.cpf}
+                onChange={e => setForm({ ...form, cpf: e.target.value.replace(/\D/g, "") })}
+                maxLength={11}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-600">Sexo</label>
+              <select
+                className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                value={form.sexo}
+                onChange={e => setForm({ ...form, sexo: e.target.value })}
+              >
+                <option value="M">Masculino</option>
+                <option value="F">Feminino</option>
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-gray-600">Cargo *</label>
+              <input
+                type="text"
+                placeholder="Ex: Operador de Prensa"
+                className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                value={form.cargo}
+                onChange={e => setForm({ ...form, cargo: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-600">Matrícula</label>
+              <input
+                type="text"
+                className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                value={form.matricula}
+                onChange={e => setForm({ ...form, matricula: e.target.value })}
+              />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-600">Grupo de Exposição Similar (GES) *</label>
+            <select
+              className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              value={form.setor}
+              onChange={e => {
+                const ges = e.target.value.split(" - ")[0];
+                setForm({ ...form, setor: e.target.value, ges });
+              }}
+            >
+              <option value="">Selecione o GES...</option>
+              {GES_OPCOES.map(g => <option key={g} value={g}>{g}</option>)}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-gray-600">Data de Admissão *</label>
+              <input
+                type="date"
+                className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                value={form.data_admissao}
+                onChange={e => setForm({ ...form, data_admissao: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-600">Data de Nascimento</label>
+              <input
+                type="date"
+                className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                value={form.data_nascimento}
+                onChange={e => setForm({ ...form, data_nascimento: e.target.value })}
+              />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-600">PIS/PASEP</label>
+            <input
+              type="text"
+              className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              value={form.pis_pasep}
+              onChange={e => setForm({ ...form, pis_pasep: e.target.value.replace(/\D/g, "") })}
+              maxLength={11}
+            />
+          </div>
+        </div>
+        <div className="flex gap-3 mt-5">
+          <button
+            onClick={onFechar}
+            className="flex-1 border border-gray-300 text-gray-700 rounded-lg py-2 text-sm hover:bg-gray-50"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={onSalvar}
+            disabled={!form.nome || !form.cpf || isPending}
+            className="flex-1 bg-blue-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+          >
+            {isPending ? "Salvando..." : editando ? "Salvar Alterações" : "Cadastrar"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function Trabalhadores() {
   const qc = useQueryClient();
@@ -98,98 +233,11 @@ export function Trabalhadores() {
     }
   };
 
-  const Modal = () => (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
-        <h2 className="text-lg font-bold text-gray-900 mb-4">
-          {editando ? `Editar — ${editando.nome}` : "Novo Trabalhador"}
-        </h2>
-        <div className="space-y-3">
-          {/* Nome e CPF */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2">
-              <label className="text-xs font-medium text-gray-600">Nome completo *</label>
-              <input type="text" className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                value={form.nome} onChange={e => setForm({ ...form, nome: e.target.value })} />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-600">CPF *</label>
-              <input type="text" placeholder="00000000000" className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                value={form.cpf} onChange={e => setForm({ ...form, cpf: e.target.value.replace(/\D/g, "") })} maxLength={11} />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-600">Sexo</label>
-              <select className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                value={form.sexo} onChange={e => setForm({ ...form, sexo: e.target.value })}>
-                <option value="M">Masculino</option>
-                <option value="F">Feminino</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Cargo e Matrícula */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-gray-600">Cargo *</label>
-              <input type="text" placeholder="Ex: Operador de Prensa" className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                value={form.cargo} onChange={e => setForm({ ...form, cargo: e.target.value })} />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-600">Matrícula</label>
-              <input type="text" className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                value={form.matricula} onChange={e => setForm({ ...form, matricula: e.target.value })} />
-            </div>
-          </div>
-
-          {/* GES/Setor */}
-          <div>
-            <label className="text-xs font-medium text-gray-600">Grupo de Exposição Similar (GES) *</label>
-            <select className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
-              value={form.setor} onChange={e => {
-                const ges = e.target.value.split(" - ")[0];
-                setForm({ ...form, setor: e.target.value, ges });
-              }}>
-              <option value="">Selecione o GES...</option>
-              {GES_OPCOES.map(g => <option key={g} value={g}>{g}</option>)}
-            </select>
-          </div>
-
-          {/* Datas */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-gray-600">Data de Admissão *</label>
-              <input type="date" className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                value={form.data_admissao} onChange={e => setForm({ ...form, data_admissao: e.target.value })} />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-600">Data de Nascimento</label>
-              <input type="date" className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                value={form.data_nascimento} onChange={e => setForm({ ...form, data_nascimento: e.target.value })} />
-            </div>
-          </div>
-
-          {/* PIS */}
-          <div>
-            <label className="text-xs font-medium text-gray-600">PIS/PASEP</label>
-            <input type="text" className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
-              value={form.pis_pasep} onChange={e => setForm({ ...form, pis_pasep: e.target.value.replace(/\D/g, "") })} maxLength={11} />
-          </div>
-        </div>
-
-        <div className="flex gap-3 mt-5">
-          <button onClick={() => { setShowModal(false); setEditando(null); setForm(FORM_VAZIO); }}
-            className="flex-1 border border-gray-300 text-gray-700 rounded-lg py-2 text-sm hover:bg-gray-50">
-            Cancelar
-          </button>
-          <button onClick={salvar}
-            disabled={!form.nome || !form.cpf || criar.isPending || atualizar.isPending}
-            className="flex-1 bg-blue-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
-            {criar.isPending || atualizar.isPending ? "Salvando..." : editando ? "Salvar Alterações" : "Cadastrar"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+  const fechar = () => {
+    setShowModal(false);
+    setEditando(null);
+    setForm(FORM_VAZIO);
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -198,8 +246,10 @@ export function Trabalhadores() {
           <h1 className="text-2xl font-bold text-gray-900">Trabalhadores</h1>
           <p className="text-sm text-gray-500 mt-1">Cadastro e gestão dos trabalhadores vinculados à empresa</p>
         </div>
-        <button onClick={() => { setShowModal(true); setEditando(null); setForm(FORM_VAZIO); }}
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">
+        <button
+          onClick={() => { setShowModal(true); setEditando(null); setForm(FORM_VAZIO); }}
+          className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700"
+        >
           + Novo Trabalhador
         </button>
       </div>
@@ -226,10 +276,12 @@ export function Trabalhadores() {
                   <td className="px-4 py-3 text-gray-600">{t.cargo || <span className="text-red-400 text-xs">Não informado</span>}</td>
                   <td className="px-4 py-3 text-gray-600 text-xs">{t.setor ? t.setor.split(" - ")[0] : <span className="text-red-400">Não informado</span>}</td>
                   <td className="px-4 py-3 text-gray-600">{t.data_admissao || "—"}</td>
-                  <td className="px-4 py-3 text-gray-600">{t.sexo === "M" ? "M" : t.sexo === "F" ? "F" : "—"}</td>
+                  <td className="px-4 py-3 text-gray-600">{t.sexo || "—"}</td>
                   <td className="px-4 py-3">
-                    <button onClick={() => abrirEdicao(t)}
-                      className="text-blue-600 hover:text-blue-800 text-xs font-medium">
+                    <button
+                      onClick={() => abrirEdicao(t)}
+                      className="text-blue-600 hover:text-blue-800 text-xs font-medium"
+                    >
                       Editar
                     </button>
                   </td>
@@ -240,7 +292,16 @@ export function Trabalhadores() {
         )}
       </div>
 
-      {(showModal || editando) && <Modal />}
+      {(showModal || editando) && (
+        <TrabalhadorModal
+          editando={editando}
+          form={form}
+          setForm={setForm}
+          onSalvar={salvar}
+          onFechar={fechar}
+          isPending={criar.isPending || atualizar.isPending}
+        />
+      )}
     </div>
   );
 }
