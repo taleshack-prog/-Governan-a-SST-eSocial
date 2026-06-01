@@ -17,6 +17,11 @@ class Trabalhador(Base):
     data_nascimento: Mapped[date | None] = mapped_column(Date)
     sexo: Mapped[str | None] = mapped_column(String(1))
     pis_pasep: Mapped[str | None] = mapped_column(String(11))
+    cargo: Mapped[str | None] = mapped_column(String(200))
+    setor: Mapped[str | None] = mapped_column(String(200))
+    matricula: Mapped[str | None] = mapped_column(String(50))
+    data_admissao: Mapped[date | None] = mapped_column(Date)
+    ges: Mapped[str | None] = mapped_column(String(20))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 

@@ -12,6 +12,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from api.config import settings
 from api.routers.afastamentos import router as afastamentos_router
 from api.routers.radar import router as radar_router
+from api.routers.ppp import router as ppp_router
 from api.routers.atestados import router as atestados_router
 from api.routers import (
     auth, empresas, trabalhadores, documentos,
@@ -60,6 +61,7 @@ app.include_router(cat.router,              prefix=f"{API_PREFIX}/cat",         
 app.include_router(ai_validacoes.router,    prefix=f"{API_PREFIX}/validacoes",  tags=["IA Validações"])
 app.include_router(afastamentos_router,     prefix=f"{API_PREFIX}/afastamentos", tags=["Afastamentos"])
 app.include_router(radar_router,           prefix=f"{API_PREFIX}/radar", tags=["Radar Previdenciário"])
+app.include_router(ppp_router,             prefix=f"{API_PREFIX}/ppp", tags=["PPP Digital"])
 app.include_router(atestados_router,      prefix=f"{API_PREFIX}/afastamentos", tags=["Atestados"])
 app.include_router(auditoria.router,        prefix=f"{API_PREFIX}/auditoria",   tags=["Auditoria"])
 

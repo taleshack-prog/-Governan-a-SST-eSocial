@@ -16,6 +16,7 @@ import { ValidacoesIA } from "./pages/ValidacoesIA";
 import { Auditoria } from "./pages/Auditoria";
 import Afastamentos from "./pages/Afastamentos";
 import Radar from "./pages/Radar";
+import PPP from "./pages/PPP";
 
 export const router = createBrowserRouter([
   {
@@ -34,6 +35,7 @@ export const router = createBrowserRouter([
       { path: "exames",         element: <ExamesMedicos /> },
       { path: "afastamentos",   element: <Afastamentos /> },
       { path: "radar",           element: <Radar /> },
+      { path: "ppp",             element: <PPP /> },
       { path: "cat",            element: <Cat /> },
       { path: "validacoes",     element: <ValidacoesIA /> },
       { path: "auditoria",      element: <Auditoria /> },
