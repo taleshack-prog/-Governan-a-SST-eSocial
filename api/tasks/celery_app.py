@@ -6,8 +6,19 @@ app = Celery(
     "sst_esocial",
     broker=settings.celery_broker_url,
     backend=settings.celery_result_backend,
-    include=["api.tasks.ai_tasks"],
+    include=["api.tasks.ai_tasks", "api.tasks.afastamento_tasks"],
 )
+
+app.conf.beat_schedule = {
+    "verificar-alertas-afastamentos": {
+        "task": "afastamentos.verificar_alertas",
+        "schedule": 86400.0,  # a cada 24 horas
+    },
+    "atualizar-status-afastamentos": {
+        "task": "afastamentos.atualizar_status_automatico",
+        "schedule": 3600.0,  # a cada 1 hora
+    },
+}
 
 app.conf.update(
     task_serializer="json",

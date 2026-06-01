@@ -107,3 +107,19 @@ class AfastamentoNotificacao(Base):
     enviada: Mapped[bool] = mapped_column(Boolean, default=False)
     enviada_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class AlertaAfastamento(Base):
+    """Alertas automáticos gerados pelo sistema para afastamentos."""
+    __tablename__ = "alertas_afastamento"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    empresa_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("empresas.id"), nullable=False)
+    afastamento_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("afastamentos.id"), nullable=False)
+    trabalhador_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("trabalhadores.id"), nullable=False)
+    tipo: Mapped[str] = mapped_column(String(50), nullable=False)
+    mensagem: Mapped[str] = mapped_column(Text, nullable=False)
+    prioridade: Mapped[str] = mapped_column(String(20), default="media")
+    lido: Mapped[bool] = mapped_column(Boolean, default=False)
+    resolvido: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
