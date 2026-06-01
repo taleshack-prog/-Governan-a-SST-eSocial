@@ -12,6 +12,8 @@ import {
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
 } from "recharts";
 import { useDocumentos, useTrabalhadores, useAgentesNocivos, useValidacoes } from "../hooks/useQueries";
+import { useQuery } from "@tanstack/react-query";
+import { apiClient } from "../api/client";
 import { StatCard, Card, SectionTitle, Spinner, GradeBadge, StatusBadge } from "../components/ui";
 import { useAuthStore } from "../store/authStore";
 
@@ -20,6 +22,11 @@ const GRADE_COLORS: Record<string, string> = {
 };
 
 export function Dashboard() {
+  const { data: alertas = [] } = useQuery({
+    queryKey: ["alertas"],
+    queryFn: () => apiClient.get("/alertas/").then(r => r.data),
+    refetchInterval: 60000, // atualiza a cada 1 minuto
+  });
   const { user } = useAuthStore();
   const { data: documentos = [], isLoading: loadDocs } = useDocumentos();
   const { data: trabalhadores = [], isLoading: loadTrab } = useTrabalhadores();
@@ -47,8 +54,10 @@ export function Dashboard() {
   }, {});
   const gradePieData = Object.entries(gradeContagem).map(([name, value]) => ({ name, value }));
 
+  const alertasCriticos = alertas.filter((a: any) => a.prioridade === "critica" || a.prioridade === "alta");
+
   if (isLoading) {
-    return (
+  return (
       <div className="flex items-center justify-center h-64">
         <Spinner size={32} />
       </div>
@@ -89,6 +98,25 @@ export function Dashboard() {
               </p>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Alertas Automáticos */}
+      {alertasCriticos.length > 0 && (
+        <div className="bg-white rounded-xl border border-red-200 p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <span className="text-lg">🚨</span>
+            <h3 className="text-sm font-bold text-gray-800">Alertas Previdenciários</h3>
+            <span className="bg-red-100 text-red-700 text-xs font-bold px-2 py-0.5 rounded-full">{alertasCriticos.length}</span>
+          </div>
+          <div className="space-y-2">
+            {alertasCriticos.map((a: any) => (
+              <div key={a.id} className={`rounded-lg p-3 border-l-4 ${a.cor === "red" ? "bg-red-50 border-red-500" : "bg-orange-50 border-orange-400"}`}>
+                <p className="text-xs font-medium text-gray-800">{a.mensagem}</p>
+                <p className="text-xs text-gray-400 mt-1">{new Date(a.created_at).toLocaleString("pt-BR")}</p>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
