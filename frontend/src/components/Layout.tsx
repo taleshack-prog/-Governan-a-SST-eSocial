@@ -1,5 +1,5 @@
 // ==============================================================
-// SST ESOCIAL GOV — Layout Principal
+// RADAR PREVIDENCIÁRIO — Layout Principal
 // Arquivo: frontend/src/components/Layout.tsx
 // ==============================================================
 

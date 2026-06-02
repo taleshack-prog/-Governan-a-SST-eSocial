@@ -52,8 +52,8 @@ export function Login() {
           <div className="inline-flex items-center gap-3 text-white">
             <Activity size={36} className="text-indigo-400" />
             <div className="text-left">
-              <p className="text-2xl font-bold">SST eSocial Gov</p>
-              <p className="text-sm text-indigo-300">Governança SST com Inteligência Artificial</p>
+              <p className="text-2xl font-bold">Radar Previdenciário</p>
+              <p className="text-sm text-indigo-300">Inteligência Previdenciária com IA</p>
             </div>
           </div>
         </div>

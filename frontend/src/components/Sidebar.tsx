@@ -1,5 +1,5 @@
 // ==============================================================
-// SST ESOCIAL GOV — Sidebar de Navegação
+// RADAR PREVIDENCIÁRIO — Sidebar de Navegação
 // Arquivo: frontend/src/components/Sidebar.tsx
 // ==============================================================
 
@@ -41,8 +41,8 @@ export function Sidebar() {
         <div className="flex items-center gap-2">
           <Activity size={22} className="text-indigo-400" />
           <div>
-            <p className="font-bold text-sm leading-tight">SST eSocial Gov</p>
-            <p className="text-xs text-gray-400">Governança SST com IA</p>
+            <p className="font-bold text-sm leading-tight">Radar Previdenciário</p>
+            <p className="text-xs text-gray-400">Inteligência Previdenciária com IA</p>
           </div>
         </div>
       </div>

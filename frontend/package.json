@@ -1,7 +1,7 @@
 {
-  "name": "sst-esocial-gov-frontend",
+  "name": "radar-previdenciario-frontend",
   "version": "1.0.0",
-  "description": "SST eSocial Gov — Frontend React 18",
+  "description": "Radar Previdenciário — Frontend React 18",
   "private": true,
   "type": "module",
   "scripts": {
