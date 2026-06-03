@@ -1,9 +1,12 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { Home, Plus, MessageCircle, FolderOpen, User } from "lucide-react";
 import MeuAfastamento from "./pages/MeuAfastamento";
+import Mensagens from "./pages/Mensagens";
+import Documentos from "./pages/Documentos";
+import Perfil from "./pages/Perfil";
 
 // BYPASS TOTAL — token injetado diretamente
-const BYPASS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2ZTM1N2EwMS02NDY3LTQzMGItOGIxOS01MzJjMTcxZWU2NTciLCJ0aXBvIjoiZnVuY2lvbmFyaW8iLCJlbXByZXNhX2lkIjoiNGU1ZDkzYWEtZmUzOC00ZWNhLWJkOWYtOGVmYjNmMjYwMTJhIiwidHJhYmFsaGFkb3JfaWQiOiI3M2MwYzE1Ni0wYTE4LTRmMjgtYjE5NS02ODMyYjQzOWFlYTIiLCJleHAiOjE3ODA0MzY2NzV9.dpfxRRp14oJm0AohQevlODpqLfWWoVwgh9uRofWnE-c";
+const BYPASS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2ZTM1N2EwMS02NDY3LTQzMGItOGIxOS01MzJjMTcxZWU2NTciLCJ0aXBvIjoiZnVuY2lvbmFyaW8iLCJlbXByZXNhX2lkIjoiNGU1ZDkzYWEtZmUzOC00ZWNhLWJkOWYtOGVmYjNmMjYwMTJhIiwidHJhYmFsaGFkb3JfaWQiOiI3M2MwYzE1Ni0wYTE4LTRmMjgtYjE5NS02ODMyYjQzOWFlYTIiLCJleHAiOjE3ODA0OTYyNzh9.Lf_IkXo2E-sfN6XEf392qq28x0p9pAZlAaaOAjLNMek";
 localStorage.setItem("radar_func_token", BYPASS_TOKEN);
 localStorage.setItem("radar_func_user", JSON.stringify({
   nome: "Fabio Da Silva",
@@ -46,9 +49,12 @@ export default function App() {
     <BrowserRouter>
       <NavBar />
       <Routes>
-        <Route path="/" element={<MeuAfastamento />} />
+        <Route path="/"            element={<MeuAfastamento />} />
         <Route path="/afastamento" element={<MeuAfastamento />} />
-        <Route path="*" element={<Navigate to="/" />} />
+        <Route path="/mensagens"   element={<Mensagens />} />
+        <Route path="/documentos"  element={<Documentos />} />
+        <Route path="/perfil"      element={<Perfil />} />
+        <Route path="*"            element={<Navigate to="/" />} />
       </Routes>
     </BrowserRouter>
   );

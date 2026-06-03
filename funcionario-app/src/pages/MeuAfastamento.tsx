@@ -29,7 +29,13 @@ export default function MeuAfastamento() {
 
   const { data: afastamentos = [] } = useQuery({
     queryKey: ["meus-afastamentos"],
-    queryFn: () => api.get("/afastamentos/").then(r => r.data),
+    queryFn: async () => {
+      const token = localStorage.getItem("radar_func_token");
+      const resp = await api.get("/funcionarios/auth/meus-afastamentos", {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      return resp.data;
+    },
   });
 
   const afastamento = afastamentos[0];
@@ -47,8 +53,12 @@ export default function MeuAfastamento() {
     const fd = new FormData();
     fd.append("file", file);
     try {
-      const resp = await api.post(`/afastamentos/${afastamento.id}/atestados/`, fd, {
-        headers: { "Content-Type": "multipart/form-data" }
+      const token = localStorage.getItem("radar_func_token");
+      const resp = await api.post(`/funcionarios/auth/enviar-atestado/${afastamento.id}`, fd, {
+        headers: { 
+          "Content-Type": "multipart/form-data",
+          "Authorization": `Bearer ${token}`
+        }
       });
       setResultadoUpload(resp.data);
       qc.invalidateQueries({ queryKey: ["meus-afastamentos"] });

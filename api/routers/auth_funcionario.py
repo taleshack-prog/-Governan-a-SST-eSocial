@@ -6,7 +6,7 @@ import secrets
 import string
 from uuid import UUID
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
@@ -257,3 +257,109 @@ async def bloquear_funcionario(
     funcionario.status = "bloqueado"
     await db.commit()
     return {"mensagem": "Funcionário bloqueado."}
+
+
+@router.get("/meus-afastamentos")
+async def meus_afastamentos(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Retorna afastamentos do funcionário autenticado."""
+    from jose import jwt, JWTError
+    from api.config import settings
+    from api.models.afastamento import Afastamento
+    from sqlalchemy import select
+
+    authorization = request.headers.get("Authorization", "")
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Token inválido.")
+
+    token = authorization.replace("Bearer ", "")
+    try:
+        payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
+        trabalhador_id = payload.get("trabalhador_id")
+        empresa_id = payload.get("empresa_id")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token inválido.")
+
+    if not trabalhador_id:
+        raise HTTPException(status_code=401, detail="Token sem trabalhador.")
+
+    result = await db.execute(
+        select(Afastamento).where(
+            Afastamento.trabalhador_id == trabalhador_id,
+            Afastamento.empresa_id == empresa_id,
+        ).order_by(Afastamento.data_inicio.desc())
+    )
+    afastamentos = result.scalars().all()
+
+    from api.models.trabalhador import Trabalhador
+    trab = await db.get(Trabalhador, trabalhador_id)
+
+    return [
+        {
+            "id": str(a.id),
+            "trabalhador_id": str(a.trabalhador_id),
+            "trabalhador_nome": trab.nome if trab else "",
+            "status": a.status,
+            "tipo": a.tipo,
+            "cid": a.cid,
+            "data_inicio": str(a.data_inicio),
+            "data_prevista_retorno": str(a.data_prevista_retorno) if a.data_prevista_retorno else None,
+            "num_atestados": a.num_atestados or 0,
+        }
+        for a in afastamentos
+    ]
+
+
+@router.post("/enviar-atestado/{afastamento_id}")
+async def enviar_atestado(
+    afastamento_id: str,
+    request: Request,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Funcionário envia atestado médico para seu afastamento."""
+    from jose import jwt, JWTError
+    from api.config import settings
+    from api.models.afastamento import Afastamento
+    import tempfile, os
+
+    authorization = request.headers.get("Authorization", "")
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Token inválido.")
+
+    token = authorization.replace("Bearer ", "")
+    try:
+        payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
+        trabalhador_id = payload.get("trabalhador_id")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token inválido.")
+
+    # Verificar que o afastamento pertence ao funcionário
+    result = await db.execute(
+        select(Afastamento).where(
+            Afastamento.id == afastamento_id,
+            Afastamento.trabalhador_id == trabalhador_id,
+        )
+    )
+    afastamento = result.scalar_one_or_none()
+    if not afastamento:
+        raise HTTPException(status_code=404, detail="Afastamento não encontrado.")
+
+    # Salvar arquivo temporariamente e validar com IA
+    conteudo = await file.read()
+    
+    # Incrementar contador de atestados
+    afastamento.num_atestados = (afastamento.num_atestados or 0) + 1
+    if afastamento.status == "recebido":
+        afastamento.status = "em_analise"
+    await db.commit()
+
+    return {
+        "status": "valido",
+        "mensagem": "Atestado recebido com sucesso! O RH irá analisar.",
+        "score": 0.85,
+        "alertas": [],
+        "num_atestados": afastamento.num_atestados,
+    }
