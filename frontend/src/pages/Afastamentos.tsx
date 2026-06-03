@@ -25,6 +25,62 @@ const TIPO_LABELS: Record<string, string> = {
   outros:            "Outros",
 };
 
+function AtestadosRecebidos({ afastamentoId }: { afastamentoId: string }) {
+  const qc = useQueryClient();
+  const { data: atestados = [], isLoading } = useQuery({
+    queryKey: ["atestados", afastamentoId],
+    queryFn: () => apiClient.get(`/afastamentos/${afastamentoId}/atestados`).then(r => r.data),
+    enabled: !!afastamentoId,
+    refetchInterval: 5000,
+  });
+
+  if (isLoading) return <p className="text-xs text-gray-400">Carregando atestados...</p>;
+
+  return (
+    <div className="border-t border-gray-100 pt-3 mt-3">
+      <p className="text-xs font-medium text-gray-600 mb-2">📋 Atestados Recebidos ({atestados.length})</p>
+      {atestados.length === 0 ? (
+        <p className="text-xs text-gray-400">Nenhum atestado recebido ainda.</p>
+      ) : (
+        <div className="space-y-2">
+          {atestados.map((a: any) => (
+            <div key={a.id} className="bg-green-50 border border-green-200 rounded-lg p-3 text-xs">
+              <div className="flex justify-between items-center">
+                <p className="font-medium text-green-800">📎 {a.nome_arquivo || "Atestado"}</p>
+                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                  a.status_validacao === "valido" ? "bg-green-100 text-green-700" :
+                  a.status_validacao === "invalido" ? "bg-red-100 text-red-700" :
+                  "bg-yellow-100 text-yellow-700"
+                }`}>
+                  {a.status_validacao === "valido" ? "✅ Válido" :
+                   a.status_validacao === "invalido" ? "❌ Inválido" : "⏳ Pendente"}
+                </span>
+              </div>
+              <p className="text-gray-500 mt-1">
+                Enviado por: {a.enviado_por === "funcionario" ? "Funcionário" : "RH"} • {new Date(a.created_at).toLocaleString("pt-BR")}
+              </p>
+              {a.cid_extraido && <p className="text-gray-600">CID extraído: {a.cid_extraido}</p>}
+              {a.medico_nome && <p className="text-gray-600">Médico: {a.medico_nome}</p>}
+              {a.status_validacao === "pendente" && (
+                <button
+                  onClick={async () => {
+                    try {
+                      await apiClient.post(`/afastamentos/${afastamentoId}/atestados/${a.id}/validar`);
+                      qc.invalidateQueries({ queryKey: ["atestados", afastamentoId] });
+                    } catch {}
+                  }}
+                  className="mt-2 w-full bg-blue-600 text-white rounded-lg py-1.5 text-xs font-medium">
+                  🤖 Validar com IA
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Afastamentos() {
   const qc = useQueryClient();
   const [showModal, setShowModal] = useState(false);
@@ -304,6 +360,9 @@ export default function Afastamentos() {
                   </div>
                 )}
               </div>
+
+              {/* Atestados recebidos */}
+              <AtestadosRecebidos afastamentoId={detalhe.id} />
 
               {detalhe.historico?.length > 0 && (
                 <div>

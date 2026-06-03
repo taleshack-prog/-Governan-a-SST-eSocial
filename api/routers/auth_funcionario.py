@@ -347,10 +347,25 @@ async def enviar_atestado(
     if not afastamento:
         raise HTTPException(status_code=404, detail="Afastamento não encontrado.")
 
-    # Salvar arquivo temporariamente e validar com IA
+    import base64
+    from api.models.atestado import AtestadoMedico
+
     conteudo = await file.read()
-    
-    # Incrementar contador de atestados
+    conteudo_b64 = base64.b64encode(conteudo).decode()
+
+    # Salvar no banco
+    atestado = AtestadoMedico(
+        empresa_id=afastamento.empresa_id,
+        afastamento_id=afastamento.id,
+        trabalhador_id=afastamento.trabalhador_id,
+        nome_arquivo=file.filename,
+        conteudo_base64=conteudo_b64,
+        status_validacao="pendente",
+        enviado_por="funcionario",
+    )
+    db.add(atestado)
+
+    # Incrementar contador
     afastamento.num_atestados = (afastamento.num_atestados or 0) + 1
     if afastamento.status == "recebido":
         afastamento.status = "em_analise"

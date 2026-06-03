@@ -324,3 +324,151 @@ async def enviar_mensagem(
     db.add(msg)
     await db.commit()
     return {"message": "Mensagem enviada", "id": str(msg.id)}
+
+
+@router.get("/{afastamento_id}/atestados")
+async def listar_atestados(
+    afastamento_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Lista atestados de um afastamento."""
+    from api.models.atestado import AtestadoMedico
+    result = await db.execute(
+        select(AtestadoMedico).where(
+            AtestadoMedico.afastamento_id == afastamento_id,
+            AtestadoMedico.empresa_id == current_user.empresa_id,
+        ).order_by(AtestadoMedico.created_at.desc())
+    )
+    atestados = result.scalars().all()
+    return [
+        {
+            "id": str(a.id),
+            "nome_arquivo": a.nome_arquivo,
+            "status_validacao": a.status_validacao,
+            "score_validacao": a.score_validacao,
+            "cid_extraido": a.cid_extraido,
+            "medico_nome": a.medico_nome,
+            "enviado_por": a.enviado_por,
+            "created_at": str(a.created_at),
+        }
+        for a in atestados
+    ]
+
+
+@router.post("/{afastamento_id}/atestados/{atestado_id}/validar")
+async def validar_atestado_ia(
+    afastamento_id: UUID,
+    atestado_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """RH valida atestado com IA."""
+    import base64
+    from api.models.atestado import AtestadoMedico
+
+    result = await db.execute(
+        select(AtestadoMedico).where(
+            AtestadoMedico.id == atestado_id,
+            AtestadoMedico.afastamento_id == afastamento_id,
+            AtestadoMedico.empresa_id == current_user.empresa_id,
+        )
+    )
+    atestado = result.scalar_one_or_none()
+    if not atestado:
+        raise HTTPException(status_code=404, detail="Atestado não encontrado.")
+
+    if not atestado.conteudo_base64:
+        raise HTTPException(status_code=400, detail="Conteúdo do atestado não disponível.")
+
+    try:
+        import httpx
+        from api.config import settings
+
+        conteudo_bytes = base64.b64decode(atestado.conteudo_base64)
+
+        prompt = """Analise este atestado médico conforme as Portarias MPS/INSS 13 e 14/2026 (Novo Atestmed).
+
+Extraia e valide:
+1. Nome do paciente
+2. CID-10 informado
+3. Prazo de afastamento em dias
+4. Nome e CRM do médico
+5. Data de emissão
+6. Assinatura/carimbo presente
+
+Verifique conformidade com:
+- Portaria 13/2026: campos obrigatórios do atestado
+- Portaria 14/2026: requisitos para aceite pelo INSS
+
+Responda APENAS em JSON:
+{
+  "status": "valido" ou "invalido" ou "pendente",
+  "score": 0.0 a 1.0,
+  "cid_extraido": "CID encontrado",
+  "dias_extraidos": número,
+  "medico_nome": "nome do médico",
+  "medico_crm": "CRM",
+  "alertas": ["lista de problemas encontrados"],
+  "resumo": "análise em uma frase"
+}"""
+
+        # Extrair texto do PDF
+        import fitz
+        import io
+        pdf_doc = fitz.open(stream=io.BytesIO(conteudo_bytes), filetype="pdf")
+        texto_pdf = ""
+        for page in pdf_doc:
+            texto_pdf += page.get_text()
+        pdf_doc.close()
+
+        response = await httpx.AsyncClient(timeout=30).post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {settings.openrouter_api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "anthropic/claude-haiku-4-5",
+                "max_tokens": 500,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": f"{prompt}\n\nCONTEÚDO DO ATESTADO:\n{texto_pdf[:3000]}"
+                    }
+                ]
+            }
+        )
+
+        resultado = response.json()
+        texto = resultado["choices"][0]["message"]["content"]
+
+        import json, re
+        match = re.search(r'\{.*\}', texto, re.DOTALL)
+        if match:
+            dados = json.loads(match.group())
+        else:
+            dados = {"status": "pendente", "score": 0.5, "alertas": ["Não foi possível analisar automaticamente"]}
+
+    except Exception as e:
+        dados = {"status": "pendente", "score": 0.5, "alertas": [f"Erro na análise: {str(e)[:100]}"]}
+
+    # Atualizar atestado
+    atestado.status_validacao = dados.get("status", "pendente")
+    atestado.score_validacao = dados.get("score", 0.5)
+    atestado.cid_extraido = dados.get("cid_extraido")
+    atestado.dias_extraidos = dados.get("dias_extraidos")
+    atestado.medico_nome = dados.get("medico_nome")
+    atestado.medico_crm = dados.get("medico_crm")
+    atestado.alertas = dados.get("alertas", [])
+    await db.commit()
+
+    return {
+        "status": dados.get("status"),
+        "score": dados.get("score"),
+        "cid_extraido": dados.get("cid_extraido"),
+        "dias_extraidos": dados.get("dias_extraidos"),
+        "medico_nome": dados.get("medico_nome"),
+        "alertas": dados.get("alertas", []),
+        "resumo": dados.get("resumo", ""),
+    }
