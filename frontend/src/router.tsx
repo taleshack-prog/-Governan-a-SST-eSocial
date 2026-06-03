@@ -17,6 +17,9 @@ import { Auditoria } from "./pages/Auditoria";
 import Afastamentos from "./pages/Afastamentos";
 import Radar from "./pages/Radar";
 import PPP from "./pages/PPP";
+import PainelFinanceiro from "./pages/PainelFinanceiro";
+import PainelGestor from "./pages/PainelGestor";
+import AfastamentosRH from "./pages/AfastamentosRH";
 
 export const router = createBrowserRouter([
   {
@@ -36,6 +39,9 @@ export const router = createBrowserRouter([
       { path: "afastamentos",   element: <Afastamentos /> },
       { path: "radar",           element: <Radar /> },
       { path: "ppp",             element: <PPP /> },
+      { path: "painel-financeiro", element: <PainelFinanceiro /> },
+      { path: "painel-gestor",     element: <PainelGestor /> },
+      { path: "afastamentos-rh",   element: <AfastamentosRH /> },
       { path: "cat",            element: <Cat /> },
       { path: "validacoes",     element: <ValidacoesIA /> },
       { path: "auditoria",      element: <Auditoria /> },
