@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     app_name: str = "SST eSocial Gov"
     app_env: str = "development"
     secret_key: str = "changeme-must-be-64-chars-minimum-in-production-env"
-    access_token_expire_minutes: int = 60
+    access_token_expire_minutes: int = 43200
     refresh_token_expire_days: int = 7
     algorithm: str = "HS256"
 
@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     embedding_dimension: int = 384
 
     # CORS
-    cors_origins: List[str] = ["http://localhost:3004", "http://localhost:3003", "http://localhost:3000", "http://localhost:8003"]
+    cors_origins: List[str] = ["http://localhost:3004", "http://localhost:3003", "http://localhost:3000", "http://localhost:3005", "http://localhost:8003"]
 
     # Logs
     log_level: str = "INFO"
