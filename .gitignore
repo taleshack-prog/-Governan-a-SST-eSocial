@@ -56,3 +56,5 @@ uploads/
 *.crt
 secrets/
 seeds/*.pdf
+.env.production
+.env
