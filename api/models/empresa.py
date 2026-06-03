@@ -1,7 +1,7 @@
 # api/models/empresa.py — SST ESOCIAL GOV
 import uuid
-from datetime import datetime
-from sqlalchemy import String, Integer, Boolean, DateTime
+from datetime import datetime, date
+from sqlalchemy import String, Integer, Boolean, DateTime, Date
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from api.database import Base
@@ -24,5 +24,11 @@ class Empresa(Base):
     # Relacionamentos
     estabelecimentos = relationship("Estabelecimento", back_populates="empresa", cascade="all, delete")
     trabalhadores = relationship("Trabalhador", back_populates="empresa", cascade="all, delete")
+    plano: Mapped[str] = mapped_column(String(20), default="trial")
+    plano_expira_em: Mapped[date | None] = mapped_column(Date, nullable=True)
+    max_trabalhadores: Mapped[int] = mapped_column(Integer, default=10)
+    contato_nome: Mapped[str | None] = mapped_column(String(200))
+    contato_email: Mapped[str | None] = mapped_column(String(200))
+    contato_telefone: Mapped[str | None] = mapped_column(String(20))
     documentos = relationship("DocumentoTecnico", back_populates="empresa")
     usuarios = relationship("Usuario", back_populates="empresa")

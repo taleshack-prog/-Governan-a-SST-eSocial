@@ -20,6 +20,7 @@ import PPP from "./pages/PPP";
 import PainelFinanceiro from "./pages/PainelFinanceiro";
 import PainelGestor from "./pages/PainelGestor";
 import AfastamentosRH from "./pages/AfastamentosRH";
+import Admin from "./pages/Admin";
 
 export const router = createBrowserRouter([
   {
@@ -42,6 +43,7 @@ export const router = createBrowserRouter([
       { path: "painel-financeiro", element: <PainelFinanceiro /> },
       { path: "painel-gestor",     element: <PainelGestor /> },
       { path: "afastamentos-rh",   element: <AfastamentosRH /> },
+      { path: "admin",             element: <Admin /> },
       { path: "cat",            element: <Cat /> },
       { path: "validacoes",     element: <ValidacoesIA /> },
       { path: "auditoria",      element: <Auditoria /> },
