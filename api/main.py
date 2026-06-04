@@ -5,9 +5,11 @@
 # ==============================================================
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
+import traceback
 
 from api.config import settings
 from api.routers.afastamentos import router as afastamentos_router
@@ -42,6 +44,16 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
 )
 
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    tb = traceback.format_exc()
+    print(f"[500] {request.method} {request.url.path}\n{tb}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc), "type": type(exc).__name__, "trace": tb},
+    )
+
 # Middlewares
 app.add_middleware(
     CORSMiddleware,
@@ -75,3 +87,24 @@ app.include_router(auditoria.router,        prefix=f"{API_PREFIX}/auditoria",   
 @app.get("/api/health", tags=["Health"])
 async def health():
     return {"status": "ok", "app": settings.app_name, "env": settings.app_env}
+
+
+@app.get("/api/debug/db", tags=["Health"])
+async def debug_db():
+    """Testa conexão com o banco e retorna o erro exato se falhar."""
+    from sqlalchemy import text
+    from api.database import engine
+    config = {
+        "host": settings.postgres_host,
+        "port": settings.postgres_port,
+        "db": settings.postgres_db,
+        "user": settings.postgres_user,
+        "password_set": bool(settings.postgres_password and settings.postgres_password != "changeme"),
+    }
+    try:
+        async with engine.connect() as conn:
+            row = await conn.execute(text("SELECT current_user, version()"))
+            r = row.fetchone()
+            return {"status": "ok", "config": config, "pg_user": r[0], "pg_version": r[1][:50]}
+    except Exception as e:
+        return {"status": "error", "config": config, "error": str(e), "type": type(e).__name__}
