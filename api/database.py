@@ -3,27 +3,33 @@
 # Arquivo: api/database.py
 # ==============================================================
 
+from typing import AsyncGenerator
+
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import text
+from sqlalchemy.engine import URL as SAUrl
 from api.config import settings
 
 
 def _build_engine():
-    db_url = settings.get_database_url()
-    # Se a URL tem senha com caracteres especiais, usa connect_args
-    if settings.postgres_password and '#' in settings.postgres_password:
-        # Remove a senha da URL e passa via connect_args
-        import re
-        from urllib.parse import quote_plus
-        password_encoded = quote_plus(settings.postgres_password)
-        db_url = re.sub(r':([^@]+)@', f':{password_encoded}@', db_url)
+    # URL.create() faz encoding automático de caracteres especiais na senha (#, @, etc.)
+    # connect_args ssl="require" é obrigatório para Supabase
+    url = SAUrl.create(
+        drivername="postgresql+asyncpg",
+        username=settings.postgres_user,
+        password=settings.postgres_password,
+        host=settings.postgres_host,
+        port=settings.postgres_port,
+        database=settings.postgres_db,
+    )
     return create_async_engine(
-        db_url,
+        url,
         echo=settings.app_env == "development",
         pool_size=5,
         max_overflow=10,
         pool_pre_ping=True,
+        connect_args={"ssl": "require"},
     )
 
 engine = _build_engine()
@@ -39,7 +45,7 @@ class Base(DeclarativeBase):
     pass
 
 
-async def get_db() -> AsyncSession:
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as session:
         yield session
 
