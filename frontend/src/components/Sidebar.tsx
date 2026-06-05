@@ -7,7 +7,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, FileText, Users, ShieldAlert,
   Stethoscope, AlertOctagon, Brain, ScrollText,
-  LogOut, ChevronRight, Activity, HeartPulse, Radar, ClipboardList, DollarSign, UserCog, BriefcaseMedical, Building2, TrendingDown, ShieldAlert,
+  LogOut, ChevronRight, Activity, HeartPulse, Radar, ClipboardList, DollarSign, UserCog, BriefcaseMedical, Building2, TrendingDown,
 } from "lucide-react";
 import { useAuthStore } from "../store/authStore";
 
@@ -21,6 +21,7 @@ const NAV_ITEMS = [
   { path: "/radar",         label: "Radar Previd.",   icon: Radar },
   { path: "/painel-financeiro", label: "Painel Financeiro", icon: DollarSign },
   { path: "/radar-financeiro",   label: "Radar Financeiro",  icon: TrendingDown },
+  { path: "/inconsistencias",     label: "Inconsistências",   icon: ShieldAlert },
   { path: "/painel-gestor",     label: "Painel do Gestor",  icon: UserCog },
   { path: "/afastamentos-rh",   label: "Afastamentos RH",   icon: BriefcaseMedical },
   { path: "/ppp",           label: "PPP Digital",     icon: ClipboardList },
