@@ -29,7 +29,7 @@ def _build_engine():
         pool_size=5,
         max_overflow=10,
         pool_pre_ping=True,
-        connect_args={"ssl": "require"},
+        connect_args={"ssl": "require"} if settings.app_env == "production" else {},
     )
 
 engine = _build_engine()
