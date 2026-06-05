@@ -20,6 +20,7 @@ const NAV_ITEMS = [
   { path: "/afastamentos", label: "Afastamentos",    icon: HeartPulse },
   { path: "/radar",         label: "Radar Previd.",   icon: Radar },
   { path: "/painel-financeiro", label: "Painel Financeiro", icon: DollarSign },
+  { path: "/radar-financeiro",   label: "Radar Financeiro",  icon: TrendingDown },
   { path: "/painel-gestor",     label: "Painel do Gestor",  icon: UserCog },
   { path: "/afastamentos-rh",   label: "Afastamentos RH",   icon: BriefcaseMedical },
   { path: "/ppp",           label: "PPP Digital",     icon: ClipboardList },

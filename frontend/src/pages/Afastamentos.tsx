@@ -79,13 +79,6 @@ function AtestadosRecebidos({ afastamentoId }: { afastamentoId: string }) {
           ))}
         </div>
       )}
-      {chatAfastamento && (
-        <ChatAfastamento
-          afastamentoId={chatAfastamento.id}
-          nomeTrabalhador={chatAfastamento.nome}
-          onClose={() => setChatAfastamento(null)}
-        />
-      )}
     </div>
   );
 }
@@ -97,6 +90,7 @@ export default function Afastamentos() {
   const [detalhe, setDetalhe] = useState<any>(null);
   const [uploadando, setUploadando] = useState(false);
   const [resultadoAtestado, setResultadoAtestado] = useState<any>(null);
+  const [chatAfastamento, setChatAfastamento] = useState<{id:string,nome:string}|null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const uploadAtestado = async (file: File, afastamentoId: string) => {
@@ -241,10 +235,7 @@ export default function Afastamentos() {
                   </td>
                   <td className="px-4 py-3">
                     <button onClick={() => { setDetalhe(a); setResultadoAtestado(null); }} className="text-blue-600 hover:text-blue-800 text-xs font-medium">Abrir</button>
-                    <button onClick={() => setChatAfastamento({ id: a.id, nome: a.trabalhador_nome || "Funcionário" })} className="flex items-center gap-1 text-teal-600 hover:text-teal-800 text-xs font-medium"><MessageCircle size={12} /> Chat</button>
-                    <button onClick={() => setChatAfastamento({ id: a.id, nome: a.trabalhador_nome || "Funcionário" })} className="flex items-center gap-1 text-teal-600 hover:text-teal-800 text-xs font-medium">
-                      <MessageCircle size={12} /> Chat
-                    </button>
+                    <button onClick={() => setChatAfastamento({ id: a.id, nome: a.trabalhador_tome || "Funcionário" })} className="flex items-center gap-1 text-teal-600 hover:text-teal-800 text-xs font-medium"><MessageCircle size={12} /> Chat</button>
                   </td>
                 </tr>
               ))}
