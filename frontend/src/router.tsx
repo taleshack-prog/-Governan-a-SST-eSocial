@@ -23,6 +23,7 @@ import AfastamentosRH from "./pages/AfastamentosRH";
 import Admin from "./pages/Admin";
 import RadarFinanceiro from "./pages/RadarFinanceiro";
 import Inconsistencias from "./pages/Inconsistencias";
+import Tendencias from "./pages/Tendencias";
 
 export const router = createBrowserRouter([
   {
@@ -48,6 +49,7 @@ export const router = createBrowserRouter([
       { path: "admin",             element: <Admin /> },
       { path: "radar-financeiro",   element: <RadarFinanceiro /> },
       { path: "inconsistencias",    element: <Inconsistencias /> },
+      { path: "tendencias",          element: <Tendencias /> },
       { path: "cat",            element: <Cat /> },
       { path: "validacoes",     element: <ValidacoesIA /> },
       { path: "auditoria",      element: <Auditoria /> },

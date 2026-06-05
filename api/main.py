@@ -20,6 +20,7 @@ from api.routers.auth_funcionario import router as auth_func_router
 from api.routers.admin import router as admin_router
 from api.routers.radar_financeiro import router as radar_fin_router
 from api.routers.inconsistencias import router as inconsistencias_router
+from api.routers.tendencias import router as tendencias_router
 from api.routers.atestados import router as atestados_router
 from api.routers import (
     auth, empresas, trabalhadores, documentos,
@@ -84,6 +85,7 @@ app.include_router(auth_func_router,       prefix=f"{API_PREFIX}/funcionarios/au
 app.include_router(admin_router,           prefix=f"{API_PREFIX}/admin", tags=["Admin"])
 app.include_router(radar_fin_router,      prefix=f"{API_PREFIX}/radar-financeiro", tags=["Radar Financeiro"])
 app.include_router(inconsistencias_router, prefix=f"{API_PREFIX}/inconsistencias", tags=["Inconsistências"])
+app.include_router(tendencias_router,      prefix=f"{API_PREFIX}/tendencias", tags=["Tendências"])
 app.include_router(atestados_router,      prefix=f"{API_PREFIX}/afastamentos", tags=["Atestados"])
 app.include_router(auditoria.router,        prefix=f"{API_PREFIX}/auditoria",   tags=["Auditoria"])
 
