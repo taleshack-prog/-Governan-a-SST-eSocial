@@ -44,7 +44,7 @@ export function Sidebar() {
         <div className="flex items-center gap-2">
           <Activity size={22} className="text-indigo-400" />
           <div>
-            <p className="font-bold text-sm leading-tight">Radar Previdenciário</p>
+            <img src="/logo-radarprevi.jpeg" alt="Radar Previ" className="h-8 w-auto" />
             <p className="text-xs text-gray-400">Inteligência Previdenciária com IA</p>
           </div>
         </div>
