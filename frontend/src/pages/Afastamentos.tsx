@@ -1,6 +1,8 @@
 import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { MessageCircle } from "lucide-react";
 import { apiClient } from "../api/client";
+import ChatAfastamento from "../components/ChatAfastamento";
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   recebido:               { label: "Recebido",               color: "bg-blue-100 text-blue-800" },
@@ -76,6 +78,13 @@ function AtestadosRecebidos({ afastamentoId }: { afastamentoId: string }) {
             </div>
           ))}
         </div>
+      )}
+      {chatAfastamento && (
+        <ChatAfastamento
+          afastamentoId={chatAfastamento.id}
+          nomeTrabalhador={chatAfastamento.nome}
+          onClose={() => setChatAfastamento(null)}
+        />
       )}
     </div>
   );
@@ -232,6 +241,10 @@ export default function Afastamentos() {
                   </td>
                   <td className="px-4 py-3">
                     <button onClick={() => { setDetalhe(a); setResultadoAtestado(null); }} className="text-blue-600 hover:text-blue-800 text-xs font-medium">Abrir</button>
+                    <button onClick={() => setChatAfastamento({ id: a.id, nome: a.trabalhador_nome || "Funcionário" })} className="flex items-center gap-1 text-teal-600 hover:text-teal-800 text-xs font-medium"><MessageCircle size={12} /> Chat</button>
+                    <button onClick={() => setChatAfastamento({ id: a.id, nome: a.trabalhador_nome || "Funcionário" })} className="flex items-center gap-1 text-teal-600 hover:text-teal-800 text-xs font-medium">
+                      <MessageCircle size={12} /> Chat
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -405,6 +418,13 @@ export default function Afastamentos() {
             </div>
           </div>
         </div>
+      )}
+      {chatAfastamento && (
+        <ChatAfastamento
+          afastamentoId={chatAfastamento.id}
+          nomeTrabalhador={chatAfastamento.nome}
+          onClose={() => setChatAfastamento(null)}
+        />
       )}
     </div>
   );
