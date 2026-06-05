@@ -41,7 +41,7 @@ export function Sidebar() {
     <aside className="fixed left-0 top-0 h-full w-64 bg-gray-900 text-white flex flex-col z-30">
       {/* Logo */}
       <div className="px-6 py-5 border-b border-gray-700">
-        <img src="/logo-radarprevi.jpeg" alt="Radar Previdenciário" className="h-10 w-auto" />
+        <img src="/logo-radarprevi.svg" alt="Radar Previdenciário" className="h-12 w-auto" />
       </div>
 
       {/* Navegação */}

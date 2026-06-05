@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 56" fill="none">
+  <rect width="220" height="56" rx="10" fill="#0f2744"/>
+  
+  <!-- Ícone radar com mais espaço -->
+  <g transform="translate(20, 28)">
+    <circle cx="0" cy="0" r="16" stroke="rgba(255,255,255,0.15)" stroke-width="1.2" fill="none"/>
+    <circle cx="0" cy="0" r="10" stroke="rgba(255,255,255,0.25)" stroke-width="1.2" fill="none"/>
+    <circle cx="0" cy="0" r="4.5" stroke="#1a9e8f" stroke-width="1.5" fill="none"/>
+    <circle cx="0" cy="0" r="2" fill="#1a9e8f"/>
+    <circle cx="7" cy="-7" r="2.5" fill="#1a9e8f"/>
+    <line x1="-16" y1="0" x2="16" y2="0" stroke="rgba(255,255,255,0.12)" stroke-width="0.8"/>
+    <line x1="0" y1="-16" x2="0" y2="16" stroke="rgba(255,255,255,0.12)" stroke-width="0.8"/>
+  </g>
+  
+  <text x="46" y="23" font-family="'Syne', 'Arial Black', sans-serif" font-size="16" font-weight="800" fill="white" letter-spacing="2">RADAR</text>
+  <text x="46" y="40" font-family="'Syne', Arial, sans-serif" font-size="11" font-weight="600" fill="#1a9e8f" letter-spacing="4">PREVI</text>
+  <line x1="46" y1="44" x2="188" y2="44" stroke="rgba(26,158,143,0.3)" stroke-width="0.8"/>
+  <text x="46" y="52" font-family="Arial, sans-serif" font-size="7" font-weight="400" fill="rgba(255,255,255,0.4)" letter-spacing="1.5">CONSULTORIA PREVIDENCIÁRIA</text>
+</svg>

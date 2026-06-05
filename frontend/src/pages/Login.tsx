@@ -52,7 +52,7 @@ export function Login() {
           <div className="inline-flex items-center gap-3 text-white">
             <Activity size={36} className="text-indigo-400" />
             <div className="text-left">
-              <img src="/logo-radarprevi.jpeg" alt="Radar Previ" className="h-12 w-auto mb-2" />
+              <img src="/logo-radarprevi.svg" alt="Radar Previdenciário" className="h-16 w-auto mb-2" />
               <p className="text-sm text-indigo-300">Inteligência Previdenciária com IA</p>
             </div>
           </div>
