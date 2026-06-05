@@ -6,6 +6,7 @@
 import { Outlet, Navigate } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { useAuthStore } from "../store/authStore";
+import PrevIA from "./PrevIA";
 
 export function Layout() {
   const { isAuthenticated } = useAuthStore();
@@ -20,6 +21,7 @@ export function Layout() {
       <main className="flex-1 ml-64 p-8 overflow-auto">
         <Outlet />
       </main>
+      <PrevIA />
     </div>
   );
 }
