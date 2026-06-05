@@ -41,13 +41,7 @@ export function Sidebar() {
     <aside className="fixed left-0 top-0 h-full w-64 bg-gray-900 text-white flex flex-col z-30">
       {/* Logo */}
       <div className="px-6 py-5 border-b border-gray-700">
-        <div className="flex items-center gap-2">
-          <Activity size={22} className="text-indigo-400" />
-          <div>
-            <img src="/logo-radarprevi.jpeg" alt="Radar Previ" className="h-8 w-auto" />
-            <p className="text-xs text-gray-400">Inteligência Previdenciária com IA</p>
-          </div>
-        </div>
+        <img src="/logo-radarprevi.jpeg" alt="Radar Previdenciário" className="h-10 w-auto" />
       </div>
 
       {/* Navegação */}
