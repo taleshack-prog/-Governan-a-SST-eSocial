@@ -22,6 +22,7 @@ import PainelGestor from "./pages/PainelGestor";
 import AfastamentosRH from "./pages/AfastamentosRH";
 import Admin from "./pages/Admin";
 import RadarFinanceiro from "./pages/RadarFinanceiro";
+import Inconsistencias from "./pages/Inconsistencias";
 
 export const router = createBrowserRouter([
   {
@@ -46,6 +47,7 @@ export const router = createBrowserRouter([
       { path: "afastamentos-rh",   element: <AfastamentosRH /> },
       { path: "admin",             element: <Admin /> },
       { path: "radar-financeiro",   element: <RadarFinanceiro /> },
+      { path: "inconsistencias",    element: <Inconsistencias /> },
       { path: "cat",            element: <Cat /> },
       { path: "validacoes",     element: <ValidacoesIA /> },
       { path: "auditoria",      element: <Auditoria /> },
