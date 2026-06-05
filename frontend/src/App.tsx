@@ -3,6 +3,7 @@
 // Arquivo: frontend/src/App.tsx
 // ==============================================================
 
+import PrevIA from "./components/PrevIA";
 import { RouterProvider } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "react-hot-toast";
@@ -21,7 +22,7 @@ const queryClient = new QueryClient({
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <><RouterProvider router={router} /><PrevIA /></>
       <Toaster
         position="top-right"
         toastOptions={{
