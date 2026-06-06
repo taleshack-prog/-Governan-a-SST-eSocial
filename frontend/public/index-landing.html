@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Radar Previdenciário — Gestão SST com Inteligência Artificial</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,700;1,9..144,300;1,9..144,700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --navy:#0a1e38;
+  --navy2:#0f2744;
+  --teal:#1a9e8f;
+  --teal2:#15877a;
+  --cream:#f7f4ef;
+  --warm:#e8e3da;
+  --gold:#c8a96e;
+  --text:#1a1a1a;
+  --muted:#6b6b6b;
+  --white:#ffffff;
+}
+html{scroll-behavior:smooth}
+body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--text);overflow-x:hidden}
+
+/* NAV */
+nav{
+  position:fixed;top:0;left:0;right:0;z-index:100;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:1.25rem 4vw;
+  background:rgba(247,244,239,0.92);
+  backdrop-filter:blur(12px);
+  border-bottom:1px solid rgba(0,0,0,0.06);
+}
+.nav-logo{display:flex;align-items:center;gap:10px}
+.nav-logo-icon{
+  width:36px;height:36px;background:var(--navy);border-radius:10px;
+  display:flex;align-items:center;justify-content:center;
+}
+.nav-logo-icon svg{width:20px;height:20px;fill:none;stroke:var(--teal);stroke-width:1.8;stroke-linecap:round}
+.nav-logo-text{
+  font-family:'Fraunces',serif;font-size:1.1rem;font-weight:700;
+  color:var(--navy);letter-spacing:-0.02em;
+}
+.nav-links{display:flex;align-items:center;gap:2rem}
+.nav-links a{font-size:14px;color:var(--muted);text-decoration:none;font-weight:500;transition:color .2s}
+.nav-links a:hover{color:var(--navy)}
+.nav-cta{
+  background:var(--navy);color:white;padding:10px 22px;border-radius:100px;
+  font-size:13px;font-weight:600;text-decoration:none;
+  transition:background .2s,transform .2s;
+}
+.nav-cta:hover{background:var(--teal);transform:translateY(-1px)}
+
+/* HERO */
+.hero{
+  min-height:100vh;
+  display:grid;grid-template-columns:1fr 1fr;
+  align-items:center;
+  padding:7rem 4vw 5rem;
+  gap:4rem;
+  position:relative;
+  overflow:hidden;
+}
+.hero::before{
+  content:'';position:absolute;
+  width:600px;height:600px;
+  background:radial-gradient(circle,rgba(26,158,143,.08) 0%,transparent 70%);
+  top:-100px;right:-100px;border-radius:50%;
+  pointer-events:none;
+}
+.hero-label{
+  display:inline-flex;align-items:center;gap:8px;
+  background:rgba(26,158,143,.1);border:1px solid rgba(26,158,143,.2);
+  color:var(--teal2);font-size:12px;font-weight:600;
+  letter-spacing:.12em;text-transform:uppercase;
+  padding:6px 16px;border-radius:100px;margin-bottom:2rem;
+}
+.hero-label::before{
+  content:'';width:6px;height:6px;background:var(--teal);border-radius:50%;
+  animation:pulse 2s infinite;
+}
+h1{
+  font-family:'Fraunces',serif;
+  font-size:clamp(2.8rem,5vw,4.5rem);
+  font-weight:700;line-height:1.05;
+  letter-spacing:-0.03em;
+  color:var(--navy);
+  margin-bottom:1.5rem;
+}
+h1 em{color:var(--teal);font-style:italic}
+.hero-sub{
+  font-size:1.1rem;color:var(--muted);line-height:1.7;
+  max-width:480px;margin-bottom:2.5rem;font-weight:300;
+}
+.hero-btns{display:flex;gap:12px;flex-wrap:wrap}
+.btn-primary{
+  background:var(--navy);color:white;
+  padding:14px 28px;border-radius:100px;
+  font-size:14px;font-weight:600;text-decoration:none;
+  transition:all .2s;display:inline-flex;align-items:center;gap:8px;
+}
+.btn-primary:hover{background:var(--teal);transform:translateY(-2px);box-shadow:0 8px 24px rgba(26,158,143,.3)}
+.btn-ghost{
+  background:transparent;color:var(--navy);
+  padding:14px 28px;border-radius:100px;
+  font-size:14px;font-weight:600;text-decoration:none;
+  border:2px solid var(--warm);transition:all .2s;
+}
+.btn-ghost:hover{border-color:var(--navy);background:white}
+
+.hero-right{position:relative}
+.hero-card{
+  background:var(--navy);border-radius:24px;padding:2rem;
+  color:white;position:relative;overflow:hidden;
+  box-shadow:0 32px 64px rgba(10,30,56,.25);
+}
+.hero-card::before{
+  content:'';position:absolute;
+  width:200px;height:200px;
+  background:radial-gradient(circle,rgba(26,158,143,.2) 0%,transparent 70%);
+  top:-50px;right:-50px;border-radius:50%;
+}
+.card-label{font-size:11px;color:rgba(255,255,255,.5);font-weight:600;letter-spacing:.1em;text-transform:uppercase;margin-bottom:.75rem}
+.card-score-num{
+  font-family:'Fraunces',serif;font-size:5rem;font-weight:700;
+  color:var(--teal);line-height:1;margin-bottom:.5rem;
+}
+.card-score-label{font-size:14px;color:rgba(255,255,255,.6);margin-bottom:2rem}
+.card-items{display:flex;flex-direction:column;gap:10px;margin-bottom:2rem}
+.card-item{
+  display:flex;justify-content:space-between;align-items:center;
+  background:rgba(255,255,255,.06);border-radius:12px;padding:10px 14px;
+  font-size:13px;
+}
+.card-item-label{color:rgba(255,255,255,.6)}
+.card-item-val{font-weight:700;color:white}
+.card-item-val.red{color:#f87171}
+.card-item-val.amber{color:#fbbf24}
+.card-rec{
+  background:rgba(26,158,143,.15);border:1px solid rgba(26,158,143,.3);
+  border-radius:12px;padding:12px 14px;
+}
+.card-rec-title{font-size:12px;font-weight:700;color:var(--teal);margin-bottom:6px}
+.card-rec-item{font-size:12px;color:rgba(255,255,255,.7);margin-bottom:4px;display:flex;align-items:center;gap:6px}
+.card-rec-item::before{content:'→';color:var(--teal)}
+.card-badge{
+  position:absolute;top:-12px;right:20px;
+  background:var(--teal);color:white;font-size:11px;font-weight:700;
+  padding:5px 12px;border-radius:100px;letter-spacing:.05em;
+}
+
+/* PROVA SOCIAL */
+.proof{
+  background:var(--navy);padding:3rem 4vw;
+  display:flex;align-items:center;justify-content:center;gap:4rem;
+  flex-wrap:wrap;
+}
+.proof-stat{text-align:center}
+.proof-num{
+  font-family:'Fraunces',serif;font-size:2.5rem;font-weight:700;
+  color:var(--teal);line-height:1;
+}
+.proof-label{font-size:13px;color:rgba(255,255,255,.5);margin-top:4px}
+
+/* DOR */
+.pain{padding:7rem 4vw;max-width:1100px;margin:0 auto}
+.section-label{
+  font-size:11px;font-weight:700;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--teal);margin-bottom:1rem;
+}
+h2{
+  font-family:'Fraunces',serif;font-size:clamp(2rem,4vw,3rem);
+  font-weight:700;line-height:1.1;letter-spacing:-0.02em;
+  color:var(--navy);margin-bottom:1.5rem;
+}
+.pain-cols{display:grid;grid-template-columns:1fr 1fr;gap:4rem;align-items:center;margin-top:3rem}
+.pain-item{margin-bottom:1.5rem;padding-bottom:1.5rem;border-bottom:1px solid var(--warm)}
+.pain-item:last-child{border-bottom:none}
+.pain-q{font-family:'Fraunces',serif;font-size:1.1rem;font-weight:700;color:var(--navy);margin-bottom:.5rem;font-style:italic}
+.pain-a{font-size:.95rem;color:var(--muted);line-height:1.7}
+.pain-visual{
+  background:var(--white);border-radius:20px;padding:2rem;
+  border:1px solid var(--warm);
+  box-shadow:0 4px 24px rgba(0,0,0,.04);
+}
+.pain-visual-row{
+  display:flex;align-items:center;gap:12px;
+  padding:12px 0;border-bottom:1px solid var(--warm);
+  font-size:14px;
+}
+.pain-visual-row:last-child{border-bottom:none}
+.pain-icon{font-size:20px;flex-shrink:0}
+.pain-visual-text{color:var(--text)}
+.pain-visual-text strong{color:var(--navy)}
+.pain-visual-badge{
+  margin-left:auto;font-size:11px;font-weight:700;
+  padding:3px 10px;border-radius:100px;
+}
+.badge-red{background:#fee2e2;color:#dc2626}
+.badge-amber{background:#fef3c7;color:#d97706}
+.badge-green{background:#d1fae5;color:#059669}
+
+/* SOLUÇÃO IA */
+.solution{
+  background:var(--navy);padding:7rem 4vw;
+  position:relative;overflow:hidden;
+}
+.solution::before{
+  content:'';position:absolute;
+  width:800px;height:800px;
+  background:radial-gradient(circle,rgba(26,158,143,.08) 0%,transparent 60%);
+  top:-200px;left:-200px;border-radius:50%;
+}
+.solution-in{max-width:1100px;margin:0 auto;position:relative}
+.solution .section-label{color:rgba(26,158,143,.8)}
+.solution h2{color:white}
+.solution .sub{color:rgba(255,255,255,.55);font-size:1.05rem;line-height:1.7;max-width:560px;margin-bottom:3rem}
+.ia-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1.5rem}
+.ia-card{
+  background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);
+  border-radius:20px;padding:1.75rem;
+  transition:background .2s,border-color .2s;
+  position:relative;overflow:hidden;
+}
+.ia-card:hover{background:rgba(255,255,255,.08);border-color:rgba(26,158,143,.3)}
+.ia-card::before{
+  content:'';position:absolute;
+  width:120px;height:120px;
+  background:radial-gradient(circle,rgba(26,158,143,.1) 0%,transparent 70%);
+  top:-30px;right:-30px;border-radius:50%;
+}
+.ia-ico{font-size:28px;margin-bottom:1rem}
+.ia-title{font-family:'Fraunces',serif;font-size:1.15rem;font-weight:700;color:white;margin-bottom:.6rem}
+.ia-desc{font-size:13px;color:rgba(255,255,255,.5);line-height:1.65}
+.ia-tag{
+  display:inline-flex;align-items:center;gap:4px;
+  margin-top:1rem;font-size:11px;font-weight:700;
+  color:var(--teal);letter-spacing:.08em;text-transform:uppercase;
+}
+
+/* PARA QUEM */
+.forwhom{padding:7rem 4vw;max-width:1100px;margin:0 auto}
+.fw-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1.5rem;margin-top:3rem}
+.fw-card{
+  background:var(--white);border:1px solid var(--warm);border-radius:20px;
+  padding:1.75rem;transition:transform .2s,box-shadow .2s;
+}
+.fw-card:hover{transform:translateY(-4px);box-shadow:0 16px 40px rgba(0,0,0,.07)}
+.fw-num{
+  font-family:'Fraunces',serif;font-size:2.5rem;font-weight:700;
+  color:var(--warm);line-height:1;margin-bottom:1rem;
+}
+.fw-title{font-size:1rem;font-weight:700;color:var(--navy);margin-bottom:.5rem}
+.fw-desc{font-size:13px;color:var(--muted);line-height:1.6}
+
+/* MÓDULOS */
+.modules{
+  background:var(--white);padding:7rem 4vw;
+  border-top:1px solid var(--warm);border-bottom:1px solid var(--warm);
+}
+.modules-in{max-width:1100px;margin:0 auto}
+.mod-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;margin-top:3rem}
+.mod-item{
+  padding:1.25rem;border-radius:14px;
+  border:1px solid var(--warm);
+  transition:background .2s,border-color .2s;
+  display:flex;align-items:flex-start;gap:10px;
+}
+.mod-item:hover{background:var(--cream);border-color:rgba(26,158,143,.2)}
+.mod-ico{font-size:20px;flex-shrink:0;margin-top:2px}
+.mod-text{font-size:13px;font-weight:600;color:var(--navy);line-height:1.4}
+
+/* QUEM SOMOS */
+.about{padding:7rem 4vw;max-width:1100px;margin:0 auto}
+.about-grid{display:grid;grid-template-columns:1fr 1fr;gap:5rem;align-items:center;margin-top:3rem}
+.about-text p{font-size:1rem;color:var(--muted);line-height:1.8;margin-bottom:1.5rem}
+.about-text p strong{color:var(--navy)}
+.about-card{
+  background:var(--navy);border-radius:24px;padding:2.5rem;color:white;
+  position:relative;overflow:hidden;
+}
+.about-card::before{
+  content:'HACK\ATECH\AFARM';
+  font-family:'Fraunces',serif;font-size:4rem;font-weight:700;
+  color:rgba(255,255,255,.04);position:absolute;
+  bottom:-10px;right:-10px;line-height:1;text-align:right;
+  white-space:pre;
+}
+.about-name{font-family:'Fraunces',serif;font-size:1.5rem;font-weight:700;margin-bottom:.5rem}
+.about-role{font-size:13px;color:var(--teal);font-weight:600;margin-bottom:1.5rem;letter-spacing:.05em;text-transform:uppercase}
+.about-bio{font-size:14px;color:rgba(255,255,255,.6);line-height:1.7}
+.about-tag{
+  display:inline-block;margin-top:1.5rem;
+  background:rgba(26,158,143,.15);border:1px solid rgba(26,158,143,.3);
+  color:var(--teal);font-size:12px;font-weight:600;
+  padding:5px 14px;border-radius:100px;
+}
+
+/* CTA FINAL */
+.cta-section{
+  background:var(--navy);padding:7rem 4vw;
+  text-align:center;position:relative;overflow:hidden;
+}
+.cta-section::before{
+  content:'';position:absolute;
+  width:600px;height:600px;
+  background:radial-gradient(circle,rgba(26,158,143,.12) 0%,transparent 60%);
+  top:50%;left:50%;transform:translate(-50%,-50%);border-radius:50%;
+}
+.cta-section h2{color:white;position:relative;margin-bottom:1rem}
+.cta-section p{color:rgba(255,255,255,.55);font-size:1.1rem;margin-bottom:2.5rem;position:relative}
+.cta-section .btn-primary{
+  background:var(--teal);font-size:16px;padding:16px 36px;position:relative;
+}
+.cta-section .btn-primary:hover{background:#11766a}
+
+/* FOOTER */
+footer{
+  background:#060f1d;padding:2.5rem 4vw;
+  display:flex;align-items:center;justify-content:space-between;
+  flex-wrap:wrap;gap:1rem;
+}
+.footer-logo{font-family:'Fraunces',serif;font-size:1.1rem;color:rgba(255,255,255,.6);font-weight:700}
+.footer-copy{font-size:12px;color:rgba(255,255,255,.3)}
+.footer-link{font-size:13px;color:var(--teal);text-decoration:none}
+
+/* ANIMAÇÕES */
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
+
+.hero-left>*{animation:fadeUp .7s ease both}
+.hero-label{animation-delay:0s}
+h1{animation-delay:.1s}
+.hero-sub{animation-delay:.2s}
+.hero-btns{animation-delay:.3s}
+
+.reveal{opacity:0;transform:translateY(20px);transition:opacity .6s ease,transform .6s ease}
+.reveal.in{opacity:1;transform:translateY(0)}
+
+@media(max-width:768px){
+  .hero{grid-template-columns:1fr;padding-top:6rem}
+  .hero-right{display:none}
+  .pain-cols,.about-grid{grid-template-columns:1fr}
+  nav .nav-links{display:none}
+  .proof{gap:2rem}
+}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-logo">
+    <div class="nav-logo-icon">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="11"/><circle cx="16" cy="8" r="1.5" fill="#1a9e8f" stroke="none"/></svg>
+    </div>
+    <span class="nav-logo-text">Radar Previdenciário</span>
+  </div>
+  <div class="nav-links">
+    <a href="#solucao">Solução</a>
+    <a href="#para-quem">Para quem</a>
+    <a href="#modulos">Módulos</a>
+    <a href="#sobre">Sobre</a>
+  </div>
+  <a href="https://radarprevi.com.br" class="nav-cta" target="_blank">Acessar plataforma →</a>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-left">
+    <div class="hero-label">Online em produção · radarprevi.com.br</div>
+    <h1>Seus afastamentos<br>estão <em>drenando</em><br>sua margem.</h1>
+    <p class="hero-sub">O Radar Previdenciário mostra onde o dinheiro está escapando, o que está causando e qual ação tomar primeiro — com inteligência artificial integrada em cada etapa.</p>
+    <div class="hero-btns">
+      <a href="https://radarprevi.com.br" class="btn-primary" target="_blank">Acessar a plataforma →</a>
+      <a href="#solucao" class="btn-ghost">Ver como funciona</a>
+    </div>
+  </div>
+
+  <div class="hero-right">
+    <div class="hero-card">
+      <div class="card-badge">AO VIVO</div>
+      <div class="card-label">Score de Pressão Previdenciária</div>
+      <div class="card-score-num">74</div>
+      <div class="card-score-label">Nível: Atenção — ação necessária</div>
+      <div class="card-items">
+        <div class="card-item">
+          <span class="card-item-label">Custo diário atual</span>
+          <span class="card-item-val red">R$ 1.240/dia</span>
+        </div>
+        <div class="card-item">
+          <span class="card-item-label">Perdas evitáveis</span>
+          <span class="card-item-val amber">R$ 18.600</span>
+        </div>
+        <div class="card-item">
+          <span class="card-item-label">Projeção fim do mês</span>
+          <span class="card-item-val red">R$ 34.720</span>
+        </div>
+        <div class="card-item">
+          <span class="card-item-label">Inconsistências eSocial</span>
+          <span class="card-item-val amber">6 pendentes</span>
+        </div>
+      </div>
+      <div class="card-rec">
+        <div class="card-rec-title">⚡ Faça isso agora</div>
+        <div class="card-rec-item">Confirmar retorno de M. Souza — R$ 4.200</div>
+        <div class="card-rec-item">Resolver limbo Arialdo — R$ 5.100</div>
+        <div class="card-rec-item">Revisar LTCAT vencido — risco eSocial</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PROVA SOCIAL -->
+<div class="proof">
+  <div class="proof-stat">
+    <div class="proof-num">3</div>
+    <div class="proof-label">Portais integrados</div>
+  </div>
+  <div class="proof-stat">
+    <div class="proof-num">25+</div>
+    <div class="proof-label">Módulos funcionando</div>
+  </div>
+  <div class="proof-stat">
+    <div class="proof-num">100%</div>
+    <div class="proof-label">Online em produção</div>
+  </div>
+  <div class="proof-stat">
+    <div class="proof-num">IA</div>
+    <div class="proof-label">Em cada validação</div>
+  </div>
+</div>
+
+<!-- DOR -->
+<section class="pain" id="solucao">
+  <div class="reveal">
+    <div class="section-label">O problema real</div>
+    <h2>O RH controla.<br>A diretoria não enxerga.<br>A empresa perde.</h2>
+  </div>
+  <div class="pain-cols reveal">
+    <div>
+      <div class="pain-item">
+        <div class="pain-q">"Quantos afastados tenho hoje?"</div>
+        <div class="pain-a">Parece simples. Mas quando vem a resposta, ela não diz quanto isso está custando, onde está concentrado, e o que fazer para mudar.</div>
+      </div>
+      <div class="pain-item">
+        <div class="pain-q">"Por que o eSocial rejeitou esse evento?"</div>
+        <div class="pain-a">Porque o trabalhador está no setor errado. Ou o laudo venceu. Ou o CID não foi informado. O erro é invisível até chegar a multa.</div>
+      </div>
+      <div class="pain-item">
+        <div class="pain-q">"Quanto vai custar até o fim do mês?"</div>
+        <div class="pain-a">Nenhum sistema responde isso com precisão. Você descobre quando o fechamento chega — e aí é tarde.</div>
+      </div>
+    </div>
+    <div class="pain-visual">
+      <div class="pain-visual-row">
+        <span class="pain-ico">📋</span>
+        <span class="pain-visual-text"><strong>Trabalhador sem vínculo ativo</strong> — PPP bloqueado</span>
+        <span class="pain-visual-badge badge-red">Crítico</span>
+      </div>
+      <div class="pain-visual-row">
+        <span class="pain-ico">📄</span>
+        <span class="pain-visual-text"><strong>LTCAT vencido</strong> — base técnica inválida</span>
+        <span class="pain-visual-badge badge-red">Crítico</span>
+      </div>
+      <div class="pain-visual-row">
+        <span class="pain-ico">⚗️</span>
+        <span class="pain-visual-text"><strong>Agente nocivo não mapeado</strong> — S-2240 pendente</span>
+        <span class="pain-visual-badge badge-amber">Atenção</span>
+      </div>
+      <div class="pain-visual-row">
+        <span class="pain-ico">🔴</span>
+        <span class="pain-visual-text"><strong>Retorno atrasado 12 dias</strong> — custo acumulando</span>
+        <span class="pain-visual-badge badge-amber">Atenção</span>
+      </div>
+      <div class="pain-visual-row">
+        <span class="pain-ico">✅</span>
+        <span class="pain-visual-text"><strong>Atestado validado pela IA</strong> — conforme Portaria 14/2026</span>
+        <span class="pain-visual-badge badge-green">OK</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SOLUÇÃO IA -->
+<section class="solution">
+  <div class="solution-in">
+    <div class="reveal">
+      <div class="section-label">Inteligência Artificial</div>
+      <h2>Da obrigação ao<br>controle financeiro.</h2>
+      <p class="sub">O Radar Previdenciário não é mais um sistema de RH. É uma camada de inteligência que transforma dados de afastamento em decisão de negócio.</p>
+    </div>
+    <div class="ia-grid">
+      <div class="ia-card reveal">
+        <div class="ia-ico">🎯</div>
+        <div class="ia-title">Score de Pressão Previdenciária</div>
+        <div class="ia-desc">Um índice único 0-100 que resume a situação previdenciária da empresa. Quanto maior, mais urgente a ação. A diretoria entende sem precisar de relatório.</div>
+        <div class="ia-tag">↗ Motor financeiro</div>
+      </div>
+      <div class="ia-card reveal">
+        <div class="ia-ico">💡</div>
+        <div class="ia-title">Recomendações com impacto em R$</div>
+        <div class="ia-desc">A IA diz o que fazer primeiro e quanto você economiza com cada ação. Não é análise — é decisão. "Confirmar retorno de X economiza R$ 4.200."</div>
+        <div class="ia-tag">↗ Motor de decisão</div>
+      </div>
+      <div class="ia-card reveal">
+        <div class="ia-ico">🔍</div>
+        <div class="ia-title">Validação de atestado em 9 etapas</div>
+        <div class="ia-desc">Conforme as Portarias MPS/INSS 13 e 14/2026 (Novo Atestmed). CID, prazo, CRM e assinatura verificados automaticamente antes do RH tocar no documento.</div>
+        <div class="ia-tag">↗ Conformidade automática</div>
+      </div>
+      <div class="ia-card reveal">
+        <div class="ia-ico">⚠️</div>
+        <div class="ia-title">Motor de Inconsistências</div>
+        <div class="ia-desc">Cruza setor × função × risco × base técnica e detecta o erro invisível antes que ele vire rejeição no eSocial ou multa na fiscalização.</div>
+        <div class="ia-tag">↗ Erro invisível detectado</div>
+      </div>
+      <div class="ia-card reveal">
+        <div class="ia-ico">📈</div>
+        <div class="ia-title">Previsão de custo futuro</div>
+        <div class="ia-desc">Projeta o custo de afastamentos para o fim do mês e mês seguinte, com tendência de aceleração por setor. O problema aparece antes de acontecer.</div>
+        <div class="ia-tag">↗ Radar preditivo</div>
+      </div>
+      <div class="ia-card reveal">
+        <div class="ia-ico">🤖</div>
+        <div class="ia-title">PrevIA — Assistente Contextual</div>
+        <div class="ia-desc">Uma assistente que conhece a tela em que você está, seu perfil e os dados da sua empresa. Explica, orienta e prioriza. Disponível em qualquer tela.</div>
+        <div class="ia-tag">↗ IA assistente</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PARA QUEM -->
+<section class="forwhom" id="para-quem">
+  <div class="reveal">
+    <div class="section-label">Para quem</div>
+    <h2>Quem precisa<br>do Radar.</h2>
+  </div>
+  <div class="fw-grid">
+    <div class="fw-card reveal">
+      <div class="fw-num">01</div>
+      <div class="fw-title">Dono e Diretoria</div>
+      <div class="fw-desc">Quer saber quanto os afastamentos custam e qual ação reduz esse custo. Não quer ler relatório — quer número e decisão.</div>
+    </div>
+    <div class="fw-card reveal">
+      <div class="fw-num">02</div>
+      <div class="fw-title">RH e DP</div>
+      <div class="fw-desc">Precisa controlar o fluxo de afastamentos, validar documentos e enviar para o eSocial sem erro. Com menos retrabalho e mais rastreabilidade.</div>
+    </div>
+    <div class="fw-card reveal">
+      <div class="fw-num">03</div>
+      <div class="fw-title">Gestor Operacional</div>
+      <div class="fw-desc">Quer saber quais setores estão com capacidade reduzida, quem retorna e como planejar a cobertura de equipe sem impacto na produção.</div>
+    </div>
+    <div class="fw-card reveal">
+      <div class="fw-num">04</div>
+      <div class="fw-title">Técnico de SST</div>
+      <div class="fw-desc">Precisa manter documentos válidos, mapear agentes nocivos e preparar dados corretos para o eSocial — sem depender de planilha ou memória.</div>
+    </div>
+  </div>
+</section>
+
+<!-- MÓDULOS -->
+<section class="modules" id="modulos">
+  <div class="modules-in">
+    <div class="reveal">
+      <div class="section-label">Plataforma completa</div>
+      <h2>25+ módulos.<br>3 portais.<br>1 sistema.</h2>
+    </div>
+    <div class="mod-grid">
+      <div class="mod-item reveal"><span class="mod-ico">📊</span><span class="mod-text">Dashboard com KPIs e alertas</span></div>
+      <div class="mod-item reveal"><span class="mod-ico">🏥</span><span class="mod-text">Afastamentos + Status INSS</span></div>
+      <div class="mod-item reveal"><span class="mod-ico">📄</span><span class="mod-text">LTCAT e PCMSO com IA</span></div>
+      <div class="mod-item reveal"><span class="mod-ico">⚗️</span><span class="mod-text">Agentes Nocivos S-2240</span></div>
+      <div class="mod-item reveal"><span class="mod-ico">📋</span><span class="mod-text">PPP Digital + Export PDF</span></div>
+      <div class="mod-item reveal"><span class="mod-ico">🎯</span><span class="mod-text">Radar de Risco Previdenciário</span></div>
+      <div class="mod-item reveal"><span class="mod-ico">💰</span><span class="mod-text">Painel Financeiro de Custos</span></div>
+      <div class="mod-item reveal"><span class="mod-ico">📈</span><span class="mod-text">Tendências e Ranking</span></div>
+      <div class="mod-item reveal"><span class="mod-ico">⚠️</span><span class="mod-text">Motor de Inconsistências</span></div>
+      <div class="mod-item reveal"><span class="mod-ico">✅</span><span class="mod-text">Checklist pré-eSocial</span></div>
+      <div class="mod-item reveal"><span class="mod-ico">💬</span><span class="mod-text">Chat RH ↔ Funcionário</span></div>
+      <div class="mod-item reveal"><span class="mod-ico">📱</span><span class="mod-text">App Funcionário PWA</span></div>
+      <div class="mod-item reveal"><span class="mod-ico">🔐</span><span class="mod-text">Auditoria SHA-256</span></div>
+      <div class="mod-item reveal"><span class="mod-ico">🏢</span><span class="mod-text">Multi-empresa (SaaS)</span></div>
+      <div class="mod-item reveal"><span class="mod-ico">🤖</span><span class="mod-text">PrevIA Assistente Contextual</span></div>
+      <div class="mod-item reveal"><span class="mod-ico">🚨</span><span class="mod-text">Alertas Automáticos Celery</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- QUEM SOMOS -->
+<section class="about" id="sobre">
+  <div class="reveal">
+    <div class="section-label">Quem somos</div>
+    <h2>Construído por<br>quem entende<br>de ambos os lados.</h2>
+  </div>
+  <div class="about-grid reveal">
+    <div class="about-text">
+      <p>O <strong>Radar Previdenciário</strong> é um produto da <strong>Hack Tech Farm</strong>, desenvolvido para resolver um problema real: empresas brasileiras perdem dinheiro com afastamentos porque não conseguem enxergar o problema — só sentem o custo.</p>
+      <p>Unimos <strong>expertise em SST e previdenciário</strong> com tecnologia de ponta — FastAPI, React, PostgreSQL, IA generativa — para criar uma plataforma que faz o que os sistemas tradicionais não fazem: <strong>transformar dado em decisão</strong>.</p>
+      <p>Cada módulo foi desenhado para responder uma pergunta real do RH, do gestor ou do dono da empresa. Nada foi construído por obrigação de compliance — foi construído por necessidade de gestão.</p>
+    </div>
+    <div class="about-card">
+      <div class="about-name">Hack Tech Farm</div>
+      <div class="about-role">Tecnologia · SST · Previdenciário</div>
+      <div class="about-bio">Desenvolvemos soluções onde tecnologia e regulação se encontram. O Radar Previdenciário é nossa solução de estreia no mercado de gestão ocupacional com IA — construída do zero, em produção, pronta para escalar.</div>
+      <div class="about-tag">Porto Alegre, RS · Brasil</div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA FINAL -->
+<section class="cta-section">
+  <div class="reveal">
+    <h2>Pronto para ver onde<br>sua empresa está perdendo?</h2>
+    <p>Acesse agora. Sem instalação, sem contrato — comece em minutos.</p>
+    <a href="https://radarprevi.com.br" class="btn-primary" target="_blank">Acessar o Radar Previdenciário →</a>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-logo">Radar Previdenciário</div>
+  <div class="footer-copy">© 2026 Hack Tech Farm · Todos os direitos reservados</div>
+  <a href="https://radarprevi.com.br" class="footer-link">radarprevi.com.br →</a>
+</footer>
+
+<script>
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach((e, i) => {
+    if (e.isIntersecting) {
+      setTimeout(() => e.target.classList.add('in'), i * 60);
+      observer.unobserve(e.target);
+    }
+  });
+}, { threshold: 0.1 });
+document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+</script>
+</body>
+</html>
