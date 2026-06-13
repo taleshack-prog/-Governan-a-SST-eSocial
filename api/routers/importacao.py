@@ -33,13 +33,10 @@ CAMPOS_TRABALHADOR = {
     "setor":           "Setor, departamento ou área",
     "matricula":       "Matrícula interna da empresa",
     "data_admissao":   "Data de admissão ou contratação",
-    "ctps_numero":     "Número da CTPS (Carteira de Trabalho)",
-    "ctps_serie":      "Série da CTPS",
-    "ctps_uf":         "UF da CTPS",
     "ges":             "GES — Grupo de Exposição Similar",
 }
 
-CAMPOS_SENSIVEIS_PADRAO = ["cpf", "pis_pasep", "ctps_numero", "data_nascimento"]
+CAMPOS_SENSIVEIS_PADRAO = ["cpf", "pis_pasep", "data_nascimento"]
 
 
 def limpar_cpf(cpf: str) -> str:
@@ -270,9 +267,6 @@ async def confirmar_importacao(
                     data_nascimento=limpar_data(registro.get("data_nascimento")) if "data_nascimento" not in data.campos_sensiveis else None,
                     sexo=limpar_sexo(registro.get("sexo")),
                     pis_pasep=registro.get("pis_pasep") if "pis_pasep" not in data.campos_sensiveis else None,
-                    ctps_numero=registro.get("ctps_numero") if "ctps_numero" not in data.campos_sensiveis else None,
-                    ctps_serie=registro.get("ctps_serie"),
-                    ctps_uf=registro.get("ctps_uf"),
                 )
                 db.add(trab)
                 importados += 1
