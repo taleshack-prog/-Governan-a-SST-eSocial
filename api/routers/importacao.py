@@ -179,14 +179,8 @@ async def analisar_arquivo(
     campos_mapeados = {k: v for k, v in mapeamento.items() if v and v != "null"}
     campos_nao_mapeados = [c for c in colunas_originais if c not in campos_mapeados]
 
-    import redis, pickle
-    redis_url = os.getenv("REDIS_URL", "redis://redis:6379")
-    r = redis.from_url(redis_url)
     session_id = str(uuid.uuid4())
-    r.setex(f"import:{session_id}", 3600, pickle.dumps({
-        "conteudo": conteudo,
-        "nome": arquivo.filename,
-    }))
+    _IMPORT_SESSIONS[session_id] = {"conteudo": conteudo, "nome": arquivo.filename}
 
     return {
         "total_linhas": total_linhas,
@@ -216,14 +210,10 @@ async def confirmar_importacao(
     """Etapa 2: Confirma e importa os dados para o banco."""
     await set_tenant(db, current_user.empresa_id)
 
-    # Recuperar arquivo do Redis
-    import redis, pickle
-    redis_url = os.getenv("REDIS_URL", "redis://redis:6379")
-    r = redis.from_url(redis_url)
-    cached = r.get(f"import:{data.session_id}")
-    if not cached:
+    # Recuperar arquivo da sessão em memória
+    cached_data = _IMPORT_SESSIONS.get(data.session_id)
+    if not cached_data:
         raise HTTPException(400, "Sessão expirada. Faça o upload novamente.")
-    cached_data = pickle.loads(cached)
     conteudo = cached_data["conteudo"]
     nome = cached_data["nome"].lower()
     try:
