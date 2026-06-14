@@ -52,7 +52,7 @@ export const documentosApi = {
     apiClient.post("/documentos/upload/", formData, {
       headers: { "Content-Type": "multipart/form-data" },
     }),
-  validar: (id: string) => apiClient.post(`/documentos/${id}/validar/`),
+  validar: (id: string) => apiClient.post(`/documentos/${id}/validar`),
 };
 
 export const trabalhadoresApi = {
