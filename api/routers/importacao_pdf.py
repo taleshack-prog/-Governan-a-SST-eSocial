@@ -179,12 +179,15 @@ async def confirmar_ltcat(
     dados = await analisar_ltcat_ia(texto)
 
     # Criar documento técnico
+    # Reler texto para salvar no documento
+    doc_texto = extrair_texto_pdf(conteudo)
+
     doc = DocumentoTecnico(
         id=uuid.uuid4(),
         empresa_id=current_user.empresa_id,
         tipo="LTCAT",
         titulo=dados.get("titulo") or f"LTCAT — {dados.get('empresa', 'Empresa')}",
-        descricao=dados.get("observacoes"),
+        descricao=doc_texto,  # Salvar texto completo para validação IA
         data_emissao=parse_data(dados.get("data_emissao")) or date.today(),
         data_validade=parse_data(dados.get("data_validade")),
         responsavel_tecnico_nome=dados.get("responsavel_tecnico", {}).get("nome"),
