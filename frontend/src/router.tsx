@@ -25,6 +25,7 @@ import RadarFinanceiro from "./pages/RadarFinanceiro";
 import Inconsistencias from "./pages/Inconsistencias";
 import Tendencias from "./pages/Tendencias";
 import Importacao from "./pages/Importacao";
+import ImportacaoPDF from "./pages/ImportacaoPDF";
 
 export const router = createBrowserRouter([
   {
@@ -52,6 +53,7 @@ export const router = createBrowserRouter([
       { path: "inconsistencias",    element: <Inconsistencias /> },
       { path: "tendencias",          element: <Tendencias /> },
       { path: "importacao",          element: <Importacao /> },
+      { path: "importacao-pdf",      element: <ImportacaoPDF /> },
       { path: "cat",            element: <Cat /> },
       { path: "validacoes",     element: <ValidacoesIA /> },
       { path: "auditoria",      element: <Auditoria /> },

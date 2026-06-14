@@ -7,7 +7,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, FileText, Users, ShieldAlert,
   Stethoscope, AlertOctagon, Brain, ScrollText,
-  LogOut, ChevronRight, Activity, HeartPulse, Radar, ClipboardList, DollarSign, UserCog, BriefcaseMedical, Building2, TrendingDown, Upload,
+  LogOut, ChevronRight, Activity, HeartPulse, Radar, ClipboardList, DollarSign, UserCog, BriefcaseMedical, Building2, TrendingDown, Upload, FileText,
 } from "lucide-react";
 import { useAuthStore } from "../store/authStore";
 
@@ -24,6 +24,7 @@ const NAV_ITEMS = [
   { path: "/inconsistencias",     label: "Inconsistências",   icon: ShieldAlert },
   { path: "/tendencias",          label: "Tendências",        icon: Activity },
   { path: "/importacao",          label: "Importar Dados",    icon: Upload },
+  { path: "/importacao-pdf",      label: "Importar LTCAT",    icon: FileText },
   { path: "/painel-gestor",     label: "Painel do Gestor",  icon: UserCog },
   { path: "/afastamentos-rh",   label: "Afastamentos RH",   icon: BriefcaseMedical },
   { path: "/ppp",           label: "PPP Digital",     icon: ClipboardList },
