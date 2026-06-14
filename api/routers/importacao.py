@@ -22,6 +22,9 @@ from api.config import settings
 
 router = APIRouter()
 
+# Sessões de importação em memória (TTL implícito por restart)
+_IMPORT_SESSIONS: dict = {}
+
 # Campos do sistema com descrições para a IA mapear
 CAMPOS_TRABALHADOR = {
     "nome":            "Nome completo do trabalhador",
@@ -176,7 +179,8 @@ async def analisar_arquivo(
     campos_nao_mapeados = [c for c in colunas_originais if c not in campos_mapeados]
 
     import redis, pickle
-    r = redis.from_url("redis://redis:6379")
+    redis_url = os.getenv("REDIS_URL", "redis://redis:6379")
+    r = redis.from_url(redis_url)
     session_id = str(uuid.uuid4())
     r.setex(f"import:{session_id}", 3600, pickle.dumps({
         "conteudo": conteudo,
@@ -213,7 +217,8 @@ async def confirmar_importacao(
 
     # Recuperar arquivo do Redis
     import redis, pickle
-    r = redis.from_url("redis://redis:6379")
+    redis_url = os.getenv("REDIS_URL", "redis://redis:6379")
+    r = redis.from_url(redis_url)
     cached = r.get(f"import:{data.session_id}")
     if not cached:
         raise HTTPException(400, "Sessão expirada. Faça o upload novamente.")
