@@ -11,6 +11,7 @@ import httpx
 import pandas as pd
 import io
 import json
+import os
 import uuid
 from datetime import datetime, date
 
