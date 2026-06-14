@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useMutation } from "@tanstack/react-query";
 import { apiClient } from "../api/client";
 import { SectionTitle } from "../components/ui";
@@ -14,6 +15,7 @@ const CAMPOS_PT: Record<string, string> = {
 const SENSIVEIS_PADRAO = ["cpf", "pis_pasep", "ctps_numero", "data_nascimento"];
 
 export default function Importacao() {
+  const queryClient = useQueryClient();
   const inputRef = useRef<HTMLInputElement>(null);
   const [etapa, setEtapa] = useState<"upload"|"preview"|"resultado">("upload");
   const [analise, setAnalise] = useState<any>(null);
@@ -36,17 +38,20 @@ export default function Importacao() {
 
   const confirmar = useMutation({
     mutationFn: async () => {
-      const fd = await arquivo!.arrayBuffer();
-      const hex = Array.from(new Uint8Array(fd)).map(b => b.toString(16).padStart(2,"0")).join("");
       return apiClient.post("/importacao/confirmar", {
-        arquivo_hex: hex,
+        session_id: analise.session_id,
         mapeamento: analise.mapeamento,
         campos_sensiveis: sensiveis,
-        nome_arquivo: arquivo!.name,
         sobrescrever_existentes: sobrescrever,
       }).then(r => r.data);
     },
-    onSuccess: (data) => { setResultado(data); setEtapa("resultado"); },
+    onSuccess: (data) => {
+      setResultado(data);
+      setEtapa("resultado");
+      queryClient.invalidateQueries({ queryKey: ["trabalhadores"] });
+      queryClient.invalidateQueries({ queryKey: ["radar-score"] });
+      queryClient.invalidateQueries({ queryKey: ["inconsistencias"] });
+    },
   });
 
   const handleFile = (file: File) => {

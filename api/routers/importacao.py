@@ -175,6 +175,14 @@ async def analisar_arquivo(
     campos_mapeados = {k: v for k, v in mapeamento.items() if v and v != "null"}
     campos_nao_mapeados = [c for c in colunas_originais if c not in campos_mapeados]
 
+    import redis, pickle
+    r = redis.from_url("redis://redis:6379")
+    session_id = str(uuid.uuid4())
+    r.setex(f"import:{session_id}", 3600, pickle.dumps({
+        "conteudo": conteudo,
+        "nome": arquivo.filename,
+    }))
+
     return {
         "total_linhas": total_linhas,
         "colunas_originais": colunas_originais,
@@ -183,15 +191,14 @@ async def analisar_arquivo(
         "campos_nao_mapeados": campos_nao_mapeados,
         "campos_sensiveis": sensiveis,
         "preview": preview_linhas,
-        "arquivo_base64": conteudo.hex(),  # Para reusar na confirmação
+        "session_id": session_id,
     }
 
 
 class ConfirmarImportacao(BaseModel):
-    arquivo_hex: str
+    session_id: str
     mapeamento: Dict[str, str]
     campos_sensiveis: List[str] = CAMPOS_SENSIVEIS_PADRAO
-    nome_arquivo: str = "dados.xlsx"
     sobrescrever_existentes: bool = False
 
 
@@ -204,9 +211,15 @@ async def confirmar_importacao(
     """Etapa 2: Confirma e importa os dados para o banco."""
     await set_tenant(db, current_user.empresa_id)
 
-    # Reler arquivo do hex
-    conteudo = bytes.fromhex(data.arquivo_hex)
-    nome = data.nome_arquivo.lower()
+    # Recuperar arquivo do Redis
+    import redis, pickle
+    r = redis.from_url("redis://redis:6379")
+    cached = r.get(f"import:{data.session_id}")
+    if not cached:
+        raise HTTPException(400, "Sessão expirada. Faça o upload novamente.")
+    cached_data = pickle.loads(cached)
+    conteudo = cached_data["conteudo"]
+    nome = cached_data["nome"].lower()
     try:
         if nome.endswith(".csv"):
             df = pd.read_csv(io.BytesIO(conteudo), encoding="utf-8", dtype=str)
