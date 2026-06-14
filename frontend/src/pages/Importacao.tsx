@@ -38,11 +38,13 @@ export default function Importacao() {
 
   const confirmar = useMutation({
     mutationFn: async () => {
-      return apiClient.post("/importacao/confirmar", {
-        session_id: analise.session_id,
-        mapeamento: analise.mapeamento,
-        campos_sensiveis: sensiveis,
-        sobrescrever_existentes: sobrescrever,
+      const fd = new FormData();
+      fd.append("arquivo", arquivo!);
+      fd.append("mapeamento", JSON.stringify(analise.mapeamento));
+      fd.append("campos_sensiveis", JSON.stringify(sensiveis));
+      fd.append("sobrescrever_existentes", String(sobrescrever));
+      return apiClient.post("/importacao/confirmar-direto", fd, {
+        headers: { "Content-Type": "multipart/form-data" }
       }).then(r => r.data);
     },
     onSuccess: (data) => {

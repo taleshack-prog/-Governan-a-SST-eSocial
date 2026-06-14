@@ -296,3 +296,95 @@ async def confirmar_importacao(
                     (f" {duplicados} duplicados ignorados." if duplicados else "") +
                     (f" {len(erros)} erros." if erros else ""),
     }
+
+
+@router.post("/confirmar-direto")
+async def confirmar_direto(
+    arquivo: UploadFile = File(...),
+    mapeamento: str = "",
+    campos_sensiveis: str = "[]",
+    sobrescrever_existentes: str = "false",
+    current_user: Usuario = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Confirma importação recebendo o arquivo diretamente — sem sessão."""
+    await set_tenant(db, current_user.empresa_id)
+
+    import json as _json
+    mapeamento_dict = _json.loads(mapeamento) if mapeamento else {}
+    sensiveis = _json.loads(campos_sensiveis) if campos_sensiveis else []
+    sobrescrever = sobrescrever_existentes.lower() == "true"
+
+    conteudo = await arquivo.read()
+    nome = arquivo.filename.lower()
+    try:
+        if nome.endswith(".csv"):
+            df = pd.read_csv(io.BytesIO(conteudo), encoding="utf-8", dtype=str)
+        else:
+            df = pd.read_excel(io.BytesIO(conteudo), dtype=str)
+    except Exception as e:
+        raise HTTPException(400, f"Erro ao ler arquivo: {str(e)}")
+
+    df = df.dropna(how="all").fillna("")
+    CHUNK = 500
+    importados = 0
+    erros = []
+    duplicados = 0
+
+    for chunk_start in range(0, len(df), CHUNK):
+        chunk = df.iloc[chunk_start:chunk_start + CHUNK]
+        for idx, row in chunk.iterrows():
+            try:
+                registro = {}
+                for col_orig, campo in mapeamento_dict.items():
+                    if campo and campo != "null":
+                        registro[campo] = str(row.get(col_orig, "")).strip() or None
+
+                nome_val = registro.get("nome")
+                if not nome_val:
+                    erros.append({"linha": idx + 2, "erro": "Nome obrigatório"})
+                    continue
+
+                cpf_val = limpar_cpf(registro.get("cpf", ""))
+                if cpf_val and not sobrescrever:
+                    exist = await db.execute(
+                        select(Trabalhador).where(
+                            Trabalhador.empresa_id == current_user.empresa_id,
+                            Trabalhador.cpf == cpf_val
+                        )
+                    )
+                    if exist.scalar_one_or_none():
+                        duplicados += 1
+                        continue
+
+                trab = Trabalhador(
+                    id=uuid.uuid4(),
+                    empresa_id=current_user.empresa_id,
+                    nome=nome_val,
+                    cpf=cpf_val or None,
+                    cargo=registro.get("cargo"),
+                    setor=registro.get("setor"),
+                    matricula=registro.get("matricula"),
+                    ges=registro.get("ges"),
+                    data_admissao=limpar_data(registro.get("data_admissao")),
+                    data_nascimento=limpar_data(registro.get("data_nascimento")),
+                    sexo=limpar_sexo(registro.get("sexo")),
+                    pis_pasep=registro.get("pis_pasep"),
+                )
+                db.add(trab)
+                importados += 1
+            except Exception as e:
+                erros.append({"linha": idx + 2, "erro": str(e)})
+
+        await db.commit()
+
+    return {
+        "importados": importados,
+        "duplicados": duplicados,
+        "erros": erros[:20],
+        "total_erros": len(erros),
+        "sucesso": importados > 0,
+        "mensagem": f"{importados} trabalhadores importados com sucesso." +
+                    (f" {duplicados} duplicados ignorados." if duplicados else "") +
+                    (f" {len(erros)} erros." if erros else ""),
+    }
