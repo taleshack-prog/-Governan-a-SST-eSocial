@@ -33,7 +33,7 @@ def extrair_texto_pdf(conteudo: bytes) -> str:
         texto += pagina.get_text()
     doc.close()
     # Limitar para não estourar tokens da IA
-    return texto[:12000]
+    return texto[:30000]
 
 
 async def analisar_ltcat_ia(texto: str) -> dict:
