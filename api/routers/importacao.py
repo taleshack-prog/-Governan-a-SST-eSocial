@@ -159,7 +159,6 @@ async def importar_registros(df, mapeamento, empresa_id, sobrescrever, db):
                     data_nascimento=limpar_data(reg.get("data_nascimento")),
                     sexo=limpar_sexo(reg.get("sexo")),
                     pis_pasep=reg.get("pis_pasep"),
-                    salario_base=limpar_salario(reg.get("salario")),
                 )
                 db.add(trab)
 
