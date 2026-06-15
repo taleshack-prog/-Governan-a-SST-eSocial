@@ -105,8 +105,8 @@ IMPORTANTE:
                 "Content-Type": "application/json",
             },
             json={
-                "model": "anthropic/claude-haiku-4-5",
-                "max_tokens": 2000,
+                "model": "google/gemini-flash-1.5",
+                "max_tokens": 800,
                 "messages": [{"role": "user", "content": prompt}],
             }
         )
@@ -147,7 +147,7 @@ async def analisar_ltcat_ia_completo(conteudo: bytes) -> dict:
     
     # Chunks seguintes — extrair apenas agentes nocivos
     for chunk in chunks[1:]:
-        if not any(kw in chunk.lower() for kw in ["agente", "ges", "nocivo", "ruído", "calor", "vibração", "químico"]):
+        if not any(kw in chunk.lower() for kw in ["agente", "ges", "nocivo", "ruído", "calor", "vibração", "químico", "dB", "ppm", "mg/m", "exposição", "limite"]):
             continue
         try:
             dados_chunk = await analisar_ltcat_ia_chunk(chunk)
