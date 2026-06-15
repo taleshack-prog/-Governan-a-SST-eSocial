@@ -20,6 +20,11 @@ def processar_ltcat_task(self, conteudo_hex: str, empresa_id: str, nome_arquivo:
 
     logger.info(f"Processando LTCAT para empresa {empresa_id}")
 
+    # Cache por hash — não reprocessar mesmo arquivo
+    import hashlib
+    arquivo_hash = hashlib.md5(conteudo_hex[:1000].encode()).hexdigest()[:16]
+    cache_key = f"ltcat_cache:{empresa_id}:{arquivo_hash}"
+
     try:
         # Importar dependências dentro da task
         from api.routers.importacao_pdf import (
