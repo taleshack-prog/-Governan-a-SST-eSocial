@@ -32,11 +32,28 @@ def extrair_texto_pdf(conteudo: bytes) -> str:
     for pagina in doc:
         texto += pagina.get_text()
     doc.close()
-    # Limitar para não estourar tokens da IA
     return texto[:30000]
 
+def extrair_chunks_pdf(conteudo: bytes) -> list:
+    """Extrai texto do PDF em chunks de páginas para processar LTCATs longos."""
+    doc = fitz.open(stream=conteudo, filetype="pdf")
+    chunks = []
+    chunk_atual = ""
+    for i, pagina in enumerate(doc):
+        texto_pag = pagina.get_text()
+        if len(chunk_atual) + len(texto_pag) > 12000:
+            if chunk_atual:
+                chunks.append(chunk_atual)
+            chunk_atual = texto_pag
+        else:
+            chunk_atual += texto_pag
+    if chunk_atual:
+        chunks.append(chunk_atual)
+    doc.close()
+    return chunks
 
-async def analisar_ltcat_ia(texto: str) -> dict:
+
+async def analisar_ltcat_ia_chunk(texto: str) -> dict:
     """Usa IA para extrair dados estruturados do LTCAT."""
     prompt = f"""Você é especialista em SST e eSocial brasileiro.
 
@@ -112,6 +129,48 @@ def parse_data(valor: str) -> Optional[date]:
         return None
 
 
+
+
+async def analisar_ltcat_ia(texto: str) -> dict:
+    """Analisa LTCAT — usa chunk único."""
+    return await analisar_ltcat_ia_chunk(texto)
+
+
+async def analisar_ltcat_ia_completo(conteudo: bytes) -> dict:
+    """Analisa LTCAT longo processando em múltiplos chunks e agregando agentes."""
+    chunks = extrair_chunks_pdf(conteudo)
+    
+    # Primeiro chunk — extrair metadados gerais
+    dados_base = await analisar_ltcat_ia_chunk(chunks[0] if chunks else "")
+    todos_agentes = list(dados_base.get("agentes_nocivos", []))
+    todos_setores = list(dados_base.get("setores", []))
+    
+    # Chunks seguintes — extrair apenas agentes nocivos
+    for chunk in chunks[1:]:
+        if not any(kw in chunk.lower() for kw in ["agente", "ges", "nocivo", "ruído", "calor", "vibração", "químico"]):
+            continue
+        try:
+            dados_chunk = await analisar_ltcat_ia_chunk(chunk)
+            agentes_chunk = dados_chunk.get("agentes_nocivos", [])
+            setores_chunk = dados_chunk.get("setores", [])
+            todos_agentes.extend(agentes_chunk)
+            todos_setores.extend(setores_chunk)
+        except:
+            continue
+    
+    # Remover duplicatas por descrição
+    vistos = set()
+    agentes_unicos = []
+    for ag in todos_agentes:
+        key = ag.get("descricao", "")[:50].lower()
+        if key not in vistos:
+            vistos.add(key)
+            agentes_unicos.append(ag)
+    
+    dados_base["agentes_nocivos"] = agentes_unicos
+    dados_base["setores"] = list(set(todos_setores))
+    return dados_base
+
 @router.post("/ltcat/analisar")
 async def analisar_ltcat(
     arquivo: UploadFile = File(...),
@@ -140,7 +199,7 @@ async def analisar_ltcat(
 
     # Analisar com IA
     try:
-        dados = await analisar_ltcat_ia(texto)
+        dados = await analisar_ltcat_ia_completo(conteudo)
     except Exception as e:
         raise HTTPException(500, f"Erro na análise IA: {str(e)}")
 
@@ -176,7 +235,7 @@ async def confirmar_ltcat(
 
     conteudo = await arquivo.read()
     texto = extrair_texto_pdf(conteudo)
-    dados = await analisar_ltcat_ia(texto)
+    dados = await analisar_ltcat_ia_completo(conteudo)
 
     # Criar documento técnico
     # Reler texto para salvar no documento
