@@ -53,3 +53,40 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 async def set_tenant(session: AsyncSession, empresa_id: str) -> None:
     tenant_id = str(empresa_id)
     await session.execute(text(f"SET LOCAL app.current_tenant_id = '{tenant_id}'"))
+
+
+# Sessão síncrona para uso em tasks Celery
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, Session
+from contextlib import contextmanager
+
+def _build_sync_engine():
+    url = SAUrl.create(
+        drivername="postgresql",
+        username=settings.postgres_user,
+        password=settings.postgres_password,
+        host=settings.postgres_host,
+        port=settings.postgres_port,
+        database=settings.postgres_db,
+    )
+    return create_engine(
+        url,
+        pool_size=3,
+        max_overflow=5,
+        pool_pre_ping=True,
+        connect_args={"sslmode": "require"} if settings.app_env == "production" else {},
+    )
+
+_sync_engine = _build_sync_engine()
+SyncSessionLocal = sessionmaker(bind=_sync_engine, expire_on_commit=False)
+
+@contextmanager
+def get_sync_session() -> Session:
+    session = SyncSessionLocal()
+    try:
+        yield session
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()

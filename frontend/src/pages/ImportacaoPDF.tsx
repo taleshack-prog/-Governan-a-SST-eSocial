@@ -11,6 +11,9 @@ export default function ImportacaoPDF() {
   const [resultado, setResultado] = useState<any>(null);
   const [arquivo, setArquivo] = useState<File|null>(null);
 
+  const [jobId, setJobId] = useState<string|null>(null);
+  const [polling, setPolling] = useState(false);
+
   const analisar = useMutation({
     mutationFn: async (file: File) => {
       const fd = new FormData();
@@ -19,7 +22,31 @@ export default function ImportacaoPDF() {
         headers: { "Content-Type": "multipart/form-data" }
       }).then(r => r.data);
     },
-    onSuccess: (data) => { setAnalise(data); setEtapa("preview"); },
+    onSuccess: (data) => {
+      if (data.job_id) {
+        setJobId(data.job_id);
+        setPolling(true);
+        // Polling a cada 5 segundos
+        const interval = setInterval(async () => {
+          try {
+            const status = await apiClient.get(`/importacao/ltcat/status/${data.job_id}`).then(r => r.data);
+            if (status.status === "concluido") {
+              clearInterval(interval);
+              setPolling(false);
+              setResultado(status);
+              setEtapa("resultado");
+            } else if (status.status === "erro") {
+              clearInterval(interval);
+              setPolling(false);
+              analisar.reset();
+            }
+          } catch {}
+        }, 5000);
+      } else {
+        setAnalise(data);
+        setEtapa("preview");
+      }
+    },
   });
 
   const confirmar = useMutation({

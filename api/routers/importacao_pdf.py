@@ -177,7 +177,7 @@ async def analisar_ltcat(
     current_user: Usuario = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Etapa 1: Lê o PDF do LTCAT e extrai dados com IA."""
+    """Inicia processamento do LTCAT em background via Celery."""
     await set_tenant(db, current_user.empresa_id)
 
     nome = arquivo.filename.lower()
@@ -188,40 +188,46 @@ async def analisar_ltcat(
     if len(conteudo) > 20 * 1024 * 1024:
         raise HTTPException(400, "Arquivo muito grande. Máximo 20MB")
 
-    # Extrair texto do PDF
     try:
         texto = extrair_texto_pdf(conteudo)
     except Exception as e:
         raise HTTPException(400, f"Erro ao ler PDF: {str(e)}")
 
     if len(texto.strip()) < 100:
-        raise HTTPException(400, "PDF sem texto extraível. Pode ser digitalizado — use OCR antes.")
+        raise HTTPException(400, "PDF sem texto extraível.")
 
-    # Analisar com IA
-    try:
-        dados = await analisar_ltcat_ia_completo(conteudo)
-    except Exception as e:
-        raise HTTPException(500, f"Erro na análise IA: {str(e)}")
-
-    # Buscar trabalhadores para cruzamento
-    trab_r = await db.execute(
-        select(Trabalhador).where(Trabalhador.empresa_id == current_user.empresa_id)
+    from api.tasks.ai_tasks import processar_ltcat_task
+    task = processar_ltcat_task.delay(
+        conteudo.hex(),
+        str(current_user.empresa_id),
+        arquivo.filename,
     )
-    trabalhadores = trab_r.scalars().all()
-    setores_empresa = list({t.setor for t in trabalhadores if t.setor})
-
-    # Contar agentes encontrados
-    agentes = dados.get("agentes_nocivos", [])
 
     return {
-        "dados_extraidos": dados,
-        "total_agentes": len(agentes),
-        "setores_encontrados": dados.get("setores", []),
-        "setores_empresa": setores_empresa,
-        "texto_extraido_chars": len(texto),
-        "arquivo_nome": arquivo.filename,
-        "preview_agentes": agentes[:5],
+        "job_id": task.id,
+        "status": "processando",
+        "mensagem": f"LTCAT enviado para processamento em background.",
+        "chars_extraidos": len(texto),
     }
+
+
+@router.get("/ltcat/status/{job_id}")
+async def status_ltcat(
+    job_id: str,
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Consulta status do processamento do LTCAT."""
+    from api.tasks.celery_app import app as celery_app
+    from celery.result import AsyncResult
+    result = AsyncResult(job_id, app=celery_app)
+    if result.state == "PENDING":
+        return {"status": "processando", "progresso": "Aguardando worker..."}
+    elif result.state == "SUCCESS":
+        return {"status": "concluido", **result.result}
+    elif result.state == "FAILURE":
+        return {"status": "erro", "erro": str(result.result)}
+    else:
+        return {"status": result.state.lower()}
 
 
 @router.post("/ltcat/confirmar")
