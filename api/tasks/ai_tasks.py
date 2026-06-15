@@ -56,9 +56,9 @@ def processar_ltcat_task(self, conteudo_hex: str, empresa_id: str, nome_arquivo:
                 descricao=doc_texto,
                 data_emissao=parse_data(dados.get("data_emissao")) or date.today(),
                 data_validade=parse_data(dados.get("data_validade")),
-                responsavel_tecnico_nome=dados.get("responsavel_tecnico", {}).get("nome"),
-                responsavel_tecnico_registro=dados.get("responsavel_tecnico", {}).get("registro"),
-                responsavel_tecnico_conselho=dados.get("responsavel_tecnico", {}).get("conselho"),
+                responsavel_tecnico_nome=dados.get("responsavel_tecnico", {}).get("nome") if isinstance(dados.get("responsavel_tecnico"), dict) else None,
+                responsavel_tecnico_registro=dados.get("responsavel_tecnico", {}).get("registro") if isinstance(dados.get("responsavel_tecnico"), dict) else None,
+                responsavel_tecnico_conselho=dados.get("responsavel_tecnico", {}).get("conselho") if isinstance(dados.get("responsavel_tecnico"), dict) else None,
                 status="ativo",
                 metadata_doc={"cnpj": dados.get("cnpj"), "setores": dados.get("setores", [])},
             )
