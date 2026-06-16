@@ -33,6 +33,7 @@ class Settings(BaseSettings):
 
     # IA
     openrouter_api_key: str = ""
+    anthropic_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     llm_model: str = "anthropic/claude-haiku-4-5"
     llm_fallback_model: str = "openai/gpt-4o-mini"

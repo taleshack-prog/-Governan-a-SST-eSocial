@@ -6,7 +6,7 @@ app = Celery(
     "sst_esocial",
     broker=settings.celery_broker_url,
     backend=settings.celery_result_backend,
-    include=["api.tasks.ai_tasks", "api.tasks.afastamento_tasks"],
+    include=["api.tasks.ai_tasks", "api.tasks.afastamento_tasks", "api.tasks.importacao_task"],
 )
 
 app.conf.beat_schedule = {

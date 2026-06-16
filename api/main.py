@@ -24,6 +24,7 @@ from api.routers.tendencias import router as tendencias_router
 from api.routers.previa import router as previa_router
 from api.routers.importacao import router as importacao_router
 from api.routers.importacao_pdf import router as importacao_pdf_router
+from api.routers.importacao_universal import router as importacao_universal_router
 from api.routers.atestados import router as atestados_router
 from api.routers import (
     auth, empresas, trabalhadores, documentos,
@@ -92,6 +93,7 @@ app.include_router(tendencias_router,      prefix=f"{API_PREFIX}/tendencias", ta
 app.include_router(previa_router,          prefix=f"{API_PREFIX}/previa", tags=["PrevIA"])
 app.include_router(importacao_router,      prefix=f"{API_PREFIX}/importacao", tags=["Importação"])
 app.include_router(importacao_pdf_router,  prefix=f"{API_PREFIX}/importacao", tags=["Importação PDF"])
+app.include_router(importacao_universal_router, prefix=f"{API_PREFIX}/importacao-universal", tags=["Importação Universal"])
 app.include_router(atestados_router,      prefix=f"{API_PREFIX}/afastamentos", tags=["Atestados"])
 app.include_router(auditoria.router,        prefix=f"{API_PREFIX}/auditoria",   tags=["Auditoria"])
 
