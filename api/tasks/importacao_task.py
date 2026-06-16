@@ -96,18 +96,26 @@ Responda SOMENTE o JSON."""
         raise self.retry(exc=e, countdown=15)
 
 
+# Mapeamento de tipos IA para tipos aceitos no banco
+TIPO_MAP = {
+    "LTCAT": "LTCAT", "PPP": "PPP", "PCMSO": "PCMSO",
+    "ATESTADO": "ASO", "ASO": "ASO", "CAT": "CAT",
+    "PGR": "PGR", "AET": "AET", "AFASTAMENTOS": "OUTRO",
+}
+
 def salvar_por_tipo(db, tipo, dados, empresa_id, nome_arquivo, conteudo):
     emp_id = uuid.UUID(empresa_id)
+    tipo_banco = TIPO_MAP.get(tipo, "OUTRO")
     if tipo == "LTCAT":
         return salvar_ltcat(db, dados, emp_id, nome_arquivo)
     elif tipo == "TRABALHADORES":
         return salvar_trabalhadores(db, dados, emp_id)
-    elif tipo == "ATESTADO":
+    elif tipo in ("ATESTADO", "ASO"):
         return salvar_doc(db, dados, emp_id, "ASO", f"Atestado — {dados.get('paciente_nome', nome_arquivo)}")
     elif tipo == "CAT":
         return salvar_cat(db, dados, emp_id)
     else:
-        return salvar_doc(db, dados, emp_id, tipo[:20], f"{tipo} — {nome_arquivo}")
+        return salvar_doc(db, dados, emp_id, tipo_banco, f"{tipo} — {nome_arquivo}")
 
 
 def salvar_ltcat(db, dados, empresa_id, nome_arquivo):
