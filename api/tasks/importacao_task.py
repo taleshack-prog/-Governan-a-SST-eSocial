@@ -81,7 +81,7 @@ Responda SOMENTE o JSON."""
 
         from api.database import get_sync_session
         with get_sync_session() as db:
-            salvos = salvar_por_tipo(db, tipo, dados, empresa_id, nome_arquivo, conteudo)
+            salvos = salvar_por_tipo(db, tipo, dados, empresa_id, nome_arquivo, conteudo, texto_completo)
 
         return {
             "status": "concluido",
@@ -103,11 +103,11 @@ TIPO_MAP = {
     "PGR": "PGR", "AET": "AET", "AFASTAMENTOS": "OUTRO",
 }
 
-def salvar_por_tipo(db, tipo, dados, empresa_id, nome_arquivo, conteudo):
+def salvar_por_tipo(db, tipo, dados, empresa_id, nome_arquivo, conteudo, texto_completo=""):
     emp_id = uuid.UUID(empresa_id)
     tipo_banco = TIPO_MAP.get(tipo, "OUTRO")
     if tipo == "LTCAT":
-        return salvar_ltcat(db, dados, emp_id, nome_arquivo)
+        return salvar_ltcat(db, dados, emp_id, nome_arquivo, conteudo, texto_completo)
     elif tipo == "TRABALHADORES":
         return salvar_trabalhadores(db, dados, emp_id)
     elif tipo in ("ATESTADO", "ASO"):
@@ -118,7 +118,7 @@ def salvar_por_tipo(db, tipo, dados, empresa_id, nome_arquivo, conteudo):
         return salvar_doc(db, dados, emp_id, tipo_banco, f"{tipo} — {nome_arquivo}")
 
 
-def salvar_ltcat(db, dados, empresa_id, nome_arquivo):
+def salvar_ltcat(db, dados, empresa_id, nome_arquivo, conteudo=None, texto_completo=""):
     from api.models.documento import DocumentoTecnico
     from api.models.agente_nocivo import AgenteNocivo
     from api.models.trabalhador import Trabalhador
@@ -128,9 +128,22 @@ def salvar_ltcat(db, dados, empresa_id, nome_arquivo):
     if isinstance(resp, list):
         resp = resp[0] if resp else {}
 
+    # Extrair texto completo para salvar no documento (usado pela validação IA)
+    import fitz as _fitz
+    try:
+        _doc = _fitz.open(stream=conteudo_bytes, filetype="pdf") if hasattr(conteudo_bytes, '__len__') else None
+        texto_doc = ""
+        if _doc:
+            for _p in _doc:
+                texto_doc += _p.get_text()
+            _doc.close()
+    except:
+        texto_doc = ""
+
     doc = DocumentoTecnico(
         id=uuid.uuid4(), empresa_id=empresa_id, tipo="LTCAT",
         titulo=f"LTCAT — {dados.get('empresa', nome_arquivo)}",
+        descricao=texto_doc[:50000] or None,
         data_emissao=parse_data(dados.get("data_emissao")) or date.today(),
         data_validade=parse_data(dados.get("data_validade")),
         responsavel_tecnico_nome=str(resp.get("nome","") or "")[:300] or None,
