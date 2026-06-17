@@ -142,7 +142,10 @@ def salvar_ltcat(db, dados, empresa_id, nome_arquivo, conteudo=None, texto_compl
 
     doc = DocumentoTecnico(
         id=uuid.uuid4(), empresa_id=empresa_id, tipo="LTCAT",
-        titulo=f"LTCAT — {dados.get('empresa', nome_arquivo)}",
+        _empresa = dados.get('empresa') or dados.get('razao_social') or nome_arquivo
+        if isinstance(_empresa, dict):
+            _empresa = _empresa.get('razao_social') or nome_arquivo
+        titulo=f"LTCAT — {_empresa}",
         descricao=texto_doc[:50000] or None,
         data_emissao=parse_data(dados.get("data_emissao")) or date.today(),
         data_validade=parse_data(dados.get("data_validade")),
