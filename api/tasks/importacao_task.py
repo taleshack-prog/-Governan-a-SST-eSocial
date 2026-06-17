@@ -111,7 +111,7 @@ def salvar_por_tipo(db, tipo, dados, empresa_id, nome_arquivo, conteudo, texto_c
     elif tipo == "TRABALHADORES":
         return salvar_trabalhadores(db, dados, emp_id)
     elif tipo in ("ATESTADO", "ASO"):
-        return salvar_doc(db, dados, emp_id, "ASO", f"Atestado — {dados.get('paciente_nome', nome_arquivo)}")
+        return salvar_atestado_completo(db, dados, emp_id, nome_arquivo)
     elif tipo == "CAT":
         return salvar_cat(db, dados, emp_id)
     else:
@@ -242,6 +242,64 @@ def salvar_doc(db, dados, empresa_id, tipo, titulo):
     db.add(doc)
     db.commit()
     return {"documento_id": str(doc.id), "tipo": tipo}
+
+
+def salvar_atestado_completo(db, dados, empresa_id, nome_arquivo):
+    from api.models.documento import DocumentoTecnico
+    from api.models.trabalhador import Trabalhador
+    from api.models.afastamento import Afastamento
+    from sqlalchemy import select
+
+    trab = None
+    cpf = "".join(c for c in str(dados.get("paciente_cpf","") or "") if c.isdigit())
+    nome_pac = str(dados.get("paciente_nome","") or "").strip()
+
+    if cpf:
+        trab = db.execute(select(Trabalhador).where(
+            Trabalhador.empresa_id==empresa_id, Trabalhador.cpf==cpf
+        )).scalar_one_or_none()
+
+    if not trab and nome_pac:
+        for t in db.execute(select(Trabalhador).where(Trabalhador.empresa_id==empresa_id)).scalars().all():
+            if nome_pac.lower() in t.nome.lower() or t.nome.lower() in nome_pac.lower():
+                trab = t
+                break
+
+    doc = DocumentoTecnico(
+        id=uuid.uuid4(), empresa_id=empresa_id, tipo="ASO",
+        titulo=f"Atestado — {nome_pac or nome_arquivo}",
+        responsavel_tecnico_nome=str(dados.get("medico_nome","") or "")[:300] or None,
+        responsavel_tecnico_registro=str(dados.get("medico_crm","") or "")[:50] or None,
+        responsavel_tecnico_conselho="CRM",
+        data_emissao=parse_data(dados.get("data_emissao")) or date.today(),
+        status="ativo", metadata_doc=dados,
+    )
+    db.add(doc)
+    db.flush()
+
+    afastamento_id = None
+    dias = dados.get("dias_afastamento")
+    if trab and dias:
+        try:
+            from datetime import timedelta
+            data_inicio = parse_data(dados.get("data_emissao")) or date.today()
+            data_fim = data_inicio + timedelta(days=int(str(dias).split()[0]))
+            af = Afastamento(
+                id=uuid.uuid4(), empresa_id=empresa_id, trabalhador_id=trab.id,
+                data_inicio=data_inicio, data_fim=data_fim,
+                motivo="doenca", cid=str(dados.get("cid","") or "")[:10] or None, status="encerrado",
+            )
+            db.add(af)
+            afastamento_id = str(af.id)
+        except: pass
+
+    db.commit()
+    return {
+        "documento_id": str(doc.id), "tipo": "ATESTADO",
+        "trabalhador_vinculado": trab.nome if trab else None,
+        "afastamento_criado": afastamento_id is not None,
+        "aviso": None if trab else f"Trabalhador '{nome_pac}' não encontrado no cadastro",
+    }
 
 
 def salvar_cat(db, dados, empresa_id):
