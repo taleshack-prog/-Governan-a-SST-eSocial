@@ -332,3 +332,4 @@ def salvar_cat(db, dados, empresa_id):
     db.add(cat)
     db.commit()
     return {"cat_id": str(cat.id), "tipo": "CAT"}
+# force rebuild qua 17 jun 2026 11:54:38 -03
