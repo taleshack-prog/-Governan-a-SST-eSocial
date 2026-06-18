@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from pydantic import BaseModel
 from typing import Optional, List
-import httpx
+import anthropic
 from datetime import date
 
 from api.database import get_db, set_tenant
