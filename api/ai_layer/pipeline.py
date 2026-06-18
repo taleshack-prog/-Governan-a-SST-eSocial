@@ -155,12 +155,12 @@ Responda APENAS em JSON com a estrutura:
 
     async def _etapa_inferencia(self, prompt: str, result: PipelineResult) -> dict:
         """Chama LLM via OpenRouter."""
-        import httpx, os, json as _json
-        api_key = os.getenv("OPENROUTER_API_KEY", "")
-        if not api_key or api_key == "changeme":
+        import os, json as _json, anthropic as _anth
+        api_key = os.getenv("ANTHROPIC_API_KEY", "")
+        if not api_key:
             result.model_used = "mock/desenvolvimento"
-            return {"agentes_identificados": [], "inconsistencias": [], "alertas": ["Modo desenvolvimento: configure OPENROUTER_API_KEY"]}
-            import anthropic as _anth
+            return {"agentes_identificados": [], "inconsistencias": [], "alertas": ["Configure ANTHROPIC_API_KEY"]}
+        try:
             _cli = _anth.Anthropic(api_key=api_key)
             _msg = _cli.messages.create(model="claude-haiku-4-5", max_tokens=2048,
                 messages=[{"role": "user", "content": prompt}])
@@ -172,10 +172,9 @@ Responda APENAS em JSON com a estrutura:
                 return _json.loads(json_match.group())
             return {"agentes_identificados": [], "inconsistencias": [], "alertas": [content[:500]]}
         except Exception as e:
-            logger.error(f"Erro OpenRouter: {e}")
+            logger.error(f"Erro Anthropic: {e}")
             result.model_used = "erro"
             return {"agentes_identificados": [], "inconsistencias": [], "alertas": [f"Erro IA: {str(e)[:200]}"]}
-
     async def _etapa_anti_alucinacao(self, llm_output: dict, result: PipelineResult) -> None:
         """
         6 Barreiras Anti-Alucinação — versão flexível com normalização de códigos.
