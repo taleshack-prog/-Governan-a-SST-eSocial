@@ -275,6 +275,7 @@ Retorne APENAS JSON:
   "campos_faltantes": ["lista de campos obrigatórios ausentes"]
 }}"""
 
+    try:
         import anthropic as _anth
         _cli = _anth.Anthropic(api_key=api_key)
         _msg = _cli.messages.create(model="claude-haiku-4-5", max_tokens=1000,

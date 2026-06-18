@@ -88,7 +88,6 @@ Responda APENAS com JSON:
 Use null se não corresponder. Cada campo mapeado apenas uma vez.
 Responda SOMENTE o JSON."""
 
-    async with httpx.AsyncClient(timeout=30) as client:
     import anthropic as _anth
     _cli = _anth.Anthropic(api_key=settings.anthropic_api_key)
     _msg = _cli.messages.create(model="claude-haiku-4-5", max_tokens=800,

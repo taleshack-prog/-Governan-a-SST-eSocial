@@ -125,6 +125,7 @@ Extraia os dados e avalie a conformidade. Retorne APENAS JSON:
   "score_conformidade": 0.0
 }}"""
 
+    try:
         import anthropic as _anth
         _cli = _anth.Anthropic(api_key=api_key)
         _msg = _cli.messages.create(model="claude-haiku-4-5", max_tokens=1500,

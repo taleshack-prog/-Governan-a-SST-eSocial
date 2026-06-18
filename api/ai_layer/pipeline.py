@@ -171,8 +171,6 @@ Responda APENAS em JSON com a estrutura:
             if json_match:
                 return _json.loads(json_match.group())
             return {"agentes_identificados": [], "inconsistencias": [], "alertas": [content[:500]]}
-                    return _json.loads(json_match.group())
-                return {"agentes_identificados": [], "inconsistencias": [], "alertas": [content[:500]]}
         except Exception as e:
             logger.error(f"Erro OpenRouter: {e}")
             result.model_used = "erro"
