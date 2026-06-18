@@ -150,10 +150,15 @@ async def chat_previa(
             messages.append({"role": h["role"], "content": h["content"]})
     messages.append({"role": "user", "content": data.mensagem})
 
-    # Chamar OpenRouter
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(
-            "https://openrouter.ai/api/v1/chat/completions",
+    # Chamar Anthropic
+    import anthropic as _anthropic
+    _cliente = _anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    _msg = _cliente.messages.create(
+        model="claude-haiku-4-5",
+        max_tokens=500,
+        messages=messages,
+    )
+    resposta = _msg.content[0].text
             headers={
                 "Authorization": f"Bearer {settings.openrouter_api_key}",
                 "Content-Type": "application/json",
