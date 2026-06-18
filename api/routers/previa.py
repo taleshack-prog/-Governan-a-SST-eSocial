@@ -159,20 +159,6 @@ async def chat_previa(
         messages=messages,
     )
     resposta = _msg.content[0].text
-            headers={
-                "Authorization": f"Bearer {settings.openrouter_api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "google/gemini-2.0-flash-001",
-                "max_tokens": 400,
-                "messages": messages,
-            }
-        )
-        resp.raise_for_status()
-        result = resp.json()
-        resposta = result["choices"][0]["message"]["content"]
-
     return {
         "resposta": resposta,
         "tela": tela_desc,
