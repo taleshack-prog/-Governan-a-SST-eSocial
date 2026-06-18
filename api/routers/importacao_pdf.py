@@ -97,21 +97,12 @@ IMPORTANTE:
 - Não invente dados que não estejam no texto
 - Responda SOMENTE o JSON"""
 
-    async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {settings.openrouter_api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "google/gemini-2.0-flash-001",
-                "max_tokens": 800,
-                "messages": [{"role": "user", "content": prompt}],
-            }
-        )
-        resp.raise_for_status()
-        texto_resp = resp.json()["choices"][0]["message"]["content"].strip()
+    import anthropic as _anth
+    _cli = _anth.Anthropic(api_key=settings.anthropic_api_key)
+    _msg = _cli.messages.create(model="claude-haiku-4-5", max_tokens=800,
+        messages=[{"role": "user", "content": prompt}])
+    _msg.model_dump() if hasattr(_msg, "model_dump") else None
+    texto_resp = _msg.content[0].text.strip()
 
     if "```" in texto_resp:
         texto_resp = texto_resp.split("```")[1]
