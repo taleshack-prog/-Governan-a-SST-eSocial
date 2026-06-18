@@ -422,26 +422,13 @@ Responda APENAS em JSON:
             texto_pdf += page.get_text()
         pdf_doc.close()
 
-        response = await httpx.AsyncClient(timeout=30).post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {settings.openrouter_api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "anthropic/claude-haiku-4-5",
-                "max_tokens": 500,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": f"{prompt}\n\nCONTEÚDO DO ATESTADO:\n{texto_pdf[:3000]}"
-                    }
-                ]
-            }
+        import anthropic as _anth
+        _cli = _anth.Anthropic(api_key=settings.anthropic_api_key)
+        _msg = _cli.messages.create(
+            model="claude-haiku-4-5", max_tokens=500,
+            messages=[{"role": "user", "content": prompt + "\n\nCONTEÚDO DO ATESTADO:\n" + texto_pdf[:3000]}]
         )
-
-        resultado = response.json()
-        texto = resultado["choices"][0]["message"]["content"]
+        texto = _msg.content[0].text
 
         import json, re
         match = re.search(r'\{.*\}', texto, re.DOTALL)

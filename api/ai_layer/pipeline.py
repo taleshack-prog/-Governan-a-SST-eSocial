@@ -160,21 +160,17 @@ Responda APENAS em JSON com a estrutura:
         if not api_key or api_key == "changeme":
             result.model_used = "mock/desenvolvimento"
             return {"agentes_identificados": [], "inconsistencias": [], "alertas": ["Modo desenvolvimento: configure OPENROUTER_API_KEY"]}
-        try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                    json={"model": "anthropic/claude-haiku-4-5", "max_tokens": 2048, "messages": [{"role": "user", "content": prompt}]}
-                )
-                data = resp.json()
-                result.model_used = data.get("model", "claude-haiku")
-                result.tokens_used = data.get("usage", {}).get("total_tokens", 0)
-                content = data["choices"][0]["message"]["content"]
-                # Tentar parsear JSON da resposta
-                import re
-                json_match = re.search(r"\{.*\}", content, re.DOTALL)
-                if json_match:
+            import anthropic as _anth
+            _cli = _anth.Anthropic(api_key=api_key)
+            _msg = _cli.messages.create(model="claude-haiku-4-5", max_tokens=2048,
+                messages=[{"role": "user", "content": prompt}])
+            content = _msg.content[0].text
+            result.model_used = "claude-haiku-4-5"
+            import re
+            json_match = re.search(r"\{.*\}", content, re.DOTALL)
+            if json_match:
+                return _json.loads(json_match.group())
+            return {"agentes_identificados": [], "inconsistencias": [], "alertas": [content[:500]]}
                     return _json.loads(json_match.group())
                 return {"agentes_identificados": [], "inconsistencias": [], "alertas": [content[:500]]}
         except Exception as e:

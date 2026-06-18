@@ -275,16 +275,16 @@ Retorne APENAS JSON:
   "campos_faltantes": ["lista de campos obrigatórios ausentes"]
 }}"""
 
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={"model": "anthropic/claude-haiku-4-5", "max_tokens": 1000,
-                      "messages": [{"role": "user", "content": prompt}]}
-            )
-            data = resp.json()
-            content = data["choices"][0]["message"]["content"]
+        import anthropic as _anth
+        _cli = _anth.Anthropic(api_key=api_key)
+        _msg = _cli.messages.create(model="claude-haiku-4-5", max_tokens=1000,
+            messages=[{"role": "user", "content": prompt}])
+        content = _msg.content[0].text
+        json_match = re.search(r'\{.*\}', content, re.DOTALL)
+        if json_match:
+            result = json.loads(json_match.group())
+            result["completude"] = completude
+            return result
             json_match = re.search(r'\{.*\}', content, re.DOTALL)
             if json_match:
                 result = json.loads(json_match.group())

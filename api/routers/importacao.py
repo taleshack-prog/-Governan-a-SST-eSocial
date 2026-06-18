@@ -89,14 +89,11 @@ Use null se não corresponder. Cada campo mapeado apenas uma vez.
 Responda SOMENTE o JSON."""
 
     async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={"Authorization": f"Bearer {settings.openrouter_api_key}", "Content-Type": "application/json"},
-            json={"model": "anthropic/claude-haiku-4-5", "max_tokens": 800,
-                  "messages": [{"role": "user", "content": prompt}]}
-        )
-        resp.raise_for_status()
-        texto = resp.json()["choices"][0]["message"]["content"].strip()
+    import anthropic as _anth
+    _cli = _anth.Anthropic(api_key=settings.anthropic_api_key)
+    _msg = _cli.messages.create(model="claude-haiku-4-5", max_tokens=800,
+        messages=[{"role": "user", "content": prompt}])
+    texto = _msg.content[0].text.strip()
 
     if "```" in texto:
         texto = texto.split("```")[1]

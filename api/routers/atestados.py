@@ -125,15 +125,14 @@ Extraia os dados e avalie a conformidade. Retorne APENAS JSON:
   "score_conformidade": 0.0
 }}"""
 
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={"model": "anthropic/claude-haiku-4-5", "max_tokens": 1500,
-                      "messages": [{"role": "user", "content": prompt}]}
-            )
-            data = resp.json()
+        import anthropic as _anth
+        _cli = _anth.Anthropic(api_key=api_key)
+        _msg = _cli.messages.create(model="claude-haiku-4-5", max_tokens=1500,
+            messages=[{"role": "user", "content": prompt}])
+        content = _msg.content[0].text
+        json_match = re.search(r'\{.*\}', content, re.DOTALL)
+        if json_match:
+            return json.loads(json_match.group())
             content = data["choices"][0]["message"]["content"]
             json_match = re.search(r'\{.*\}', content, re.DOTALL)
             if json_match:
