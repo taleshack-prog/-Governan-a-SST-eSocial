@@ -177,3 +177,29 @@ async def solicitar_validacao(
         "grade": val.grade_label,
         "confidence": val.confidence_score,
     }
+
+
+@router.delete("/{doc_id}")
+async def deletar_documento(
+    doc_id: UUID,
+    current_user: Usuario = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove documento e seus dados vinculados."""
+    await set_tenant(db, current_user.empresa_id)
+
+    doc = await db.get(DocumentoTecnico, doc_id)
+    if not doc or doc.empresa_id != current_user.empresa_id:
+        raise HTTPException(404, "Documento não encontrado")
+
+    # Remover validações e agentes vinculados
+    from sqlalchemy import delete as sa_delete
+    from api.models.agente_nocivo import AgenteNocivo
+    from api.models.validacao import AiValidacao
+
+    await db.execute(sa_delete(AiValidacao).where(AiValidacao.documento_id == doc_id))
+    await db.execute(sa_delete(AgenteNocivo).where(AgenteNocivo.documento_origem_id == doc_id))
+    await db.delete(doc)
+    await db.commit()
+
+    return {"mensagem": "Documento removido com sucesso", "id": str(doc_id)}

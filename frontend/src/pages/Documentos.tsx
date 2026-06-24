@@ -17,7 +17,16 @@ export function Documentos() {
 
   const { data: documentos = [], isLoading } = useDocumentos(filtroTipo || undefined);
   const uploadMutation = useUploadDocumento();
+  const queryClient = useQueryClient();
   const validarMutation = useSolicitarValidacao();
+  const deletarMutation = useMutation({
+    mutationFn: (id: string) => apiClient.delete(`/documentos/${id}`).then(r => r.data),
+    onSuccess: () => {
+      toast.success("Documento removido!");
+      queryClient.invalidateQueries({ queryKey: ["documentos"] });
+    },
+    onError: () => toast.error("Erro ao remover documento."),
+  });
 
   // Form state
   const [form, setForm] = useState({ tipo: "LTCAT", titulo: "", data_emissao: "", responsavel_nome: "" });
