@@ -145,10 +145,11 @@ async def solicitar_validacao(
         sys.path.insert(0, "/app")
         from ai_layer.pipeline import SSTAIPipeline
         pipeline = SSTAIPipeline()
-        # Usar texto extraído do PDF se disponível
-        texto_pdf = doc.metadata_doc.get("texto_extraido", "") if doc.metadata_doc else ""
-        if texto_pdf and len(texto_pdf) > 100:
-            texto = texto_pdf
+        # Usar texto do campo descricao (salvo na importação)
+        if doc.descricao and len(doc.descricao) > 100:
+            texto = doc.descricao
+        elif doc.metadata_doc and doc.metadata_doc.get("texto_extraido"):
+            texto = doc.metadata_doc["texto_extraido"]
         else:
             texto = f"Documento: {doc.titulo}\nTipo: {doc.tipo}\nResponsável: {doc.responsavel_tecnico_nome}\nEmpresa: empresa_id={doc.empresa_id}"
         pipe_result = await pipeline.run(str(doc_id), str(current_user.empresa_id), texto, doc.tipo)
