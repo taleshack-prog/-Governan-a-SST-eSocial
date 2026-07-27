@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from pydantic import BaseModel
 from typing import Optional, List
-import anthropic
+import httpx
 from datetime import date
 
 from api.database import get_db, set_tenant
@@ -142,23 +142,43 @@ async def chat_previa(
         base_normativa=base_norm,
     )
 
-    # Montar histórico com system prompt embutido
-    messages = [{"role": "user", "content": "[CONTEXTO DO SISTEMA]\n" + system + "\n[FIM DO CONTEXTO]"}]
-    messages.append({"role": "assistant", "content": "Entendido. Estou pronto para ajudar como PrevIA."})
+    # Montar histórico (system vai como mensagem role="system" nativa)
+    messages = [{"role": "system", "content": system}]
     for h in (data.historico or [])[-6:]:
-        if h.get("role") in ["user", "assistant"]:
+        if h.get("role") in ["user", "assistant"] and h.get("content"):
             messages.append({"role": h["role"], "content": h["content"]})
     messages.append({"role": "user", "content": data.mensagem})
 
-    # Chamar Anthropic
-    import anthropic as _anthropic
-    _cliente = _anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    _msg = _cliente.messages.create(
-        model="claude-haiku-4-5",
-        max_tokens=500,
-        messages=messages,
-    )
-    resposta = _msg.content[0].text
+    import os
+    openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
+    if not openrouter_key:
+        return {
+            "resposta": "IA indisponível: OPENROUTER_API_KEY não configurada no servidor.",
+            "tela": tela_desc,
+            "perfil": current_user.perfil,
+        }
+
+    # Chamar OpenRouter
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {openrouter_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "anthropic/claude-haiku-4-5",
+                    "max_tokens": 500,
+                    "messages": messages,
+                }
+            )
+            resp.raise_for_status()
+            result = resp.json()
+            resposta = result["choices"][0]["message"]["content"]
+    except Exception as e:
+        resposta = f"Não consegui responder agora. Detalhe técnico: {str(e)[:200]}"
+
     return {
         "resposta": resposta,
         "tela": tela_desc,
