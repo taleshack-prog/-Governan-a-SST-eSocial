@@ -1,7 +1,7 @@
 # api/models/estabelecimento.py — SST ESOCIAL GOV
 import uuid
 from datetime import datetime
-from sqlalchemy import String, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import String, DateTime, ForeignKey, UniqueConstraint, SmallInteger, Numeric, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from api.database import Base
@@ -19,8 +19,21 @@ class Estabelecimento(Base):
     endereco: Mapped[str | None] = mapped_column(String(500))
     cidade: Mapped[str | None] = mapped_column(String(100))
     uf: Mapped[str | None] = mapped_column(String(2))
+
+    # ---- Custeio por estabelecimento (Alteração 1 / TDD 7.1) ----
+    # tipo: 'matriz' (sede) ou 'filial'. Default 'filial' para não marcar
+    # registros existentes como matriz por engano.
+    tipo: Mapped[str] = mapped_column(String(10), nullable=False, default="filial")
+    cnae_secundarios: Mapped[str | None] = mapped_column(String)  # lista separada por vírgula
+    grau_risco: Mapped[int | None] = mapped_column(SmallInteger)   # 1, 2 ou 3
+    aliquota_rat: Mapped[float | None] = mapped_column(Numeric(4, 2))  # RAT base (1/2/3%), sem FAP
+    fpas: Mapped[str | None] = mapped_column(String(4))
+    num_empregados: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    folha_mensal: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     __table_args__ = (UniqueConstraint("empresa_id", "codigo"),)
 
     empresa = relationship("Empresa", back_populates="estabelecimentos")
+    faps = relationship("EstabelecimentoFAP", back_populates="estabelecimento", cascade="all, delete-orphan")

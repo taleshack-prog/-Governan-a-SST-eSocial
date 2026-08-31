@@ -112,3 +112,8 @@ CREATE OR REPLACE TRIGGER trg_updated_at_documentos
 CREATE OR REPLACE TRIGGER trg_updated_at_usuarios
     BEFORE UPDATE ON usuarios
     FOR EACH ROW EXECUTE FUNCTION fn_updated_at();
+
+-- Auditoria da tabela de FAP por estabelecimento (Alteração 1)
+CREATE OR REPLACE TRIGGER trg_audit_estab_fap
+    AFTER INSERT OR UPDATE OR DELETE ON estabelecimento_fap
+    FOR EACH ROW EXECUTE FUNCTION fn_audit_log();
