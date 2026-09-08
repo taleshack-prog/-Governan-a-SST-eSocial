@@ -1,7 +1,7 @@
 # api/models/vinculo.py — SST ESOCIAL GOV
 import uuid
 from datetime import datetime, date
-from sqlalchemy import String, Date, DateTime, ForeignKey
+from sqlalchemy import String, Date, DateTime, ForeignKey, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from api.database import Base
@@ -20,6 +20,7 @@ class Vinculo(Base):
     data_admissao: Mapped[date] = mapped_column(Date, nullable=False)
     data_demissao: Mapped[date | None] = mapped_column(Date)
     tipo_contrato: Mapped[str] = mapped_column(String(30), default="CLT")
+    remuneracao_base: Mapped[float | None] = mapped_column(Numeric(14, 2))  # referência de cadastro (RF-0.05)
     status: Mapped[str] = mapped_column(String(20), default="ativo")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
