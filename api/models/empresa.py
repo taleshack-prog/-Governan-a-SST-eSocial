@@ -1,7 +1,7 @@
 # api/models/empresa.py — SST ESOCIAL GOV
 import uuid
 from datetime import datetime, date
-from sqlalchemy import String, Integer, Boolean, DateTime, Date
+from sqlalchemy import String, Integer, SmallInteger, Boolean, DateTime, Date, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from api.database import Base
@@ -17,6 +17,16 @@ class Empresa(Base):
     cnae_principal: Mapped[str] = mapped_column(String(7), nullable=False)
     regime_tributario: Mapped[str | None] = mapped_column(String(50))
     grau_risco: Mapped[int | None] = mapped_column(Integer)
+
+    # ---- Cadastro completo Módulo 0 / RF-0.01 (v2) ----
+    codigo_fpas: Mapped[str | None] = mapped_column(String(4))
+    anexo_simples: Mapped[str | None] = mapped_column(String(10))
+    apura_cprb: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    grau_risco_declarado: Mapped[int | None] = mapped_column(SmallInteger)
+    rat_aplicado: Mapped[float | None] = mapped_column(Numeric(4, 2))
+    possui_sesmt: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    possui_cipa: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
     ativo: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
@@ -24,6 +34,7 @@ class Empresa(Base):
     # Relacionamentos
     estabelecimentos = relationship("Estabelecimento", back_populates="empresa", cascade="all, delete")
     trabalhadores = relationship("Trabalhador", back_populates="empresa", cascade="all, delete")
+    cnaes_secundarios = relationship("EmpresaCnaeSecundario", back_populates="empresa", cascade="all, delete-orphan")
     plano: Mapped[str] = mapped_column(String(20), default="trial")
     plano_expira_em: Mapped[date | None] = mapped_column(Date, nullable=True)
     max_trabalhadores: Mapped[int] = mapped_column(Integer, default=10)
