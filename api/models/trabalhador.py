@@ -1,7 +1,7 @@
 # api/models/trabalhador.py — SST ESOCIAL GOV
 import uuid
 from datetime import datetime, date
-from sqlalchemy import String, Date, Boolean, DateTime, ForeignKey
+from sqlalchemy import String, Date, DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from api.database import Base
@@ -22,6 +22,10 @@ class Trabalhador(Base):
     matricula: Mapped[str | None] = mapped_column(String(50))
     data_admissao: Mapped[date | None] = mapped_column(Date)
     ges: Mapped[str | None] = mapped_column(String(20))
+    # ---- CTPS (existiam no banco; reconciliados no model em 009) ----
+    ctps_numero: Mapped[str | None] = mapped_column(String(20))
+    ctps_serie: Mapped[str | None] = mapped_column(String(10))
+    ctps_uf: Mapped[str | None] = mapped_column(String(2))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
