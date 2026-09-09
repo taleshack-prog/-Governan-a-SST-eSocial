@@ -54,3 +54,20 @@ async def obter_empresa(
     if not empresa:
         raise HTTPException(status_code=404, detail="Empresa não encontrada")
     return {"id": str(empresa.id), "razao_social": empresa.razao_social, "cnpj": empresa.cnpj, "cnae_principal": empresa.cnae_principal, "grau_risco": empresa.grau_risco}
+
+
+# ---- Módulo 0 / RF-0.07: status do cadastro (bloqueio) ----
+@router.get("/{empresa_id}/cadastro-status")
+async def cadastro_status(
+    empresa_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """RF-0.07: informa se o cadastro da empresa está completo e o que falta.
+    Os módulos de cálculo consultam isto antes de calcular; o frontend usa
+    para bloquear e exibir a mensagem. Isolamento: usuário só vê a própria empresa."""
+    if current_user.empresa_id != empresa_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Acesso negado a empresa de outro tenant")
+    from api.services.cadastro_completo import verificar_cadastro
+    return await verificar_cadastro(empresa_id, db)
