@@ -29,6 +29,7 @@ from api.routers.atestados import router as atestados_router
 from api.routers.estabelecimentos import router as estabelecimentos_router
 from api.routers.diagnostico import router as diagnostico_router
 from api.routers.rubricas import router as rubricas_router
+from api.routers.achados import router as achados_router
 from api.routers import (
     auth, empresas, trabalhadores, documentos,
     agentes_nocivos, exames_medicos, cat, ai_validacoes, auditoria
@@ -81,6 +82,7 @@ app.include_router(empresas.router,         prefix=f"{API_PREFIX}/empresas",    
 app.include_router(estabelecimentos_router, prefix=f"{API_PREFIX}/estabelecimentos", tags=["Estabelecimentos"])
 app.include_router(diagnostico_router, prefix=f"{API_PREFIX}/diagnostico", tags=["Diagnóstico"])
 app.include_router(rubricas_router, prefix=f"{API_PREFIX}/rubricas", tags=["Rubricas"])
+app.include_router(achados_router, prefix=f"{API_PREFIX}/achados", tags=["Achados"])
 app.include_router(trabalhadores.router,    prefix=f"{API_PREFIX}/trabalhadores", tags=["Trabalhadores"])
 app.include_router(documentos.router,       prefix=f"{API_PREFIX}/documentos",  tags=["Documentos"])
 app.include_router(agentes_nocivos.router,  prefix=f"{API_PREFIX}/agentes",     tags=["Agentes Nocivos"])
