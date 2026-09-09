@@ -36,7 +36,7 @@ export function Login() {
       const { access_token, user_id, nome, perfil, empresa_id } = res.data;
       setAuth({ id: user_id, nome, email: data.email, perfil, empresa_id }, access_token);
       toast.success(`Bem-vindo, ${nome}!`);
-      navigate("/dashboard");
+      navigate("/diagnostico");
     } catch (err: any) {
       toast.error(err.response?.data?.detail ?? "Credenciais inválidas.");
     } finally {

@@ -9,6 +9,7 @@ import { Login } from "./pages/Login";
 import { Dashboard } from "./pages/Dashboard";
 import { Documentos } from "./pages/Documentos";
 import { Trabalhadores } from "./pages/Trabalhadores";
+import { Diagnostico } from "./pages/Diagnostico";
 import { Estabelecimentos } from "./pages/Estabelecimentos";
 import { AgentesNocivos } from "./pages/AgentesNocivos";
 import { ExamesMedicos } from "./pages/ExamesMedicos";
@@ -37,8 +38,9 @@ export const router = createBrowserRouter([
     path: "/",
     element: <Layout />,
     children: [
-      { index: true, element: <Navigate to="/dashboard" replace /> },
+      { index: true, element: <Navigate to="/diagnostico" replace /> },
       { path: "dashboard",      element: <Dashboard /> },
+      { path: "diagnostico",    element: <Diagnostico /> },
       { path: "documentos",     element: <Documentos /> },
       { path: "trabalhadores",  element: <Trabalhadores /> },
       { path: "estabelecimentos", element: <Estabelecimentos /> },
