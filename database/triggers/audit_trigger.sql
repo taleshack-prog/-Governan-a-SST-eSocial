@@ -117,3 +117,8 @@ CREATE OR REPLACE TRIGGER trg_updated_at_usuarios
 CREATE OR REPLACE TRIGGER trg_audit_estab_fap
     AFTER INSERT OR UPDATE OR DELETE ON estabelecimento_fap
     FOR EACH ROW EXECUTE FUNCTION fn_audit_log();
+
+-- Auditoria do questionário de configuração (Módulo 0 / RN-03: imutável e rastreável)
+CREATE OR REPLACE TRIGGER trg_audit_questionario
+    AFTER INSERT OR UPDATE OR DELETE ON questionario_resposta
+    FOR EACH ROW EXECUTE FUNCTION fn_audit_log();

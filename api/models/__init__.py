@@ -5,6 +5,7 @@
 
 from api.models.empresa import Empresa
 from api.models.empresa_cnae_secundario import EmpresaCnaeSecundario
+from api.models.questionario_resposta import QuestionarioResposta
 from api.models.estabelecimento import Estabelecimento
 from api.models.estabelecimento_fap import EstabelecimentoFAP
 from api.models.trabalhador import Trabalhador
@@ -20,5 +21,5 @@ from api.models.audit_log import AuditLog
 __all__ = [
     "Empresa", "EmpresaCnaeSecundario", "Estabelecimento", "EstabelecimentoFAP", "Trabalhador", "Vinculo",
     "Usuario", "DocumentoTecnico", "AgenteNocivo", "ExameMedico",
-    "CatRegistro", "AiValidacao", "AuditLog",
+    "CatRegistro", "AiValidacao", "AuditLog", "QuestionarioResposta",
 ]
