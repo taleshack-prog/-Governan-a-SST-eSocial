@@ -4,6 +4,9 @@
 // ==============================================================
 
 import { useState, useRef } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import toast from "react-hot-toast";
+import { apiClient } from "../api/client";
 import { Upload, Brain, Filter, FileText, Eye } from "lucide-react";
 import { useDocumentos, useUploadDocumento, useSolicitarValidacao } from "../hooks/useQueries";
 import { StatusBadge, Card, SectionTitle, Spinner, EmptyState } from "../components/ui";

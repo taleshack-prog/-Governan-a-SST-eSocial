@@ -9,6 +9,7 @@ import { Login } from "./pages/Login";
 import { Dashboard } from "./pages/Dashboard";
 import { Documentos } from "./pages/Documentos";
 import { Trabalhadores } from "./pages/Trabalhadores";
+import { Estabelecimentos } from "./pages/Estabelecimentos";
 import { AgentesNocivos } from "./pages/AgentesNocivos";
 import { ExamesMedicos } from "./pages/ExamesMedicos";
 import { Cat } from "./pages/Cat";
@@ -40,6 +41,7 @@ export const router = createBrowserRouter([
       { path: "dashboard",      element: <Dashboard /> },
       { path: "documentos",     element: <Documentos /> },
       { path: "trabalhadores",  element: <Trabalhadores /> },
+      { path: "estabelecimentos", element: <Estabelecimentos /> },
       { path: "agentes",        element: <AgentesNocivos /> },
       { path: "exames",         element: <ExamesMedicos /> },
       { path: "afastamentos",   element: <Afastamentos /> },
