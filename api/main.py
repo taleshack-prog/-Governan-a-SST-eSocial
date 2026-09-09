@@ -27,6 +27,7 @@ from api.routers.importacao_pdf import router as importacao_pdf_router
 from api.routers.importacao_universal import router as importacao_universal_router
 from api.routers.atestados import router as atestados_router
 from api.routers.estabelecimentos import router as estabelecimentos_router
+from api.routers.diagnostico import router as diagnostico_router
 from api.routers import (
     auth, empresas, trabalhadores, documentos,
     agentes_nocivos, exames_medicos, cat, ai_validacoes, auditoria
@@ -77,6 +78,7 @@ API_PREFIX = "/api"
 app.include_router(auth.router,             prefix=f"{API_PREFIX}/auth",        tags=["Auth"])
 app.include_router(empresas.router,         prefix=f"{API_PREFIX}/empresas",    tags=["Empresas"])
 app.include_router(estabelecimentos_router, prefix=f"{API_PREFIX}/estabelecimentos", tags=["Estabelecimentos"])
+app.include_router(diagnostico_router, prefix=f"{API_PREFIX}/diagnostico", tags=["Diagnóstico"])
 app.include_router(trabalhadores.router,    prefix=f"{API_PREFIX}/trabalhadores", tags=["Trabalhadores"])
 app.include_router(documentos.router,       prefix=f"{API_PREFIX}/documentos",  tags=["Documentos"])
 app.include_router(agentes_nocivos.router,  prefix=f"{API_PREFIX}/agentes",     tags=["Agentes Nocivos"])
