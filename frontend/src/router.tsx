@@ -10,6 +10,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { Documentos } from "./pages/Documentos";
 import { Trabalhadores } from "./pages/Trabalhadores";
 import { Diagnostico } from "./pages/Diagnostico";
+import { Achados } from "./pages/Achados";
 import { Estabelecimentos } from "./pages/Estabelecimentos";
 import { AgentesNocivos } from "./pages/AgentesNocivos";
 import { ExamesMedicos } from "./pages/ExamesMedicos";
@@ -41,6 +42,7 @@ export const router = createBrowserRouter([
       { index: true, element: <Navigate to="/diagnostico" replace /> },
       { path: "dashboard",      element: <Dashboard /> },
       { path: "diagnostico",    element: <Diagnostico /> },
+      { path: "achados",        element: <Achados /> },
       { path: "documentos",     element: <Documentos /> },
       { path: "trabalhadores",  element: <Trabalhadores /> },
       { path: "estabelecimentos", element: <Estabelecimentos /> },

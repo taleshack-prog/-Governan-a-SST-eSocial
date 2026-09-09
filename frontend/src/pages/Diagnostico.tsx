@@ -69,6 +69,11 @@ export function Diagnostico() {
     queryFn: () => apiClient.get("/diagnostico/blocos").then(r => r.data),
   });
 
+  const { data: achadosData } = useQuery({
+    queryKey: ["achados"],
+    queryFn: () => apiClient.get("/achados/").then(r => r.data),
+  });
+
   if (isLoading) return <div className="p-6 text-center text-gray-400">Calculando diagnóstico...</div>;
 
   const blocos = data?.blocos || [];
@@ -128,6 +133,16 @@ export function Diagnostico() {
           </tbody>
         </table>
       </div>
+
+      {(achadosData?.total_credito || 0) > 0 && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-5 flex items-center justify-between">
+          <div>
+            <p className="text-sm text-emerald-700">Créditos de folha identificados (recuperação retroativa)</p>
+            <p className="text-2xl font-bold text-emerald-800 mt-1">{BRL(achadosData.total_credito)}</p>
+          </div>
+          <a href="/achados" className="text-emerald-700 font-medium text-sm hover:text-emerald-900">Ver detalhes →</a>
+        </div>
+      )}
 
       {achado && <AchadoModal bloco={achado} onFechar={() => setAchado(null)} />}
     </div>

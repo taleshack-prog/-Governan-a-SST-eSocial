@@ -13,6 +13,7 @@ import { useAuthStore } from "../store/authStore";
 
 const NAV_ITEMS = [
   { path: "/diagnostico",  label: "Diagnóstico",     icon: Activity },
+  { path: "/achados",      label: "Créditos",        icon: DollarSign },
   { path: "/dashboard",    label: "Dashboard",       icon: LayoutDashboard },
   { path: "/documentos",   label: "Documentos",      icon: FileText },
   { path: "/trabalhadores",label: "Trabalhadores",   icon: Users },
