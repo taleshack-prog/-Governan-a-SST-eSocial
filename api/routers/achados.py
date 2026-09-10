@@ -27,6 +27,9 @@ def _to_dict(a: Achado) -> dict:
         "valor_retroativo": float(a.valor_retroativo) if a.valor_retroativo is not None else None,
         "grau_seguranca": a.grau_seguranca,
         "status": a.status,
+        "esfera": a.esfera,
+        "tipo_valor": a.tipo_valor,
+        "acao_sugerida": a.acao_sugerida,
     }
     # Régua de prescrição (v2 seção 10): só para achados de crédito.
     if a.tipo == "credito" and a.valor_mensal:

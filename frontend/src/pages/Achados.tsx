@@ -10,6 +10,10 @@ import { apiClient } from "../api/client";
 const BRL = (v: number | null | undefined) =>
   v == null ? "—" : v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
+const ESFERA_LABEL: Record<string, string> = {
+  consultivo: "Consultivo", administrativo: "Administrativo", judicial: "Judicial",
+};
+
 const TIPO_STYLE: Record<string, { badge: string; label: string }> = {
   credito: { badge: "bg-green-50 text-green-700 border-green-200", label: "Crédito a recuperar" },
   passivo: { badge: "bg-red-50 text-red-700 border-red-200",       label: "Passivo (risco)" },
@@ -96,7 +100,14 @@ export function Achados() {
                 const s = TIPO_STYLE[a.tipo] || TIPO_STYLE.alerta;
                 return (
                   <tr key={a.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-4 font-medium text-gray-900">{a.descricao}</td>
+                    <td className="px-4 py-4 font-medium text-gray-900">
+                      {a.descricao}
+                      {a.esfera && (
+                        <span className="ml-2 text-xs font-normal px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
+                          {ESFERA_LABEL[a.esfera] || a.esfera}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-4 py-4">
                       <span className={`text-xs px-2 py-1 rounded border ${s.badge}`}>{s.label}</span>
                     </td>
