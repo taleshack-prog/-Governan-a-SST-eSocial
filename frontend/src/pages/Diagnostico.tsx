@@ -74,6 +74,20 @@ export function Diagnostico() {
     queryFn: () => apiClient.get("/achados/").then(r => r.data),
   });
 
+  const baixarRelatorio = async () => {
+    try {
+      const resp = await apiClient.get("/relatorios/executivo", { responseType: "blob" });
+      const url = URL.createObjectURL(resp.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "relatorio-executivo.pdf";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert("Não foi possível gerar o relatório agora.");
+    }
+  };
+
   if (isLoading) return <div className="p-6 text-center text-gray-400">Calculando diagnóstico...</div>;
 
   const blocos = data?.blocos || [];
@@ -82,11 +96,17 @@ export function Diagnostico() {
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Diagnóstico de Custeio</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Visão do custeio previdenciário da empresa — o que você paga vs. o que o enquadramento correto indica
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Diagnóstico de Custeio</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Visão do custeio previdenciário da empresa — o que você paga vs. o que o enquadramento correto indica
+          </p>
+        </div>
+        <button onClick={baixarRelatorio}
+          className="bg-slate-700 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-800 whitespace-nowrap">
+          📄 Relatório executivo
+        </button>
       </div>
 
       <div className="bg-gradient-to-r from-slate-800 to-slate-700 text-white rounded-xl p-5">
