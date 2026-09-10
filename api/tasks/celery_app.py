@@ -6,7 +6,7 @@ app = Celery(
     "sst_esocial",
     broker=settings.celery_broker_url,
     backend=settings.celery_result_backend,
-    include=["api.tasks.ai_tasks", "api.tasks.afastamento_tasks", "api.tasks.importacao_task"],
+    include=["api.tasks.ai_tasks", "api.tasks.afastamento_tasks", "api.tasks.importacao_task", "api.tasks.prescricao_tasks"],
 )
 
 app.conf.beat_schedule = {
@@ -17,6 +17,10 @@ app.conf.beat_schedule = {
     "atualizar-status-afastamentos": {
         "task": "afastamentos.atualizar_status_automatico",
         "schedule": 3600.0,  # a cada 1 hora
+    },
+    "recalcular-prescricao-mensal": {
+        "task": "prescricao.recalcular_memoria_mensal",
+        "schedule": 2592000.0,  # a cada 30 dias (recálculo mensal — v2 seção 10)
     },
 }
 
