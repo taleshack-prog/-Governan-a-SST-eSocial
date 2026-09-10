@@ -2,12 +2,14 @@
 # RADAR PREVIDENCIÁRIO — PrevIA: Assistente Contextual
 # Arquivo: api/routers/previa.py
 # ==============================================================
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from pydantic import BaseModel
 from typing import Optional, List
 import httpx
+import os
+from fastapi.responses import Response
 from datetime import date
 
 from api.database import get_db, set_tenant
@@ -184,3 +186,68 @@ async def chat_previa(
         "tela": tela_desc,
         "perfil": current_user.perfil,
     }
+
+
+# ==============================================================
+# VOZ da PrevIA (Fase 1) — transcrição (Whisper) + síntese (TTS) via OpenRouter
+# ==============================================================
+
+@router.post("/transcrever")
+async def transcrever_audio(
+    audio: UploadFile = File(...),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Transcreve o áudio da fala do usuário em texto (OpenRouter Whisper, dica pt)."""
+    openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
+    if not openrouter_key:
+        return {"texto": "", "erro": "OPENROUTER_API_KEY não configurada."}
+    conteudo = await audio.read()
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                "https://openrouter.ai/api/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {openrouter_key}"},
+                files={"file": (audio.filename or "audio.webm", conteudo, audio.content_type or "audio/webm")},
+                data={"model": "openai/whisper-1", "language": "pt"},
+            )
+            resp.raise_for_status()
+            texto = resp.json().get("text", "")
+    except Exception as e:
+        return {"texto": "", "erro": f"Falha na transcrição: {str(e)[:200]}"}
+    return {"texto": texto}
+
+
+class FalarRequest(BaseModel):
+    texto: str
+
+
+@router.post("/falar")
+async def falar_texto(
+    req: FalarRequest,
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Sintetiza voz (TTS) da resposta da PrevIA. Retorna MP3 para o navegador tocar."""
+    openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
+    if not openrouter_key or not req.texto.strip():
+        return Response(content=b"", status_code=204)
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                "https://openrouter.ai/api/v1/audio/speech",
+                headers={
+                    "Authorization": f"Bearer {openrouter_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "openai/gpt-4o-mini-tts",
+                    "input": req.texto[:1000],
+                    "voice": "nova",
+                    "instructions": "Fale em português do Brasil, com tom acolhedor, profissional e claro.",
+                    "response_format": "mp3",
+                },
+            )
+            resp.raise_for_status()
+            audio_bytes = resp.content
+    except Exception:
+        return Response(content=b"", status_code=204)
+    return Response(content=audio_bytes, media_type="audio/mpeg")
