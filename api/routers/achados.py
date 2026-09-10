@@ -12,12 +12,13 @@ from api.models.estabelecimento import Estabelecimento
 from api.models.usuario import Usuario
 from api.auth import get_current_user
 from api.services.comparador_folha import rodar_comparador
+from api.services.regua_prescricao import calcular_regua
 
 router = APIRouter()
 
 
 def _to_dict(a: Achado) -> dict:
-    return {
+    d = {
         "id": str(a.id),
         "estabelecimento_id": str(a.estabelecimento_id),
         "tipo": a.tipo,
@@ -27,6 +28,15 @@ def _to_dict(a: Achado) -> dict:
         "grau_seguranca": a.grau_seguranca,
         "status": a.status,
     }
+    # Régua de prescrição (v2 seção 10): só para achados de crédito.
+    if a.tipo == "credito" and a.valor_mensal:
+        r = calcular_regua(a.valor_mensal)
+        d["prescricao"] = {
+            "valor_prescreve_90dias": r["valor_prescreve_90dias"],
+            "data_prescricao_proxima": r["data_prescricao_proxima"],
+            "competencias_90dias": r["competencias_prescrevem_90dias"],
+        }
+    return d
 
 
 @router.post("/recalcular")
@@ -62,8 +72,12 @@ async def listar_achados(
     )
     achados = [_to_dict(a) for a in result.scalars()]
     total_credito = sum(a["valor_retroativo"] or 0 for a in achados if a["tipo"] == "credito")
+    total_prescreve_90dias = sum(
+        (a.get("prescricao") or {}).get("valor_prescreve_90dias", 0) for a in achados if a["tipo"] == "credito"
+    )
     return {
         "total": len(achados),
         "total_credito": round(total_credito, 2),
+        "total_prescreve_90dias": round(total_prescreve_90dias, 2),
         "achados": achados,
     }
