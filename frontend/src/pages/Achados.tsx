@@ -38,6 +38,20 @@ export function Achados() {
     onError: () => setMsg("Não foi possível recalcular agora."),
   });
 
+  const baixarDossie = async (achadoId: string) => {
+    try {
+      const resp = await apiClient.get(`/relatorios/dossie/${achadoId}`, { responseType: "blob" });
+      const url = URL.createObjectURL(resp.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `dossie-prova.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert("Não foi possível gerar o dossiê agora.");
+    }
+  };
+
   if (isLoading) return <div className="p-6 text-center text-gray-400">Carregando achados...</div>;
 
   const achados = data?.achados || [];
@@ -122,6 +136,13 @@ export function Achados() {
                         className="text-blue-600 hover:text-blue-800 text-xs font-medium">
                         Solicitar análise →
                       </button>
+                      {a.tipo === "credito" && (
+                        <button
+                          onClick={() => baixarDossie(a.id)}
+                          className="ml-3 text-slate-600 hover:text-slate-800 text-xs font-medium">
+                          📄 Dossiê
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
