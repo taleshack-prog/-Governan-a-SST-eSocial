@@ -2,7 +2,7 @@
 # Etapa 3 (v2) / seção 7 — Achado: unifica crédito e passivo.
 import uuid
 from datetime import datetime, date
-from sqlalchemy import String, Numeric, Integer, Date, DateTime, ForeignKey
+from sqlalchemy import String, Numeric, Integer, Date, DateTime, Text, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID
 from api.database import Base
@@ -26,5 +26,9 @@ class Achado(Base):
     data_prescricao_proxima: Mapped[date | None] = mapped_column(Date)
     esfera: Mapped[str | None] = mapped_column(String(20))
     prazo_dias: Mapped[int | None] = mapped_column(Integer)
+    tipo_valor: Mapped[str | None] = mapped_column(String(12))          # exposicao | recuperacao
+    data_limite: Mapped[date | None] = mapped_column(Date)
+    acao_sugerida: Mapped[str | None] = mapped_column(String(200))
+    fundamento_interno: Mapped[str | None] = mapped_column(Text)        # SÓ perfil advogada
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="aberto")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)

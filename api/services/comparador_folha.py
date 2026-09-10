@@ -2,6 +2,7 @@
 # Etapa 3 (v2) / fase 3A-3 — Comparador de folha: gera os achados.
 from uuid import UUID
 from datetime import date
+from api.services.regua_prescricao import calcular_regua
 from decimal import Decimal
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -94,6 +95,14 @@ async def comparar_estabelecimento(estab, empresa, db, ano) -> list[dict]:
         else:
             continue
 
+        # Enriquecimento do alerta (v2 Alteração 4, seção 11.1): divergência de rubrica
+        # consolidada = esfera consultivo; a régua de prescrição é o "prazo".
+        tipo_valor = "recuperacao" if tipo == "credito" else "exposicao"
+        data_limite = None
+        if tipo == "credito":
+            r_regua = calcular_regua(credito_mensal)
+            data_limite = date.fromisoformat(r_regua["data_prescricao_proxima"])
+
         achados.append({
             "estabelecimento_id": estab.id,
             "tipo": tipo,
@@ -103,6 +112,10 @@ async def comparar_estabelecimento(estab, empresa, db, ano) -> list[dict]:
             "valor_retroativo": float(credito_retro) if tipo == "credito" else None,
             "aliquota_aplicada": float(aliquota_efetiva),
             "grau_seguranca": dic.grau_seguranca,
+            "esfera": "consultivo",
+            "tipo_valor": tipo_valor,
+            "data_limite": data_limite,
+            "acao_sugerida": "Solicitar análise jurídica",
         })
     return achados
 
