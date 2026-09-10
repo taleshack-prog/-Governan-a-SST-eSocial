@@ -124,14 +124,8 @@ CREATE INDEX IF NOT EXISTS idx_afastamentos_status ON afastamentos(status);
 CREATE INDEX IF NOT EXISTS idx_afastamentos_retorno ON afastamentos(data_prevista_retorno);
 CREATE INDEX IF NOT EXISTS idx_atestados_afastamento ON atestados(afastamento_id);
 
--- Trigger de auditoria
-CREATE OR REPLACE TRIGGER audit_afastamentos
-    AFTER INSERT OR UPDATE OR DELETE ON afastamentos
-    FOR EACH ROW EXECUTE FUNCTION fn_audit_log();
-
-CREATE OR REPLACE TRIGGER audit_atestados
-    AFTER INSERT OR UPDATE OR DELETE ON atestados
-    FOR EACH ROW EXECUTE FUNCTION fn_audit_log();
+-- (Triggers de auditoria movidos para database/triggers/audit_trigger.sql,
+-- que roda apos as migrations, quando fn_audit_log ja existe.)
 
 -- Comentário
 COMMENT ON TABLE afastamentos IS 'SST-ESOCIAL-GOV: Módulo de afastamentos por doença/acidente';
