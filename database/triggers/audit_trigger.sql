@@ -132,3 +132,12 @@ CREATE OR REPLACE TRIGGER audit_afastamentos
 CREATE OR REPLACE TRIGGER audit_atestados
     AFTER INSERT OR UPDATE OR DELETE ON atestados
     FOR EACH ROW EXECUTE FUNCTION fn_audit_log();
+
+-- Auditoria de afastamentos e atestados (corrige o bug da migration 002)
+CREATE OR REPLACE TRIGGER audit_afastamentos
+    AFTER INSERT OR UPDATE OR DELETE ON afastamentos
+    FOR EACH ROW EXECUTE FUNCTION fn_audit_log();
+
+CREATE OR REPLACE TRIGGER audit_atestados
+    AFTER INSERT OR UPDATE OR DELETE ON atestados
+    FOR EACH ROW EXECUTE FUNCTION fn_audit_log();
