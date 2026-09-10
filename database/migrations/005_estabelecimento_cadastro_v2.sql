@@ -4,9 +4,27 @@
 -- Natureza: RENAME (preserva dados) + ADITIVA. Nada é removido.
 -- ==============================================================
 
-ALTER TABLE estabelecimentos RENAME COLUMN tipo TO posicao;
-ALTER TABLE estabelecimentos RENAME CONSTRAINT chk_estab_tipo TO chk_estab_posicao;
-ALTER INDEX IF EXISTS idx_estabelecimentos_tipo RENAME TO idx_estabelecimentos_posicao;
+-- RENAMEs idempotentes: só renomeiam se o nome antigo ainda existir.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name='estabelecimentos' AND column_name='tipo')
+       AND NOT EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name='estabelecimentos' AND column_name='posicao') THEN
+        ALTER TABLE estabelecimentos RENAME COLUMN tipo TO posicao;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='chk_estab_tipo')
+       AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='chk_estab_posicao') THEN
+        ALTER TABLE estabelecimentos RENAME CONSTRAINT chk_estab_tipo TO chk_estab_posicao;
+    END IF;
+END$$;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_class WHERE relname='idx_estabelecimentos_tipo')
+       AND NOT EXISTS (SELECT 1 FROM pg_class WHERE relname='idx_estabelecimentos_posicao') THEN
+        ALTER INDEX idx_estabelecimentos_tipo RENAME TO idx_estabelecimentos_posicao;
+    END IF;
+END$$;
 
 ALTER TABLE estabelecimentos ADD COLUMN IF NOT EXISTS tipo_estabelecimento VARCHAR(4) NOT NULL DEFAULT 'CNPJ';
 ALTER TABLE estabelecimentos ADD COLUMN IF NOT EXISTS atividade_descrita TEXT;

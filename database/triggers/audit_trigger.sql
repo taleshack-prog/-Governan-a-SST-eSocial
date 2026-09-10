@@ -141,3 +141,4 @@ CREATE OR REPLACE TRIGGER audit_afastamentos
 CREATE OR REPLACE TRIGGER audit_atestados
     AFTER INSERT OR UPDATE OR DELETE ON atestados
     FOR EACH ROW EXECUTE FUNCTION fn_audit_log();
+
