@@ -38,6 +38,7 @@ export function Achados() {
 
   const achados = data?.achados || [];
   const totalCredito = data?.total_credito || 0;
+  const totalPrescreve90 = data?.total_prescreve_90dias || 0;
 
   return (
     <div className="p-6 space-y-6">
@@ -61,6 +62,16 @@ export function Achados() {
       <div className="bg-gradient-to-r from-emerald-700 to-emerald-600 text-white rounded-xl p-5">
         <p className="text-sm text-emerald-100">Crédito estimado a recuperar (últimos 5 anos)</p>
         <p className="text-3xl font-bold mt-1">{BRL(totalCredito)}</p>
+        {totalPrescreve90 > 0 && (
+          <div className="mt-3 bg-amber-400/20 border border-amber-300/40 rounded-lg px-3 py-2">
+            <p className="text-sm font-medium text-amber-50">
+              ⏳ {BRL(totalPrescreve90)} prescrevem nos próximos 90 dias
+            </p>
+            <p className="text-xs text-amber-100/80">
+              Art. 168 do CTN — recuperação quinquenal. A cada mês, uma competência sai da janela.
+            </p>
+          </div>
+        )}
         <p className="text-xs text-emerald-100 mt-2">
           Estimativa com base na parametrização informada. Valores confirmados na análise jurídica.
         </p>
@@ -75,7 +86,7 @@ export function Achados() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                {["Achado","Tipo","Valor mensal","Retroativo (5 anos)",""].map(h => (
+                {["Achado","Tipo","Valor mensal","Retroativo (5 anos)","Prescreve até",""].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{h}</th>
                 ))}
               </tr>
@@ -91,6 +102,9 @@ export function Achados() {
                     </td>
                     <td className="px-4 py-4 text-gray-700">{BRL(a.valor_mensal)}</td>
                     <td className="px-4 py-4 font-semibold text-gray-900">{BRL(a.valor_retroativo)}</td>
+                    <td className="px-4 py-4 text-xs text-amber-700">
+                      {a.prescricao ? a.prescricao.data_prescricao_proxima.split("-").reverse().join("/") : "—"}
+                    </td>
                     <td className="px-4 py-4 text-right">
                       <button
                         onClick={() => alert("Solicitação de análise jurídica registrada. A equipe entrará em contato.")}
