@@ -122,3 +122,13 @@ CREATE OR REPLACE TRIGGER trg_audit_estab_fap
 CREATE OR REPLACE TRIGGER trg_audit_questionario
     AFTER INSERT OR UPDATE OR DELETE ON questionario_resposta
     FOR EACH ROW EXECUTE FUNCTION fn_audit_log();
+
+-- Auditoria de afastamentos e atestados (corrige o bug da migration 002, que usava
+-- audit_trigger_func inexistente; a função correta é fn_audit_log)
+CREATE OR REPLACE TRIGGER audit_afastamentos
+    AFTER INSERT OR UPDATE OR DELETE ON afastamentos
+    FOR EACH ROW EXECUTE FUNCTION fn_audit_log();
+
+CREATE OR REPLACE TRIGGER audit_atestados
+    AFTER INSERT OR UPDATE OR DELETE ON atestados
+    FOR EACH ROW EXECUTE FUNCTION fn_audit_log();
