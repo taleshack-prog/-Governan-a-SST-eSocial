@@ -15,6 +15,10 @@ from api.auth import get_current_user
 from api.services.motor_ratfap import calcular_ratfap
 from api.services.regua_prescricao import calcular_regua
 from api.services.relatorio_executivo import gerar_relatorio_executivo
+from api.services.dossie_prova import gerar_dossie_prova
+from api.models.memoria_prescricao import MemoriaCalculoPrescricao
+from api.models.rubrica_empresa import RubricaEmpresa
+from api.models.dicionario_rubrica import DicionarioRubrica
 
 router = APIRouter()
 
@@ -78,3 +82,68 @@ async def relatorio_executivo(
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+@router.get("/dossie/{achado_id}")
+async def dossie_prova(
+    achado_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Gera o dossiê de prova de um achado. Fundamento só para perfil admin/advogada
+    (v2 linha 191)."""
+    from uuid import UUID as _UUID
+    aid = _UUID(achado_id)
+
+    achado = (await db.execute(select(Achado).where(Achado.id == aid))).scalar_one_or_none()
+    if achado is None:
+        return Response(content=b"", status_code=404)
+
+    # isolamento: o achado precisa ser de um estabelecimento da empresa do usuário
+    estab = (await db.execute(
+        select(Estabelecimento).where(Estabelecimento.id == achado.estabelecimento_id)
+    )).scalar_one_or_none()
+    if estab is None or estab.empresa_id != current_user.empresa_id:
+        return Response(content=b"", status_code=403)
+
+    empresa = (await db.execute(select(Empresa).where(Empresa.id == estab.empresa_id))).scalar_one_or_none()
+
+    # memória de cálculo (a prova)
+    mem_rows = (await db.execute(
+        select(MemoriaCalculoPrescricao).where(MemoriaCalculoPrescricao.achado_id == aid)
+    )).scalars().all()
+    memoria = [{"competencia": m.competencia.isoformat(), "valor_competencia": float(m.valor_competencia)} for m in mem_rows]
+
+    # fundamento (do dicionário, via a rubrica de origem) — só se perfil permite
+    incluir_fund = current_user.perfil in ("admin", "advogada")
+    fundamento = None
+    if incluir_fund and achado.origem_id:
+        rub = (await db.execute(select(RubricaEmpresa).where(RubricaEmpresa.id == achado.origem_id))).scalar_one_or_none()
+        if rub and rub.dicionario_rubrica_id:
+            dic = (await db.execute(select(DicionarioRubrica).where(DicionarioRubrica.id == rub.dicionario_rubrica_id))).scalar_one_or_none()
+            if dic:
+                fundamento = dic.fundamento
+
+    # prescrição
+    presc = calcular_regua(achado.valor_mensal) if achado.valor_mensal else {}
+
+    dados = {
+        "achado": {
+            "descricao": achado.descricao, "grau_seguranca": achado.grau_seguranca,
+            "esfera": achado.esfera, "tipo_valor": achado.tipo_valor, "tipo": achado.tipo,
+            "valor_mensal": float(achado.valor_mensal) if achado.valor_mensal else None,
+            "aliquota_aplicada": float(achado.aliquota_aplicada) if achado.aliquota_aplicada else None,
+            "valor_retroativo": float(achado.valor_retroativo) if achado.valor_retroativo else None,
+        },
+        "empresa": {"razao_social": empresa.razao_social if empresa else "—"},
+        "estabelecimento": {"nome": estab.nome, "codigo": estab.codigo},
+        "memoria": memoria,
+        "prescreve_90dias": presc.get("valor_prescreve_90dias"),
+        "data_prescricao": achado.data_prescricao_proxima.strftime("%d/%m/%Y") if achado.data_prescricao_proxima else "—",
+        "fundamento": fundamento,
+    }
+
+    pdf = gerar_dossie_prova(dados, incluir_fundamento=incluir_fund)
+    filename = f"dossie-prova-{achado_id[:8]}.pdf"
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f"attachment; filename={filename}"})
