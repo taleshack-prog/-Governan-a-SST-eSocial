@@ -3,6 +3,7 @@
 from uuid import UUID
 from datetime import date
 from api.services.regua_prescricao import calcular_regua
+from api.services.alerta_documentos import gerar_alertas_documentos
 from decimal import Decimal
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -142,6 +143,7 @@ async def rodar_comparador(empresa_id: UUID, db: AsyncSession, ano: int | None =
         todos.extend(achados)
     await db.commit()
 
+    alertas_doc = await gerar_alertas_documentos(empresa_id, db)
     total_credito = sum(a["valor_retroativo"] or 0 for a in todos if a["tipo"] == "credito")
     return {
         "empresa_id": str(empresa_id),
@@ -150,5 +152,6 @@ async def rodar_comparador(empresa_id: UUID, db: AsyncSession, ano: int | None =
         "creditos": sum(1 for a in todos if a["tipo"] == "credito"),
         "alertas": sum(1 for a in todos if a["tipo"] == "alerta"),
         "total_credito_retroativo_estimado": round(total_credito, 2),
+        "alertas_documentos": alertas_doc.get("gerados", 0),
         "achados": todos,
     }
