@@ -65,9 +65,20 @@ async def _conciliar(rubrica: RubricaEmpresa, db: AsyncSession) -> DicionarioRub
     return None
 
 
+async def _faps_por_ano(estab: Estabelecimento, db: AsyncSession) -> dict:
+    """Carrega os FAPs de todos os anos do estabelecimento. {ano: fap(Decimal)}."""
+    rows = (await db.execute(
+        select(EstabelecimentoFAP).where(EstabelecimentoFAP.estabelecimento_id == estab.id)
+    )).scalars().all()
+    return {r.ano_vigencia: Decimal(str(r.valor_fap)) for r in rows}
+
+
 async def comparar_estabelecimento(estab, empresa, db, ano) -> list[dict]:
     _hoje_selic = date.today()
     _fatores_selic = await carregar_fatores_ate(_hoje_selic, db)
+    _faps_ano = await _faps_por_ano(estab, db)
+    _rat_base = (Decimal(str(estab.aliquota_rat)) / Decimal("100")) if estab.aliquota_rat is not None else Decimal("0")
+    _fap_recente = _faps_ano.get(max(_faps_ano.keys()), Decimal("1")) if _faps_ano else Decimal("1")
     aliq_terceiros = await _aliquota_terceiros(empresa, db)
     rat_fap = await _rat_fap(estab, db, ano)
     aliquota_efetiva = COTA_PATRONAL + rat_fap + aliq_terceiros
@@ -91,12 +102,16 @@ async def comparar_estabelecimento(estab, empresa, db, ano) -> list[dict]:
 
         valor = Decimal(str(r.valor_mensal or 0))
         credito_mensal = (valor * aliquota_efetiva).quantize(Decimal("0.01"))
-        # Retroativo corrigido pela SELIC (roteiro Módulo 2 Camada 3): soma das competências corrigidas
+        # Retroativo (roteiro Módulo 2 Camada 3): cada competência com o FAP do SEU ano
+        # (alíquota efetiva variável) + correção SELIC daquela competência.
         _cr = Decimal("0")
         _comp = _primeiro_dia_mes(add_months(_hoje_selic, -(MESES_PRESCRICAO - 1)))
         for _ in range(MESES_PRESCRICAO):
+            _fap = _faps_ano.get(_comp.year, _fap_recente)
+            _aliq_comp = COTA_PATRONAL + (_rat_base * _fap) + aliq_terceiros
+            _credito_comp = valor * _aliq_comp   # valor mensal da rubrica × alíquota daquela competência
             _fator = _fatores_selic.get(_comp, Decimal("1.01"))
-            _cr += credito_mensal * _fator
+            _cr += _credito_comp * _fator
             _comp = add_months(_comp, 1)
         credito_retro = _cr.quantize(Decimal("0.01"))
 
