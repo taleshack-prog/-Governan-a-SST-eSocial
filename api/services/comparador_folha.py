@@ -2,6 +2,8 @@
 # Etapa 3 (v2) / fase 3A-3 — Comparador de folha: gera os achados.
 from uuid import UUID
 from datetime import date
+from api.services.correcao_selic import carregar_fatores_ate
+from api.services.regua_prescricao import add_months, _primeiro_dia_mes
 from api.services.regua_prescricao import calcular_regua
 from api.services.alerta_documentos import gerar_alertas_documentos
 from decimal import Decimal
@@ -64,6 +66,8 @@ async def _conciliar(rubrica: RubricaEmpresa, db: AsyncSession) -> DicionarioRub
 
 
 async def comparar_estabelecimento(estab, empresa, db, ano) -> list[dict]:
+    _hoje_selic = date.today()
+    _fatores_selic = await carregar_fatores_ate(_hoje_selic, db)
     aliq_terceiros = await _aliquota_terceiros(empresa, db)
     rat_fap = await _rat_fap(estab, db, ano)
     aliquota_efetiva = COTA_PATRONAL + rat_fap + aliq_terceiros
@@ -87,7 +91,14 @@ async def comparar_estabelecimento(estab, empresa, db, ano) -> list[dict]:
 
         valor = Decimal(str(r.valor_mensal or 0))
         credito_mensal = (valor * aliquota_efetiva).quantize(Decimal("0.01"))
-        credito_retro = (credito_mensal * MESES_PRESCRICAO).quantize(Decimal("0.01"))
+        # Retroativo corrigido pela SELIC (roteiro Módulo 2 Camada 3): soma das competências corrigidas
+        _cr = Decimal("0")
+        _comp = _primeiro_dia_mes(add_months(_hoje_selic, -(MESES_PRESCRICAO - 1)))
+        for _ in range(MESES_PRESCRICAO):
+            _fator = _fatores_selic.get(_comp, Decimal("1.01"))
+            _cr += credito_mensal * _fator
+            _comp = add_months(_comp, 1)
+        credito_retro = _cr.quantize(Decimal("0.01"))
 
         if dic.grau_seguranca == "consolidado":
             tipo = "credito"
