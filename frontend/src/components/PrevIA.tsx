@@ -36,7 +36,7 @@ export default function PrevIA() {
   const [texto, setTexto] = useState("");
   const [gravando, setGravando] = useState(false);
   const [transcrevendo, setTranscrevendo] = useState(false);
-  const [vozAtiva, setVozAtiva] = useState(true);
+  const [vozAtiva, setVozAtiva] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -113,6 +113,15 @@ export default function PrevIA() {
     } catch {}
   };
 
+  const toggleVoz = () => {
+    setVozAtiva((v) => {
+      if (v && audioRef.current) {
+        audioRef.current.pause();  // desligando → corta o áudio em andamento
+      }
+      return !v;
+    });
+  };
+
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [historico]);
   useEffect(() => { setHistorico([]); }, [tela]);
 
@@ -136,6 +145,11 @@ export default function PrevIA() {
           </div>
         </div>
         <div className="flex gap-1">
+          <button onClick={toggleVoz}
+            title={vozAtiva ? "Desligar voz" : "Ligar voz"}
+            className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 text-sm">
+            {vozAtiva ? "🔊" : "🔇"}
+          </button>
           <button onClick={() => setMinimizado(!minimizado)} className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20">
             <Minimize2 size={13} color="white" />
           </button>
@@ -198,7 +212,7 @@ export default function PrevIA() {
                 className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-sm ${gravando ? "bg-red-500 animate-pulse" : "bg-gray-200 hover:bg-gray-300"}`}>
                 {transcrevendo ? "⏳" : gravando ? "⏹️" : "🎤"}
               </button>
-              <button onClick={() => setVozAtiva(v => !v)}
+              <button onClick={toggleVoz}
                 title={vozAtiva ? "Voz da resposta: ligada" : "Voz da resposta: desligada"}
                 className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-sm bg-gray-200 hover:bg-gray-300">
                 {vozAtiva ? "🔊" : "🔇"}
