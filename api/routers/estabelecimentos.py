@@ -3,12 +3,14 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from uuid import UUID
 from pydantic import BaseModel
 
 from api.database import get_db
 from api.models.estabelecimento import Estabelecimento
+from api.models.estabelecimento_fap import EstabelecimentoFAP
 from api.models.usuario import Usuario
-from api.auth import get_current_user
+from api.auth import get_current_user, require_perfil
 
 router = APIRouter()
 
@@ -113,3 +115,46 @@ async def criar_estabelecimento(
         "cidade": estabelecimento.cidade,
         "uf": estabelecimento.uf,
     }
+
+
+class FapAnoIn(BaseModel):
+    ano: int
+    fap: float
+
+
+@router.get("/{estab_id}/fap")
+async def listar_fap(
+    estab_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Lista os FAPs por ano do estabelecimento (para a tela de histórico)."""
+    rows = (await db.execute(
+        select(EstabelecimentoFAP).where(EstabelecimentoFAP.estabelecimento_id == estab_id)
+        .order_by(EstabelecimentoFAP.ano_vigencia)
+    )).scalars().all()
+    return [{"ano": r.ano_vigencia, "fap": float(r.valor_fap)} for r in rows]
+
+
+@router.put("/{estab_id}/fap")
+async def salvar_fap(
+    estab_id: UUID,
+    faps: list[FapAnoIn],
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(require_perfil("admin")),
+):
+    """Salva/atualiza os FAPs por ano (upsert por ano_vigencia). Roteiro Módulo 0/4:
+    o cálculo retroativo usa o FAP de cada ano."""
+    for item in faps:
+        existe = (await db.execute(
+            select(EstabelecimentoFAP).where(
+                EstabelecimentoFAP.estabelecimento_id == estab_id,
+                EstabelecimentoFAP.ano_vigencia == item.ano,
+            )
+        )).scalar_one_or_none()
+        if existe:
+            existe.valor_fap = item.fap
+        else:
+            db.add(EstabelecimentoFAP(estabelecimento_id=estab_id, ano_vigencia=item.ano, valor_fap=item.fap))
+    await db.commit()
+    return {"ok": True, "salvos": len(faps)}

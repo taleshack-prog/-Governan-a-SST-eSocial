@@ -206,6 +206,36 @@ function EstabelecimentoModal({ form, setForm, onSalvar, onFechar, isPending }: 
 export function Estabelecimentos() {
   const qc = useQueryClient();
   const [showModal, setShowModal] = useState(false);
+  const [fapEstab, setFapEstab] = useState<any>(null);
+  const [fapValores, setFapValores] = useState<Record<number, string>>({});
+  const [fapSalvando, setFapSalvando] = useState(false);
+  const ANOS_FAP = [2021, 2022, 2023, 2024, 2025, 2026];
+
+  const abrirFap = async (e: any) => {
+    setFapEstab(e);
+    try {
+      const resp = await apiClient.get(`/estabelecimentos/${e.id}/fap`);
+      const mapa: Record<number, string> = {};
+      (resp.data || []).forEach((r: any) => { mapa[r.ano] = String(r.fap); });
+      setFapValores(mapa);
+    } catch { setFapValores({}); }
+  };
+
+  const salvarFap = async () => {
+    if (!fapEstab) return;
+    setFapSalvando(true);
+    try {
+      const faps = ANOS_FAP
+        .filter(ano => fapValores[ano] !== undefined && fapValores[ano] !== "")
+        .map(ano => ({ ano, fap: Number(fapValores[ano]) }));
+      await apiClient.put(`/estabelecimentos/${fapEstab.id}/fap`, faps);
+      setFapEstab(null);
+    } catch {
+      alert("Não foi possível salvar o FAP.");
+    } finally {
+      setFapSalvando(false);
+    }
+  };
   const [form, setForm] = useState<any>(FORM_VAZIO);
 
   const { data: estabelecimentos = [], isLoading } = useQuery({
@@ -266,7 +296,7 @@ export function Estabelecimentos() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                {["Código", "Nome", "Natureza", "Posição", "CNAE", "RAT%", "Status"].map(h => (
+                {["Código", "Nome", "Natureza", "Posição", "CNAE", "RAT%", "Status", "FAP/ano"].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{h}</th>
                 ))}
               </tr>
@@ -281,6 +311,12 @@ export function Estabelecimentos() {
                   <td className="px-4 py-3 text-gray-600">{e.cnae || "—"}</td>
                   <td className="px-4 py-3 text-gray-600">{e.aliquota_rat ?? "—"}</td>
                   <td className="px-4 py-3 text-gray-600 capitalize">{e.status}</td>
+                  <td className="px-4 py-3">
+                    <button onClick={() => abrirFap(e)}
+                      className="text-indigo-600 hover:text-indigo-800 text-xs font-medium">
+                      📊 FAP/ano
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -296,6 +332,36 @@ export function Estabelecimentos() {
           onFechar={fechar}
           isPending={criar.isPending}
         />
+      )}
+      {fapEstab && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md">
+            <h2 className="text-lg font-bold text-gray-900">FAP por ano</h2>
+            <p className="text-xs text-gray-500 mt-1 mb-4">
+              {fapEstab.nome} — o cálculo retroativo usa o FAP de cada ano, não o atual. Preencha todos os anos disponíveis.
+            </p>
+            <div className="space-y-2">
+              {ANOS_FAP.map(ano => (
+                <div key={ano} className="flex items-center gap-3">
+                  <label className="w-16 text-sm text-gray-600">{ano}</label>
+                  <input type="number" step="0.01" min="0.5" max="2.0"
+                    className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500"
+                    value={fapValores[ano] ?? ""}
+                    onChange={ev => setFapValores(v => ({ ...v, [ano]: ev.target.value }))}
+                    placeholder="0.50 a 2.00" />
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2 mt-5">
+              <button onClick={() => setFapEstab(null)}
+                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancelar</button>
+              <button onClick={salvarFap} disabled={fapSalvando}
+                className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
+                {fapSalvando ? "Salvando…" : "Salvar FAP"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
