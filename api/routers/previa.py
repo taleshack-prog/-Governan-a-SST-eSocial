@@ -17,6 +17,8 @@ from api.auth import get_current_user
 from api.models.usuario import Usuario
 from api.models.afastamento import Afastamento
 from api.models.trabalhador import Trabalhador
+from api.models.achado import Achado
+from api.models.estabelecimento import Estabelecimento
 # base_normativa não tem modelo — usando texto fixo
 from api.config import settings
 
@@ -51,6 +53,14 @@ Sua missão é ajudar o usuário a:
 5. Resumir dados e casos
 6. Priorizar ações
 7. Entender normas do eSocial e INSS
+
+AÇÕES QUE VOCÊ PODE EXECUTAR (somente se o perfil do usuário for 'admin' ou 'advogada'):
+- RECALCULAR A ANÁLISE DE CUSTEIO: se o usuário pedir para recalcular a análise/créditos/folha E o perfil for admin ou advogada, sua resposta deve ser EXATAMENTE esta, sem adicionar mais nada:
+"Vou recalcular a análise de custeio da empresa. Confirma?
+[[ACAO:recalcular]]"
+- NUNCA invente etapas de processamento (não diga "está processando", "revisando afastamentos", "você receberá notificação"). Isso é PROIBIDO.
+- NÃO diga que já recalculou. O sistema executa após o usuário responder "sim". Você apenas pede a confirmação com a marca.
+- Se o perfil do usuário NÃO for admin nem advogada, explique gentilmente que apenas esses perfis podem recalcular.
 
 REGRAS IMPORTANTES:
 - Responda sempre em português brasileiro
@@ -91,6 +101,26 @@ async def chat_previa(
     await set_tenant(db, current_user.empresa_id)
     hoje = date.today()
 
+    # Nível B — executa recálculo se o usuário confirmar uma ação pendente
+    _msg = data.mensagem.lower().strip()
+    _confirmou = _msg in ("sim", "confirmo", "pode", "isso", "confirmar", "pode sim", "sim pode", "claro", "sim, pode")
+    # detecta ação pendente pela frase de confirmação (a marca é limpa antes de ir ao front,
+    # então checamos o texto da última resposta da IA que pediu confirmação de recálculo)
+    _ultimas_ia = [h.get("content", "").lower() for h in (data.historico or []) if h.get("role") == "assistant"]
+    _tinha_acao = bool(_ultimas_ia) and (
+        "recalcular a análise de custeio" in _ultimas_ia[-1] and "confirma" in _ultimas_ia[-1]
+    )
+    if _confirmou and _tinha_acao and (current_user.perfil in ("admin", "advogada")):
+        from api.services.comparador_folha import rodar_comparador
+        try:
+            _r = await rodar_comparador(current_user.empresa_id, db)
+            _n = _r.get("creditos", 0)
+            _total = _r.get("total_credito_retroativo_estimado", 0)
+            _resp = f"Pronto! Recalculei a análise de custeio. Encontrei {_n} crédito(s), totalizando R$ {_total:,.2f}."
+        except Exception:
+            _resp = "Tentei recalcular, mas ocorreu um erro. Tente novamente em instantes."
+        return {"resposta": _resp, "tela": "creditos", "perfil": current_user.perfil}
+
     # Buscar dados do sistema
     afas_r = await db.execute(
         select(Afastamento).where(
@@ -115,6 +145,22 @@ async def chat_previa(
 - Retornos atrasados: {sum(1 for a in afastamentos if a.data_prevista_retorno and a.data_prevista_retorno < hoje)}
 - Sem previsão de retorno: {sum(1 for a in afastamentos if not a.data_prevista_retorno)}
 - Custo diário estimado: R$ {sum(float(a.salario_base or 3000)/30 for a in afastamentos):.0f}
+"""
+    # Dados do v2 (custeio/créditos) para a PrevIA consultar
+    estabs_v2 = (await db.execute(
+        select(Estabelecimento.id).where(Estabelecimento.empresa_id == current_user.empresa_id)
+    )).scalars().all()
+    creditos_v2 = 0.0
+    n_achados = 0
+    if estabs_v2:
+        ach_r = (await db.execute(
+            select(Achado).where(Achado.estabelecimento_id.in_(estabs_v2))
+        )).scalars().all()
+        n_achados = len(ach_r)
+        creditos_v2 = sum(float(a.valor_retroativo or 0) for a in ach_r if a.tipo == "credito")
+    dados_sistema += f"""
+- Crédito previdenciário a recuperar (5 anos): R$ {creditos_v2:,.2f}
+- Achados/ordens de serviço abertos: {n_achados}
 """
 
     # Base normativa fixa contextual
@@ -181,6 +227,7 @@ async def chat_previa(
     except Exception as e:
         resposta = f"Não consegui responder agora. Detalhe técnico: {str(e)[:200]}"
 
+    resposta = resposta.replace("[[ACAO:recalcular]]", "").strip()
     return {
         "resposta": resposta,
         "tela": tela_desc,
