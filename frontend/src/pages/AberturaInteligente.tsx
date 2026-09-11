@@ -24,8 +24,15 @@ export function AberturaInteligente() {
         }
         const resp = await apiClient.get(`/empresas/${empresaId}/cadastro-status`);
         const completo = resp.data?.completo;
+        const faltando: string[] = resp.data?.faltando || [];
         if (!ativo) return;
-        navigate(completo ? "/diagnostico" : "/estabelecimentos", { replace: true });
+        if (completo) {
+          navigate("/diagnostico", { replace: true });
+        } else {
+          // se falta algum dado da EMPRESA (CNAE/FPAS/regime/CNPJ) → cadastro da empresa
+          const faltaEmpresa = faltando.some((f) => f.toLowerCase().includes("empresa"));
+          navigate(faltaEmpresa ? "/empresa" : "/estabelecimentos", { replace: true });
+        }
       } catch {
         // em caso de erro, cai no diagnóstico (não trava o usuário)
         if (ativo) navigate("/diagnostico", { replace: true });

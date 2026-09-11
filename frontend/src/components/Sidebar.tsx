@@ -12,6 +12,7 @@ import {
 import { useAuthStore } from "../store/authStore";
 
 const NAV_ITEMS = [
+  { path: "/empresa",      label: "Empresa",         icon: Building2 },
   { path: "/diagnostico",  label: "Diagnóstico",     icon: Activity },
   { path: "/achados",      label: "Créditos",        icon: DollarSign },
   { path: "/dashboard",    label: "Dashboard",       icon: LayoutDashboard },

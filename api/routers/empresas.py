@@ -20,6 +20,22 @@ class EmpresaCreate(BaseModel):
     grau_risco: int | None = None
     regime_tributario: str | None = None
 
+class EmpresaUpdate(BaseModel):
+    razao_social: str | None = None
+    nome_fantasia: str | None = None
+    cnpj: str | None = None
+    cnae_principal: str | None = None
+    regime_tributario: str | None = None
+    codigo_fpas: str | None = None
+    grau_risco: int | None = None
+    grau_risco_declarado: int | None = None
+    rat_aplicado: float | None = None
+    anexo_simples: str | None = None
+    apura_cprb: bool | None = None
+    contato_nome: str | None = None
+    contato_email: str | None = None
+    contato_telefone: str | None = None
+
 
 @router.get("/")
 async def listar_empresas(
@@ -71,3 +87,38 @@ async def cadastro_status(
                             detail="Acesso negado a empresa de outro tenant")
     from api.services.cadastro_completo import verificar_cadastro
     return await verificar_cadastro(empresa_id, db)
+
+
+@router.put("/{empresa_id}")
+async def atualizar_empresa(
+    empresa_id: UUID,
+    data: EmpresaUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(require_perfil("admin")),
+):
+    """Atualiza os dados da empresa. Isolamento: só a própria empresa do usuário."""
+    if str(empresa_id) != str(current_user.empresa_id):
+        raise HTTPException(status_code=403, detail="Sem permissão para esta empresa")
+    result = await db.execute(select(Empresa).where(Empresa.id == empresa_id))
+    empresa = result.scalar_one_or_none()
+    if not empresa:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+    campos = data.model_dump(exclude_unset=True)
+    for k, v in campos.items():
+        setattr(empresa, k, v)
+    await db.commit()
+    await db.refresh(empresa)
+    return {"id": str(empresa.id), "ok": True}
+
+
+@router.get("/opcoes/fpas")
+async def listar_fpas(
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Lista os códigos FPAS para o dropdown do cadastro (código, descrição, % Terceiros)."""
+    from api.models.tabela_fpas import TabelaFPAS
+    rows = (await db.execute(
+        select(TabelaFPAS).where(TabelaFPAS.ativo == True).order_by(TabelaFPAS.codigo_fpas)
+    )).scalars().all()
+    return [{"codigo": r.codigo_fpas, "descricao": r.descricao, "aliquota_terceiros": float(r.aliquota_terceiros)} for r in rows]
