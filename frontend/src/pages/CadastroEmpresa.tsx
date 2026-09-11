@@ -20,7 +20,7 @@ export function CadastroEmpresa() {
   const [form, setForm] = useState<any>({
     razao_social: "", nome_fantasia: "", cnpj: "", cnae_principal: "",
     regime_tributario: "", codigo_fpas: "", grau_risco: "", rat_aplicado: "",
-    anexo_simples: "", apura_cprb: false,
+    anexo_simples: "", apura_cprb: false, qtd_estabelecimentos: "",
     contato_nome: "", contato_email: "", contato_telefone: "",
   });
   const [salvando, setSalvando] = useState(false);
@@ -52,6 +52,7 @@ export function CadastroEmpresa() {
       // normaliza numéricos
       if (payload.grau_risco !== "") payload.grau_risco = Number(payload.grau_risco); else delete payload.grau_risco;
       if (payload.rat_aplicado !== "") payload.rat_aplicado = Number(payload.rat_aplicado); else delete payload.rat_aplicado;
+      if (payload.qtd_estabelecimentos !== "") payload.qtd_estabelecimentos = Number(payload.qtd_estabelecimentos); else delete payload.qtd_estabelecimentos;
       await apiClient.put(`/empresas/${empresaId}`, payload);
       setMsg("Dados da empresa salvos com sucesso. O diagnóstico já pode ser calculado.");
     } catch {
@@ -124,6 +125,10 @@ export function CadastroEmpresa() {
           <div>
             <label className={labelCls}>RAT aplicado (%)</label>
             <input type="number" step="0.01" className={inputCls} value={form.rat_aplicado} onChange={(e) => set("rat_aplicado", e.target.value)} placeholder="ex: 3.00" />
+          </div>
+          <div>
+            <label className={labelCls}>Número de estabelecimentos (matriz + filiais/obras)</label>
+            <input type="number" min={1} className={inputCls} value={form.qtd_estabelecimentos} onChange={(e) => set("qtd_estabelecimentos", e.target.value)} placeholder="ex: 3" />
           </div>
           <div className="flex items-center gap-2 mt-6">
             <input type="checkbox" checked={!!form.apura_cprb} onChange={(e) => set("apura_cprb", e.target.checked)} id="cprb" />

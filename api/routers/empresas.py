@@ -32,6 +32,7 @@ class EmpresaUpdate(BaseModel):
     rat_aplicado: float | None = None
     anexo_simples: str | None = None
     apura_cprb: bool | None = None
+    qtd_estabelecimentos: int | None = None
     contato_nome: str | None = None
     contato_email: str | None = None
     contato_telefone: str | None = None

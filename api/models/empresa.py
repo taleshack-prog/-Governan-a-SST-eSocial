@@ -22,6 +22,7 @@ class Empresa(Base):
     codigo_fpas: Mapped[str | None] = mapped_column(String(4))
     anexo_simples: Mapped[str | None] = mapped_column(String(10))
     apura_cprb: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    qtd_estabelecimentos: Mapped[int | None] = mapped_column(Integer)
     grau_risco_declarado: Mapped[int | None] = mapped_column(SmallInteger)
     rat_aplicado: Mapped[float | None] = mapped_column(Numeric(4, 2))
     possui_sesmt: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

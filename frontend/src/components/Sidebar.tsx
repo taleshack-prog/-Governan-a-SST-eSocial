@@ -13,12 +13,12 @@ import { useAuthStore } from "../store/authStore";
 
 const NAV_ITEMS = [
   { path: "/empresa",      label: "Empresa",         icon: Building2 },
+  { path: "/estabelecimentos", label: "Estabelecimentos", icon: Building2 },
   { path: "/diagnostico",  label: "Diagnóstico",     icon: Activity },
   { path: "/achados",      label: "Créditos",        icon: DollarSign },
   { path: "/dashboard",    label: "Dashboard",       icon: LayoutDashboard },
   { path: "/documentos",   label: "Documentos",      icon: FileText },
   { path: "/trabalhadores",label: "Trabalhadores",   icon: Users },
-  { path: "/estabelecimentos", label: "Estabelecimentos", icon: Building2 },
   { path: "/agentes",      label: "Agentes Nocivos", icon: ShieldAlert },
   { path: "/exames",       label: "Exames Médicos",  icon: Stethoscope },
   { path: "/afastamentos", label: "Afastamentos",    icon: HeartPulse },
