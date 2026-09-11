@@ -217,6 +217,22 @@ async def transcrever_audio(
     return {"texto": texto}
 
 
+import re as _re
+
+def _limpar_para_voz(texto: str) -> str:
+    """Remove markdown e ajusta o texto para leitura por voz."""
+    t = texto
+    t = _re.sub(r"\*\*(.+?)\*\*", r"\1", t)   # **negrito**
+    t = _re.sub(r"\*(.+?)\*", r"\1", t)         # *itálico*
+    t = _re.sub(r"^#+\s*", "", t, flags=_re.MULTILINE)  # #títulos
+    t = _re.sub(r"^[\-\*•]\s+", "", t, flags=_re.MULTILINE)  # - listas
+    t = t.replace("`", "").replace("#", "").replace("*", "")
+    t = t.replace("R$", "reais ").replace("%", " por cento")
+    t = _re.sub(r"\n{2,}", ". ", t)  # parágrafos viram pausa
+    t = _re.sub(r"\s{2,}", " ", t)
+    return t.strip()
+
+
 class FalarRequest(BaseModel):
     texto: str
 
@@ -227,23 +243,24 @@ async def falar_texto(
     current_user: Usuario = Depends(get_current_user),
 ):
     """Sintetiza voz (TTS) da resposta da PrevIA. Retorna MP3 para o navegador tocar."""
-    openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
-    if not openrouter_key or not req.texto.strip():
+    elevenlabs_key = os.getenv("ELEVENLABS_API_KEY", "")
+    if not elevenlabs_key or not req.texto.strip():
         return Response(content=b"", status_code=204)
+    # Voz Sarah (feminina, pt-BR natural) — ElevenLabs Multilingual v2
+    voice_id = "EXAVITQu4vr4xnSDxMaL"
     try:
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(
-                "https://openrouter.ai/api/v1/audio/speech",
+                f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
                 headers={
-                    "Authorization": f"Bearer {openrouter_key}",
+                    "xi-api-key": elevenlabs_key,
                     "Content-Type": "application/json",
+                    "Accept": "audio/mpeg",
                 },
                 json={
-                    "model": "openai/gpt-4o-mini-tts",
-                    "input": req.texto[:1000],
-                    "voice": "nova",
-                    "instructions": "Fale em português do Brasil, com tom acolhedor, profissional e claro.",
-                    "response_format": "mp3",
+                    "text": _limpar_para_voz(req.texto)[:2000],
+                    "model_id": "eleven_flash_v2_5",
+                    "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
                 },
             )
             resp.raise_for_status()

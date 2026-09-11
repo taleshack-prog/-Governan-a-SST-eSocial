@@ -34,6 +34,12 @@ export default function PrevIA() {
   const [aberto, setAberto] = useState(false);
   const [minimizado, setMinimizado] = useState(false);
   const [texto, setTexto] = useState("");
+  const [gravando, setGravando] = useState(false);
+  const [transcrevendo, setTranscrevendo] = useState(false);
+  const [vozAtiva, setVozAtiva] = useState(true);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const [historico, setHistorico] = useState<Mensagem[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const location = useLocation();
@@ -43,7 +49,7 @@ export default function PrevIA() {
   const enviar = useMutation({
     mutationFn: (msg: string) =>
       apiClient.post("/previa/chat", { mensagem: msg, tela_atual: tela, historico: historico.slice(-6) }).then(r => r.data),
-    onSuccess: (data) => setHistorico(prev => [...prev, { role: "assistant", content: data.resposta }]),
+    onSuccess: (data) => { setHistorico(prev => [...prev, { role: "assistant", content: data.resposta }]); falarResposta(data.resposta); },
     onError: () => setHistorico(prev => [...prev, { role: "assistant", content: "Ocorreu um erro. Tente novamente." }]),
   });
 
@@ -53,6 +59,58 @@ export default function PrevIA() {
     setHistorico(prev => [...prev, { role: "user", content: m }]);
     setTexto("");
     enviar.mutate(m);
+  };
+
+  const toggleGravacao = async () => {
+    if (gravando) {
+      mediaRecorderRef.current?.stop();
+      setGravando(false);
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+      chunksRef.current = [];
+      mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      mr.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        setTranscrevendo(true);
+        try {
+          const fd = new FormData();
+          fd.append("audio", blob, "fala.webm");
+          const resp = await apiClient.post("/previa/transcrever", fd, {
+            headers: { "Content-Type": "multipart/form-data" },
+          });
+          const t = (resp.data?.texto || "").trim();
+          if (t) handleEnviar(t);
+        } catch {
+          setHistorico(prev => [...prev, { role: "assistant", content: "Não entendi o áudio. Tente de novo." }]);
+        } finally {
+          setTranscrevendo(false);
+        }
+      };
+      mr.start();
+      mediaRecorderRef.current = mr;
+      setGravando(true);
+    } catch {
+      alert("Não foi possível acessar o microfone. Verifique as permissões do navegador.");
+    }
+  };
+
+  const falarResposta = async (texto: string) => {
+    if (!vozAtiva || !texto) return;
+    try {
+      const resp = await apiClient.post("/previa/falar", { texto }, { responseType: "blob" });
+      if (resp.data && resp.data.size > 0) {
+        if (audioRef.current) audioRef.current.pause();
+        const url = URL.createObjectURL(resp.data);
+        const audio = new Audio(url);
+        audioRef.current = audio;
+        audio.play().catch(() => {});
+        audio.onended = () => URL.revokeObjectURL(url);
+      }
+    } catch {}
   };
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [historico]);
@@ -135,6 +193,16 @@ export default function PrevIA() {
                 onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleEnviar(); }}}
                 placeholder="Pergunte à PrevIA..." rows={1}
                 className="flex-1 bg-gray-100 rounded-xl px-3 py-2 text-xs resize-none outline-none max-h-20" />
+              <button onClick={toggleGravacao} disabled={transcrevendo}
+                title={gravando ? "Parar e enviar" : "Falar com a PrevIA"}
+                className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-sm ${gravando ? "bg-red-500 animate-pulse" : "bg-gray-200 hover:bg-gray-300"}`}>
+                {transcrevendo ? "⏳" : gravando ? "⏹️" : "🎤"}
+              </button>
+              <button onClick={() => setVozAtiva(v => !v)}
+                title={vozAtiva ? "Voz da resposta: ligada" : "Voz da resposta: desligada"}
+                className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-sm bg-gray-200 hover:bg-gray-300">
+                {vozAtiva ? "🔊" : "🔇"}
+              </button>
               <button onClick={() => handleEnviar()} disabled={!texto.trim() || enviar.isPending}
                 className="w-8 h-8 bg-[#1a9e8f] rounded-full flex items-center justify-center flex-shrink-0 disabled:opacity-40">
                 <Send size={14} color="white" />
