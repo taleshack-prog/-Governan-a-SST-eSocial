@@ -6,6 +6,7 @@ from api.services.correcao_selic import carregar_fatores_ate
 from api.services.regua_prescricao import add_months, _primeiro_dia_mes
 from api.services.regua_prescricao import calcular_regua
 from api.services.alerta_documentos import gerar_alertas_documentos
+import unicodedata
 from decimal import Decimal
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,7 +47,58 @@ async def _rat_fap(estab: Estabelecimento, db: AsyncSession, ano: int) -> Decima
     return (Decimal(str(estab.aliquota_rat)) / Decimal("100")) * fap
 
 
+def _norm(t: str) -> str:
+    """minusculo, sem acento, espacos colapsados."""
+    t = (t or "").lower().strip()
+    t = "".join(c for c in unicodedata.normalize("NFD", t) if unicodedata.category(c) != "Mn")
+    return " ".join(t.split())
+
+
+# Regras deterministicas de conciliacao rubrica -> slug do dicionario.
+# (stems_que_TODOS_devem_aparecer, stems_que_EXCLUEM, slug). Ordem = prioridade.
+# Principio de seguranca: ambiguidade de ferias cai na TRAVA (terco_ferias), nunca em credito.
+_REGRAS_CONCILIACAO = [
+    # --- FERIAS (desambiguacao explicita primeiro) ---
+    (["feria", "indeniz"], [], "ferias_indenizadas"),
+    (["feria", "rescis"],  [], "ferias_indenizadas"),
+    (["abono", "feria"],   [], "abono_pecuniario_ferias"),
+    (["feria", "goz"],     ["indeniz", "rescis"], "ferias_gozadas"),
+    (["terco"], ["indeniz", "rescis"], "terco_ferias"),
+    (["1/3"],   ["indeniz", "rescis"], "terco_ferias"),
+    (["feria"], ["indeniz", "rescis", "abono"], "terco_ferias"),   # ferias generica -> trava (seguro)
+    # --- INCIDENCIAS classicas ---
+    (["hora", "extra"], [], "hora_extra"),
+    (["adicional", "notur"], [], "adicional_noturno"),
+    (["insalubr"], [], "adicional_insalubridade"),
+    (["periculos"], [], "adicional_periculosidade"),
+    (["comiss"], [], "comissoes"),
+    (["decimo", "terceiro"], [], "decimo_terceiro"),
+    (["13", "salario"], [], "decimo_terceiro"),
+    # --- NAO INCIDENCIAS ---
+    (["aviso", "previo"], [], "aviso_previo_indenizado"),
+    (["salario", "famil"], [], "salario_familia"),
+    (["salario", "matern"], [], "salario_maternidade"),
+    (["vale", "transp"], [], "vale_transporte"),
+    (["auxilio", "creche"], [], "auxilio_creche"),
+    (["diaria"], [], "diarias_viagem"),
+    (["indeniz", "rescis"], ["feria"], "indenizacao_rescisoria"),
+    (["afastamento"], [], "afastamento_15dias"),
+    (["15", "dias"], [], "afastamento_15dias"),
+    # --- CONDICIONAIS (Caixa 3) ---
+    (["auxilio", "aliment"], [], "auxilio_alimentacao"),
+    (["vale", "aliment"], [], "auxilio_alimentacao"),
+    (["vale", "refei"], [], "auxilio_alimentacao"),
+    (["ticket"], [], "auxilio_alimentacao"),
+    (["plr"], [], "plr"),
+    (["participacao", "lucro"], [], "plr"),
+    (["premio"], [], "premios"),
+    (["acordo", "trabalh"], [], "acordo_trabalhista"),
+    (["reclamat"], [], "acordo_trabalhista"),
+]
+
+
 async def _conciliar(rubrica: RubricaEmpresa, db: AsyncSession) -> DicionarioRubrica | None:
+    # 1) codigo eSocial exato tem prioridade absoluta
     if rubrica.codigo_esocial:
         d = (await db.execute(
             select(DicionarioRubrica).where(
@@ -56,13 +108,23 @@ async def _conciliar(rubrica: RubricaEmpresa, db: AsyncSession) -> DicionarioRub
         )).scalar_one_or_none()
         if d:
             return d
-    desc = (rubrica.descricao or "").lower()
-    dics = (await db.execute(select(DicionarioRubrica).where(DicionarioRubrica.ativo == True))).scalars().all()
-    for d in dics:
-        chave = d.descricao.lower().split("(")[0].strip()
-        if chave and (chave[:20] in desc or any(p in desc for p in chave.split()[:2] if len(p) > 4)):
-            return d
-    return None
+    # 2) match deterministico por regras de stems (com desambiguacao segura)
+    desc = _norm(rubrica.descricao)
+    if not desc:
+        return None
+    slug_alvo = None
+    for stems, excludes, slug in _REGRAS_CONCILIACAO:
+        if all(st in desc for st in stems) and not any(ex in desc for ex in excludes):
+            slug_alvo = slug
+            break
+    if not slug_alvo:
+        return None  # nao bate em nenhuma regra -> fica pendente (nao chuta)
+    return (await db.execute(
+        select(DicionarioRubrica).where(
+            DicionarioRubrica.slug == slug_alvo,
+            DicionarioRubrica.ativo == True,
+        )
+    )).scalar_one_or_none()
 
 
 async def _faps_por_ano(estab: Estabelecimento, db: AsyncSession) -> dict:
@@ -106,8 +168,12 @@ async def comparar_estabelecimento(estab, empresa, db, ano) -> list[dict]:
             else:
                 continue  # pendente de classificacao -> permanece na fila manual
 
-        divergente = r.incide_inss_praticado and tratamento == "nao_incide"
-        if not divergente:
+        recolhe = r.incide_inss_praticado
+        if recolhe and tratamento == "nao_incide":
+            direcao = "credito"       # empresa paga a mais -> recuperacao
+        elif (not recolhe) and tratamento == "incide":
+            direcao = "passivo"       # empresa paga a menos -> exposicao/risco
+        else:
             continue
 
         valor = Decimal(str(r.valor_mensal or 0))
@@ -126,7 +192,7 @@ async def comparar_estabelecimento(estab, empresa, db, ano) -> list[dict]:
         credito_retro = _cr.quantize(Decimal("0.01"))
 
         if grau == "consolidado":
-            tipo = "credito"
+            tipo = direcao            # "credito" ou "passivo"
         elif grau == "provavel":
             tipo = "alerta"
         else:
@@ -134,7 +200,7 @@ async def comparar_estabelecimento(estab, empresa, db, ano) -> list[dict]:
 
         # Enriquecimento do alerta (v2 Alteração 4, seção 11.1): divergência de rubrica
         # consolidada = esfera consultivo; a régua de prescrição é o "prazo".
-        tipo_valor = "recuperacao" if tipo == "credito" else "exposicao"
+        tipo_valor = "recuperacao" if direcao == "credito" else "exposicao"
         data_limite = None
         if tipo == "credito":
             r_regua = calcular_regua(credito_mensal)
@@ -144,15 +210,15 @@ async def comparar_estabelecimento(estab, empresa, db, ano) -> list[dict]:
             "estabelecimento_id": estab.id,
             "tipo": tipo,
             "origem_id": r.id,
-            "descricao": f"{dic.descricao} — INSS recolhido indevidamente",
-            "valor_mensal": float(credito_mensal) if tipo == "credito" else None,
-            "valor_retroativo": float(credito_retro) if tipo == "credito" else None,
+            "descricao": f"{dic.descricao} — " + ("INSS recolhido indevidamente" if direcao == "credito" else "INSS nao recolhido (exposicao/passivo)"),
+            "valor_mensal": float(credito_mensal) if tipo in ("credito", "passivo") else None,
+            "valor_retroativo": float(credito_retro) if tipo in ("credito", "passivo") else None,
             "aliquota_aplicada": float(aliquota_efetiva),
             "grau_seguranca": dic.grau_seguranca,
             "esfera": "consultivo",
             "tipo_valor": tipo_valor,
             "data_limite": data_limite,
-            "acao_sugerida": "Solicitar análise jurídica",
+            "acao_sugerida": ("Solicitar análise jurídica" if direcao == "credito" else "Avaliar regularização / provisão"),
         })
     return achados
 
@@ -181,12 +247,15 @@ async def rodar_comparador(empresa_id: UUID, db: AsyncSession, ano: int | None =
 
     alertas_doc = await gerar_alertas_documentos(empresa_id, db)
     total_credito = sum(a["valor_retroativo"] or 0 for a in todos if a["tipo"] == "credito")
+    total_passivo = sum(a["valor_retroativo"] or 0 for a in todos if a["tipo"] == "passivo")
     return {
         "empresa_id": str(empresa_id),
         "ano": ano,
         "total_achados": len(todos),
         "creditos": sum(1 for a in todos if a["tipo"] == "credito"),
         "alertas": sum(1 for a in todos if a["tipo"] == "alerta"),
+        "passivos": sum(1 for a in todos if a["tipo"] == "passivo"),
+        "total_passivo_estimado": round(total_passivo, 2),
         "total_credito_retroativo_estimado": round(total_credito, 2),
         "alertas_documentos": alertas_doc.get("gerados", 0),
         "achados": todos,

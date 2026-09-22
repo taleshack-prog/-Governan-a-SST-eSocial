@@ -55,6 +55,8 @@ async def recalcular_achados(
         "creditos": resumo.get("creditos", 0),
         "alertas": resumo.get("alertas", 0),
         "total_credito_retroativo_estimado": resumo.get("total_credito_retroativo_estimado", 0),
+        "passivos": resumo.get("passivos", 0),
+        "total_passivo_estimado": resumo.get("total_passivo_estimado", 0),
     }
 
 
@@ -68,19 +70,21 @@ async def listar_achados(
         select(Estabelecimento.id).where(Estabelecimento.empresa_id == current_user.empresa_id)
     )).scalars().all()
     if not estabs:
-        return {"total": 0, "total_credito": 0.0, "achados": []}
+        return {"total": 0, "total_credito": 0.0, "total_passivo": 0.0, "achados": []}
 
     result = await db.execute(
         select(Achado).where(Achado.estabelecimento_id.in_(estabs)).order_by(Achado.valor_retroativo.desc().nullslast())
     )
     achados = [_to_dict(a) for a in result.scalars()]
     total_credito = sum(a["valor_retroativo"] or 0 for a in achados if a["tipo"] == "credito")
+    total_passivo = sum(a["valor_retroativo"] or 0 for a in achados if a["tipo"] == "passivo")
     total_prescreve_90dias = sum(
         (a.get("prescricao") or {}).get("valor_prescreve_90dias", 0) for a in achados if a["tipo"] == "credito"
     )
     return {
         "total": len(achados),
         "total_credito": round(total_credito, 2),
+        "total_passivo": round(total_passivo, 2),
         "total_prescreve_90dias": round(total_prescreve_90dias, 2),
         "achados": achados,
     }

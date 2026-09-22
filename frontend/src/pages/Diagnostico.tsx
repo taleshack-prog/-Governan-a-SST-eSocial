@@ -5,7 +5,7 @@
 // ==============================================================
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "../api/client";
 
 const BRL = (v: number | null | undefined) =>
@@ -74,6 +74,15 @@ export function Diagnostico() {
     queryFn: () => apiClient.get("/achados/").then(r => r.data),
   });
 
+  const qc = useQueryClient();
+  const recalcular = useMutation({
+    mutationFn: () => apiClient.post("/achados/recalcular").then(r => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["diagnostico-blocos"] });
+      qc.invalidateQueries({ queryKey: ["achados"] });
+    },
+  });
+
   const baixarRelatorio = async () => {
     try {
       const resp = await apiClient.get("/relatorios/executivo", { responseType: "blob" });
@@ -103,10 +112,16 @@ export function Diagnostico() {
             Visão do custeio previdenciário da empresa — o que você paga vs. o que o enquadramento correto indica
           </p>
         </div>
-        <button onClick={baixarRelatorio}
-          className="bg-slate-700 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-800 whitespace-nowrap">
-          📄 Relatório executivo
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => recalcular.mutate()} disabled={recalcular.isPending}
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 whitespace-nowrap disabled:opacity-50">
+            {recalcular.isPending ? "Recalculando..." : "↻ Recalcular"}
+          </button>
+          <button onClick={baixarRelatorio}
+            className="bg-slate-700 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-800 whitespace-nowrap">
+            📄 Relatório executivo
+          </button>
+        </div>
       </div>
 
       <div className="bg-gradient-to-r from-slate-800 to-slate-700 text-white rounded-xl p-5">
@@ -161,6 +176,16 @@ export function Diagnostico() {
             <p className="text-2xl font-bold text-emerald-800 mt-1">{BRL(achadosData.total_credito)}</p>
           </div>
           <a href="/achados" className="text-emerald-700 font-medium text-sm hover:text-emerald-900">Ver detalhes →</a>
+        </div>
+      )}
+
+      {(achadosData?.total_passivo || 0) > 0 && (
+        <div className="bg-rose-50 border border-rose-200 rounded-xl p-5 flex items-center justify-between">
+          <div>
+            <p className="text-sm text-rose-700">Passivo identificado (exposição — INSS a recolher)</p>
+            <p className="text-2xl font-bold text-rose-800 mt-1">{BRL(achadosData.total_passivo)}</p>
+          </div>
+          <a href="/achados" className="text-rose-700 font-medium text-sm hover:text-rose-900">Ver detalhes →</a>
         </div>
       )}
 
