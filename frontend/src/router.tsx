@@ -13,6 +13,8 @@ import { Diagnostico } from "./pages/Diagnostico";
 import { AberturaInteligente } from "./pages/AberturaInteligente";
 import { Achados } from "./pages/Achados";
 import { Estabelecimentos } from "./pages/Estabelecimentos";
+import { FilaClassificacao } from "./pages/FilaClassificacao";
+import { Folha } from "./pages/Folha";
 import { CadastroEmpresa } from "./pages/CadastroEmpresa";
 import { AgentesNocivos } from "./pages/AgentesNocivos";
 import { ExamesMedicos } from "./pages/ExamesMedicos";
@@ -48,7 +50,9 @@ export const router = createBrowserRouter([
       { path: "documentos",     element: <Documentos /> },
       { path: "trabalhadores",  element: <Trabalhadores /> },
       { path: "empresa", element: <CadastroEmpresa /> },
+      { path: "classificacao", element: <FilaClassificacao /> },
       { path: "estabelecimentos", element: <Estabelecimentos /> },
+      { path: "folha", element: <Folha /> },
       { path: "agentes",        element: <AgentesNocivos /> },
       { path: "exames",         element: <ExamesMedicos /> },
       { path: "afastamentos",   element: <Afastamentos /> },

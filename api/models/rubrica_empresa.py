@@ -2,7 +2,7 @@
 # Etapa 3 (v2) / seção 7 — Rubricas como a empresa parametrizou a folha.
 import uuid
 from datetime import datetime
-from sqlalchemy import String, Boolean, Numeric, DateTime, ForeignKey
+from sqlalchemy import String, Boolean, Numeric, DateTime, ForeignKey, Text
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID
 from api.database import Base
@@ -26,3 +26,8 @@ class RubricaEmpresa(Base):
     )
     status_conciliacao: Mapped[str] = mapped_column(String(12), nullable=False, default="pendente")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    # Fila de classificacao manual (Caixa 3 / condicional)
+    classificacao_manual: Mapped[str | None] = mapped_column(String(12))
+    classificado_por: Mapped[str | None] = mapped_column(String(160))
+    classificado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    justificativa_classificacao: Mapped[str | None] = mapped_column(Text)

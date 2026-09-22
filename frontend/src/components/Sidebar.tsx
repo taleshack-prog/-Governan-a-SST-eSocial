@@ -8,14 +8,18 @@ import {
   LayoutDashboard, FileText, Users, ShieldAlert,
   Stethoscope, AlertOctagon, Brain, ScrollText,
   LogOut, ChevronRight, Activity, HeartPulse, Radar, ClipboardList, DollarSign, UserCog, BriefcaseMedical, Building2, TrendingDown, Upload,
+  ListChecks,
+  Receipt,
 } from "lucide-react";
 import { useAuthStore } from "../store/authStore";
 
 const NAV_ITEMS = [
   { path: "/empresa",      label: "Empresa",         icon: Building2 },
   { path: "/estabelecimentos", label: "Estabelecimentos", icon: Building2 },
+  { path: "/folha",         label: "Folha de Pagamento", icon: Receipt },
   { path: "/diagnostico",  label: "Diagnóstico",     icon: Activity },
   { path: "/achados",      label: "Créditos",        icon: DollarSign },
+  { path: "/classificacao", label: "Classificação",  icon: ListChecks },
   { path: "/dashboard",    label: "Dashboard",       icon: LayoutDashboard },
   { path: "/documentos",   label: "Documentos",      icon: FileText },
   { path: "/trabalhadores",label: "Trabalhadores",   icon: Users },

@@ -96,7 +96,17 @@ async def comparar_estabelecimento(estab, empresa, db, ano) -> list[dict]:
         r.dicionario_rubrica_id = dic.id
         r.status_conciliacao = "conciliada"
 
-        divergente = r.incide_inss_praticado and dic.tratamento_correto == "nao_incide"
+        # Caixa 3 (condicional): so resolve com decisao manual (fila de classificacao).
+        tratamento = dic.tratamento_correto
+        grau = dic.grau_seguranca
+        if dic.tratamento_correto == "condicional":
+            if r.classificacao_manual in ("incide", "nao_incide"):
+                tratamento = r.classificacao_manual
+                grau = "consolidado"  # decisao humana = firme para esta empresa
+            else:
+                continue  # pendente de classificacao -> permanece na fila manual
+
+        divergente = r.incide_inss_praticado and tratamento == "nao_incide"
         if not divergente:
             continue
 
@@ -115,9 +125,9 @@ async def comparar_estabelecimento(estab, empresa, db, ano) -> list[dict]:
             _comp = add_months(_comp, 1)
         credito_retro = _cr.quantize(Decimal("0.01"))
 
-        if dic.grau_seguranca == "consolidado":
+        if grau == "consolidado":
             tipo = "credito"
-        elif dic.grau_seguranca == "provavel":
+        elif grau == "provavel":
             tipo = "alerta"
         else:
             continue
