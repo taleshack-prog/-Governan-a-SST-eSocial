@@ -10,7 +10,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { Documentos } from "./pages/Documentos";
 import { Trabalhadores } from "./pages/Trabalhadores";
 import { Diagnostico } from "./pages/Diagnostico";
-import { AberturaInteligente } from "./pages/AberturaInteligente";
+import { Home } from "./pages/Home";
 import { Achados } from "./pages/Achados";
 import { Estabelecimentos } from "./pages/Estabelecimentos";
 import { FilaClassificacao } from "./pages/FilaClassificacao";
@@ -43,7 +43,7 @@ export const router = createBrowserRouter([
     path: "/",
     element: <Layout />,
     children: [
-      { index: true, element: <AberturaInteligente /> },
+      { index: true, element: <Home /> },
       { path: "dashboard",      element: <Dashboard /> },
       { path: "diagnostico",    element: <Diagnostico /> },
       { path: "achados",        element: <Achados /> },

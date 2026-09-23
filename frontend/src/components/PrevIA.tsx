@@ -129,7 +129,7 @@ export default function PrevIA() {
     <button onClick={() => setAberto(true)}
       className="fixed bottom-6 right-6 z-50 w-16 h-16 rounded-full shadow-lg overflow-hidden border-3 border-[#1a9e8f] hover:scale-110 transition-all"
       title="PrevIA">
-      <img src="/previa-avatar.jpeg" alt="PrevIA" className="w-full h-full object-cover" />
+      <span className="w-full h-full block" style={{background:"radial-gradient(120% 120% at 30% 25%, rgb(var(--c-brand-500)), rgb(var(--c-brand-700)))"}} />
       <span className="absolute top-0 right-0 w-4 h-4 bg-green-400 rounded-full border-2 border-white animate-pulse" />
     </button>
   );
@@ -138,7 +138,7 @@ export default function PrevIA() {
     <div className={`fixed bottom-6 right-6 z-50 flex flex-col bg-white rounded-2xl shadow-2xl border border-gray-100 transition-all ${minimizado ? "w-72 h-14" : "w-80 sm:w-96 h-[520px]"}`}>
       <div className="flex items-center justify-between px-4 py-3 bg-[#0f2744] rounded-t-2xl flex-shrink-0">
         <div className="flex items-center gap-2.5">
-          <img src="/previa-avatar.jpeg" alt="PrevIA" className="w-8 h-8 rounded-full object-cover border border-[#1a9e8f]" />
+          <span className="w-8 h-8 rounded-full block" style={{background:"radial-gradient(120% 120% at 30% 25%, rgb(var(--c-brand-500)), rgb(var(--c-brand-700)))"}} />
           <div>
             <p className="text-white text-sm font-bold">PrevIA</p>
             <p className="text-blue-300 text-xs">Assistente Previdenciária</p>
@@ -165,7 +165,7 @@ export default function PrevIA() {
             {historico.length === 0 && (
               <div className="space-y-3">
                 <div className="flex gap-2">
-                  <img src="/previa-avatar.jpeg" alt="PrevIA" className="w-6 h-6 rounded-full object-cover flex-shrink-0 mt-0.5" />
+                  <span className="w-6 h-6 rounded-full flex-shrink-0 mt-0.5 block" style={{background:"radial-gradient(120% 120% at 30% 25%, rgb(var(--c-brand-500)), rgb(var(--c-brand-700)))"}} />
                   <div className="bg-gray-50 rounded-2xl rounded-tl-sm px-3 py-2.5 text-xs text-gray-700 max-w-[85%]">
                     Olá! Sou a <strong>PrevIA</strong>. Posso explicar esta tela, orientar tarefas e identificar pendências. Como posso ajudar?
                   </div>
@@ -183,7 +183,7 @@ export default function PrevIA() {
             {historico.map((m, i) => (
               <div key={i} className={`flex gap-2 ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                 {m.role === "assistant" && (
-                  <img src="/previa-avatar.jpeg" alt="PrevIA" className="w-6 h-6 rounded-full object-cover flex-shrink-0 mt-0.5" />
+                  <span className="w-6 h-6 rounded-full flex-shrink-0 mt-0.5 block" style={{background:"radial-gradient(120% 120% at 30% 25%, rgb(var(--c-brand-500)), rgb(var(--c-brand-700)))"}} />
                 )}
                 <div className={`max-w-[85%] rounded-2xl px-3 py-2.5 text-xs leading-relaxed ${m.role === "user" ? "bg-[#0f2744] text-white rounded-tr-sm" : "bg-gray-50 text-gray-700 rounded-tl-sm"}`}
                   dangerouslySetInnerHTML={{ __html: m.role === "assistant" ? fmt(m.content) : m.content }} />
@@ -191,7 +191,7 @@ export default function PrevIA() {
             ))}
             {enviar.isPending && (
               <div className="flex gap-2">
-                <img src="/previa-avatar.jpeg" alt="PrevIA" className="w-6 h-6 rounded-full object-cover flex-shrink-0" />
+                <span className="w-6 h-6 rounded-full flex-shrink-0 block" style={{background:"radial-gradient(120% 120% at 30% 25%, rgb(var(--c-brand-500)), rgb(var(--c-brand-700)))"}} />
                 <div className="bg-gray-50 rounded-2xl rounded-tl-sm px-3 py-2.5">
                   <div className="flex gap-1">
                     {[0,150,300].map(d => <span key={d} className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{animationDelay:`${d}ms`}}/>)}
