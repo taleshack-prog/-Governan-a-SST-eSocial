@@ -26,6 +26,10 @@ class EmpresaUpdate(BaseModel):
     cnpj: str | None = None
     cnae_principal: str | None = None
     regime_tributario: str | None = None
+    endereco: str | None = None
+    cidade: str | None = None
+    uf: str | None = None
+    cep: str | None = None
     codigo_fpas: str | None = None
     grau_risco: int | None = None
     grau_risco_declarado: int | None = None
@@ -70,7 +74,32 @@ async def obter_empresa(
     empresa = result.scalar_one_or_none()
     if not empresa:
         raise HTTPException(status_code=404, detail="Empresa não encontrada")
-    return {"id": str(empresa.id), "razao_social": empresa.razao_social, "cnpj": empresa.cnpj, "cnae_principal": empresa.cnae_principal, "grau_risco": empresa.grau_risco}
+    # P0-1: devolver TODOS os campos editáveis. Antes só retornava 5 campos, então a
+    # tela reabria FPAS/regime/anexo/CPRB/RAT vazios e o PUT regravava vazio (perda de dados).
+    return {
+        "id": str(empresa.id),
+        "razao_social": empresa.razao_social,
+        "nome_fantasia": empresa.nome_fantasia,
+        "cnpj": empresa.cnpj,
+        "cnae_principal": empresa.cnae_principal,
+        "regime_tributario": empresa.regime_tributario,
+        "endereco": empresa.endereco,
+        "cidade": empresa.cidade,
+        "uf": empresa.uf,
+        "cep": empresa.cep,
+        "codigo_fpas": empresa.codigo_fpas,
+        "anexo_simples": empresa.anexo_simples,
+        "apura_cprb": empresa.apura_cprb,
+        "grau_risco": empresa.grau_risco,
+        "grau_risco_declarado": empresa.grau_risco_declarado,
+        "rat_aplicado": float(empresa.rat_aplicado) if empresa.rat_aplicado is not None else None,
+        "qtd_estabelecimentos": empresa.qtd_estabelecimentos,
+        "possui_sesmt": empresa.possui_sesmt,
+        "possui_cipa": empresa.possui_cipa,
+        "contato_nome": empresa.contato_nome,
+        "contato_email": empresa.contato_email,
+        "contato_telefone": empresa.contato_telefone,
+    }
 
 
 # ---- Módulo 0 / RF-0.07: status do cadastro (bloqueio) ----

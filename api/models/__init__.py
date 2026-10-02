@@ -9,6 +9,8 @@ from api.models.questionario_resposta import QuestionarioResposta
 from api.models.dicionario_rubrica import DicionarioRubrica
 from api.models.rubrica_empresa import RubricaEmpresa
 from api.models.tabela_fpas import TabelaFPAS
+from api.models.cnae_enquadramento import CnaeEnquadramento
+from api.models.cnae_fpas_sugestao import CnaeFpasSugestao
 from api.models.achado import Achado
 from api.models.memoria_prescricao import MemoriaCalculoPrescricao
 from api.models.estabelecimento import Estabelecimento
@@ -26,5 +28,5 @@ from api.models.audit_log import AuditLog
 __all__ = [
     "Empresa", "EmpresaCnaeSecundario", "Estabelecimento", "EstabelecimentoFAP", "Trabalhador", "Vinculo",
     "Usuario", "DocumentoTecnico", "AgenteNocivo", "ExameMedico",
-    "CatRegistro", "AiValidacao", "AuditLog", "QuestionarioResposta", "DicionarioRubrica", "RubricaEmpresa", "TabelaFPAS", "Achado", "MemoriaCalculoPrescricao",
+    "CatRegistro", "AiValidacao", "AuditLog", "QuestionarioResposta", "DicionarioRubrica", "RubricaEmpresa", "TabelaFPAS", "CnaeEnquadramento", "CnaeFpasSugestao", "Achado", "MemoriaCalculoPrescricao",
 ]

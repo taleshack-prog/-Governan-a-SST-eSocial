@@ -18,6 +18,12 @@ class Empresa(Base):
     regime_tributario: Mapped[str | None] = mapped_column(String(50))
     grau_risco: Mapped[int | None] = mapped_column(Integer)
 
+    # ---- Endereco da matriz (migration 023) — espelha o estabelecimento ----
+    endereco: Mapped[str | None] = mapped_column(String(500))
+    cidade: Mapped[str | None] = mapped_column(String(100))
+    uf: Mapped[str | None] = mapped_column(String(2))
+    cep: Mapped[str | None] = mapped_column(String(9))
+
     # ---- Cadastro completo Módulo 0 / RF-0.01 (v2) ----
     codigo_fpas: Mapped[str | None] = mapped_column(String(4))
     anexo_simples: Mapped[str | None] = mapped_column(String(10))
