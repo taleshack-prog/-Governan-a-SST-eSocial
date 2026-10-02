@@ -18,8 +18,11 @@ class Empresa(Base):
     regime_tributario: Mapped[str | None] = mapped_column(String(50))
     grau_risco: Mapped[int | None] = mapped_column(Integer)
 
-    # ---- Endereco da matriz (migration 023) — espelha o estabelecimento ----
-    endereco: Mapped[str | None] = mapped_column(String(500))
+    # ---- Endereco da matriz (migration 023/025) — espelha o estabelecimento ----
+    endereco: Mapped[str | None] = mapped_column(String(500))   # logradouro
+    numero: Mapped[str | None] = mapped_column(String(20))
+    complemento: Mapped[str | None] = mapped_column(String(120))
+    bairro: Mapped[str | None] = mapped_column(String(120))
     cidade: Mapped[str | None] = mapped_column(String(100))
     uf: Mapped[str | None] = mapped_column(String(2))
     cep: Mapped[str | None] = mapped_column(String(9))

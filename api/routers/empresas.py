@@ -27,6 +27,9 @@ class EmpresaUpdate(BaseModel):
     cnae_principal: str | None = None
     regime_tributario: str | None = None
     endereco: str | None = None
+    numero: str | None = None
+    complemento: str | None = None
+    bairro: str | None = None
     cidade: str | None = None
     uf: str | None = None
     cep: str | None = None
@@ -84,6 +87,9 @@ async def obter_empresa(
         "cnae_principal": empresa.cnae_principal,
         "regime_tributario": empresa.regime_tributario,
         "endereco": empresa.endereco,
+        "numero": empresa.numero,
+        "complemento": empresa.complemento,
+        "bairro": empresa.bairro,
         "cidade": empresa.cidade,
         "uf": empresa.uf,
         "cep": empresa.cep,

@@ -15,11 +15,30 @@ const REGIMES = [
   { v: "simples", label: "Simples Nacional" },
 ];
 
+const UFS = [
+  "AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB",
+  "PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO",
+];
+
+// Máscaras (exibem formatado; o estado guarda só dígitos)
+const maskCnpj = (v: string) => {
+  const d = (v || "").replace(/\D/g, "").slice(0, 14);
+  return d
+    .replace(/^(\d{2})(\d)/, "$1.$2")
+    .replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
+    .replace(/\.(\d{3})(\d)/, ".$1/$2")
+    .replace(/(\d{4})(\d)/, "$1-$2");
+};
+const maskCep = (v: string) => {
+  const d = (v || "").replace(/\D/g, "").slice(0, 8);
+  return d.replace(/^(\d{5})(\d)/, "$1-$2");
+};
+
 export function CadastroEmpresa() {
   const empresaId = useAuthStore((s) => s.user?.empresa_id);
   const [form, setForm] = useState<any>({
     razao_social: "", nome_fantasia: "", cnpj: "", cnae_principal: "",
-    endereco: "", cidade: "", uf: "", cep: "",
+    endereco: "", numero: "", complemento: "", bairro: "", cidade: "", uf: "", cep: "",
     regime_tributario: "", codigo_fpas: "", grau_risco: "", rat_aplicado: "",
     anexo_simples: "", apura_cprb: false, qtd_estabelecimentos: "",
     contato_nome: "", contato_email: "", contato_telefone: "",
@@ -27,6 +46,7 @@ export function CadastroEmpresa() {
   const [salvando, setSalvando] = useState(false);
   const [msg, setMsg] = useState("");
   const [enq, setEnq] = useState<any>(null); // enquadramento oficial do CNAE (Anexo V)
+  const [cepMsg, setCepMsg] = useState("");
 
   // carrega opções de FPAS
   const { data: fpasOpcoes } = useQuery<FpasOpcao[]>({
@@ -70,6 +90,29 @@ export function CadastroEmpresa() {
 
   const set = (k: string, v: any) => setForm((f: any) => ({ ...f, [k]: v }));
 
+  // Busca endereço pelo CEP (ViaCEP, roda no navegador). Preenche logradouro, bairro,
+  // cidade e UF; o usuário completa só número e complemento.
+  const buscarCep = async (cepRaw: string) => {
+    const d = (cepRaw || "").replace(/\D/g, "");
+    if (d.length !== 8) return;
+    setCepMsg("Buscando endereço…");
+    try {
+      const resp = await fetch(`https://viacep.com.br/ws/${d}/json/`);
+      const data = await resp.json();
+      if (data.erro) { setCepMsg("CEP não encontrado."); return; }
+      setForm((f: any) => ({
+        ...f,
+        endereco: data.logradouro || f.endereco,
+        bairro: data.bairro || f.bairro,
+        cidade: data.localidade || f.cidade,
+        uf: data.uf || f.uf,
+      }));
+      setCepMsg("");
+    } catch {
+      setCepMsg("Não foi possível buscar o CEP. Preencha manualmente.");
+    }
+  };
+
   const salvar = async () => {
     if (!empresaId) return;
     setSalvando(true); setMsg("");
@@ -112,8 +155,10 @@ export function CadastroEmpresa() {
             <input className={inputCls} value={form.nome_fantasia} onChange={(e) => set("nome_fantasia", e.target.value)} />
           </div>
           <div>
-            <label className={labelCls}>CNPJ (só números)</label>
-            <input className={inputCls} value={form.cnpj} onChange={(e) => set("cnpj", e.target.value.replace(/\D/g, ""))} maxLength={14} />
+            <label className={labelCls}>CNPJ</label>
+            <input className={inputCls} value={maskCnpj(form.cnpj)}
+              onChange={(e) => set("cnpj", e.target.value.replace(/\D/g, "").slice(0, 14))}
+              maxLength={18} placeholder="00.000.000/0000-00" />
           </div>
         </div>
       </section>
@@ -122,21 +167,40 @@ export function CadastroEmpresa() {
       <section className="bg-white rounded-xl border border-gray-100 p-5 mb-4">
         <h2 className="text-sm font-bold text-gray-800 mb-3">Endereço (matriz)</h2>
         <div className="grid grid-cols-6 gap-4">
-          <div className="col-span-4">
-            <label className={labelCls}>Logradouro</label>
-            <input className={inputCls} value={form.endereco} onChange={(e) => set("endereco", e.target.value)} placeholder="Rua, número, complemento" />
-          </div>
           <div className="col-span-2">
             <label className={labelCls}>CEP</label>
-            <input className={inputCls} value={form.cep} onChange={(e) => set("cep", e.target.value)} maxLength={9} placeholder="00000-000" />
+            <input className={inputCls} value={form.cep}
+              onChange={(e) => { const v = maskCep(e.target.value); set("cep", v); if (v.replace(/\D/g, "").length === 8) buscarCep(v); }}
+              onBlur={(e) => buscarCep(e.target.value)}
+              maxLength={9} placeholder="00000-000" inputMode="numeric" />
+            {cepMsg && <p className="text-[11px] text-amber-600 mt-1">{cepMsg}</p>}
+          </div>
+          <div className="col-span-4">
+            <label className={labelCls}>Logradouro</label>
+            <input className={inputCls} value={form.endereco} onChange={(e) => set("endereco", e.target.value)} placeholder="preenchido pelo CEP" />
+          </div>
+          <div className="col-span-2">
+            <label className={labelCls}>Número</label>
+            <input className={inputCls} value={form.numero} onChange={(e) => set("numero", e.target.value)} placeholder="nº" />
+          </div>
+          <div className="col-span-2">
+            <label className={labelCls}>Complemento</label>
+            <input className={inputCls} value={form.complemento} onChange={(e) => set("complemento", e.target.value)} placeholder="sala, bloco…" />
+          </div>
+          <div className="col-span-2">
+            <label className={labelCls}>Bairro</label>
+            <input className={inputCls} value={form.bairro} onChange={(e) => set("bairro", e.target.value)} placeholder="preenchido pelo CEP" />
           </div>
           <div className="col-span-4">
             <label className={labelCls}>Cidade</label>
-            <input className={inputCls} value={form.cidade} onChange={(e) => set("cidade", e.target.value)} />
+            <input className={inputCls} value={form.cidade} onChange={(e) => set("cidade", e.target.value)} placeholder="preenchido pelo CEP" />
           </div>
           <div className="col-span-2">
             <label className={labelCls}>UF</label>
-            <input className={inputCls} value={form.uf} onChange={(e) => set("uf", e.target.value.toUpperCase().slice(0, 2))} maxLength={2} placeholder="RS" />
+            <select className={inputCls} value={form.uf} onChange={(e) => set("uf", e.target.value)}>
+              <option value="">—</option>
+              {UFS.map((u) => <option key={u} value={u}>{u}</option>)}
+            </select>
           </div>
         </div>
       </section>
