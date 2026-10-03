@@ -34,6 +34,22 @@ const maskCep = (v: string) => {
   return d.replace(/^(\d{5})(\d)/, "$1-$2");
 };
 
+// Valida CNPJ pelos dígitos verificadores (RF-0.142)
+const validaCnpj = (v: string): boolean => {
+  const c = (v || "").replace(/\D/g, "");
+  if (c.length !== 14 || /^(\d)\1{13}$/.test(c)) return false;
+  const dv = (base: string) => {
+    let soma = 0, pos = base.length - 7;
+    for (let i = 0; i < base.length; i++) {
+      soma += parseInt(base[i], 10) * pos--;
+      if (pos < 2) pos = 9;
+    }
+    const r = soma % 11;
+    return r < 2 ? 0 : 11 - r;
+  };
+  return dv(c.slice(0, 12)) === +c[12] && dv(c.slice(0, 13)) === +c[13];
+};
+
 export function CadastroEmpresa() {
   const empresaId = useAuthStore((s) => s.user?.empresa_id);
   const [form, setForm] = useState<any>({
@@ -47,6 +63,7 @@ export function CadastroEmpresa() {
   const [msg, setMsg] = useState("");
   const [enq, setEnq] = useState<any>(null); // enquadramento oficial do CNAE (Anexo V)
   const [cepMsg, setCepMsg] = useState("");
+  const [cnpjErro, setCnpjErro] = useState("");
 
   // carrega opções de FPAS
   const { data: fpasOpcoes } = useQuery<FpasOpcao[]>({
@@ -115,6 +132,11 @@ export function CadastroEmpresa() {
 
   const salvar = async () => {
     if (!empresaId) return;
+    if (form.cnpj && !validaCnpj(form.cnpj)) {
+      setCnpjErro("CNPJ inválido (dígito verificador).");
+      setMsg("Corrija o CNPJ antes de salvar.");
+      return;
+    }
     setSalvando(true); setMsg("");
     try {
       const payload: any = { ...form };
@@ -156,9 +178,11 @@ export function CadastroEmpresa() {
           </div>
           <div>
             <label className={labelCls}>CNPJ</label>
-            <input className={inputCls} value={maskCnpj(form.cnpj)}
-              onChange={(e) => set("cnpj", e.target.value.replace(/\D/g, "").slice(0, 14))}
+            <input className={`${inputCls} ${cnpjErro ? "border-red-400" : ""}`} value={maskCnpj(form.cnpj)}
+              onChange={(e) => { set("cnpj", e.target.value.replace(/\D/g, "").slice(0, 14)); if (cnpjErro) setCnpjErro(""); }}
+              onBlur={(e) => { const d = e.target.value.replace(/\D/g, ""); setCnpjErro(d && !validaCnpj(d) ? "CNPJ inválido (dígito verificador)." : ""); }}
               maxLength={18} placeholder="00.000.000/0000-00" />
+            {cnpjErro && <p className="text-[11px] text-red-500 mt-1">{cnpjErro}</p>}
           </div>
         </div>
       </section>
@@ -214,15 +238,18 @@ export function CadastroEmpresa() {
             <input className={inputCls} value={form.cnae_principal} onChange={(e) => set("cnae_principal", e.target.value.replace(/\D/g, ""))} maxLength={7} />
           </div>
           <div>
-            <label className={labelCls}>Código FPAS (define os Terceiros)</label>
+            <label className={labelCls}>Código FPAS</label>
             <select className={inputCls} value={form.codigo_fpas} onChange={(e) => set("codigo_fpas", e.target.value)}>
               <option value="">Selecione…</option>
               {fpasOpcoes?.map((o) => (
                 <option key={o.codigo} value={o.codigo}>
-                  {o.codigo} — {o.descricao} ({o.aliquota_terceiros.toFixed(2)}%)
+                  {o.codigo} — {o.descricao}
                 </option>
               ))}
             </select>
+            <p className="text-[11px] text-gray-400 mt-1">
+              Os Terceiros dependem do FPAS + código de terceiros e variam por competência.
+            </p>
             {enq && !enq.erro && enq.fpas_sugerido && (
               <p className="text-[11px] text-amber-600 mt-1">
                 Sugerido pelo CNAE ({enq.fpas_setor}): FPAS {enq.fpas_sugerido}. Confirme conforme a atividade.

@@ -119,7 +119,7 @@ async def fila_classificacao(
         .order_by(RubricaEmpresa.descricao)
     )).all()
 
-    pode_fundamento = current_user.perfil in ("admin", "advogada")
+    pode_fundamento = current_user.perfil in ("admin", "juridico")
     out = []
     for r, dic in rows:
         item = {
@@ -145,8 +145,12 @@ async def classificar_rubrica(
     rubrica_id: UUID,
     data: ClassificarIn,
     db: AsyncSession = Depends(get_db),
-    current_user: Usuario = Depends(require_perfil("advogada")),
+    current_user: Usuario = Depends(get_current_user),
 ):
+    # Só curadoria jurídica ou admin classifica (Caixa 3 é decisão do advogado).
+    # Checagem explícita, não por nível: na hierarquia 'juridico' fica abaixo de rh/sst.
+    if current_user.perfil not in ("juridico", "admin"):
+        raise HTTPException(status_code=403, detail="Apenas perfil jurídico ou admin pode classificar rubricas.")
     if data.classificacao not in ("incide", "nao_incide"):
         raise HTTPException(status_code=422, detail="classificacao deve ser 'incide' ou 'nao_incide'")
 
