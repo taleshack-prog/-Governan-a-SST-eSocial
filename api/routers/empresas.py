@@ -1,5 +1,7 @@
 # api/routers/empresas.py — SST ESOCIAL GOV
 from uuid import UUID
+from datetime import date
+from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -7,6 +9,7 @@ from pydantic import BaseModel
 
 from api.database import get_db
 from api.models.empresa import Empresa
+from api.models.empresa_fap import EmpresaFAP
 from api.models.usuario import Usuario
 from api.auth import get_current_user, require_perfil
 
@@ -40,9 +43,16 @@ class EmpresaUpdate(BaseModel):
     anexo_simples: str | None = None
     apura_cprb: bool | None = None
     qtd_estabelecimentos: int | None = None
+    cprb_inicio: date | None = None
+    cprb_fim: date | None = None
     contato_nome: str | None = None
     contato_email: str | None = None
     contato_telefone: str | None = None
+
+
+class FapItem(BaseModel):
+    ano: int
+    indice: float
 
 
 @router.get("/")
@@ -96,6 +106,8 @@ async def obter_empresa(
         "codigo_fpas": empresa.codigo_fpas,
         "anexo_simples": empresa.anexo_simples,
         "apura_cprb": empresa.apura_cprb,
+        "cprb_inicio": empresa.cprb_inicio.isoformat() if empresa.cprb_inicio else None,
+        "cprb_fim": empresa.cprb_fim.isoformat() if empresa.cprb_fim else None,
         "grau_risco": empresa.grau_risco,
         "grau_risco_declarado": empresa.grau_risco_declarado,
         "rat_aplicado": float(empresa.rat_aplicado) if empresa.rat_aplicado is not None else None,
@@ -145,6 +157,45 @@ async def atualizar_empresa(
     await db.commit()
     await db.refresh(empresa)
     return {"id": str(empresa.id), "ok": True}
+
+
+# ---- FAP por ano da empresa (RF-0.135) ----
+@router.get("/{empresa_id}/fap")
+async def listar_empresa_fap(
+    empresa_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    if str(empresa_id) != str(current_user.empresa_id):
+        raise HTTPException(status_code=403, detail="Sem permissão para esta empresa")
+    rows = (await db.execute(
+        select(EmpresaFAP).where(EmpresaFAP.empresa_id == empresa_id).order_by(EmpresaFAP.ano)
+    )).scalars().all()
+    return [{"ano": r.ano, "indice": float(r.indice)} for r in rows]
+
+
+@router.put("/{empresa_id}/fap")
+async def salvar_empresa_fap(
+    empresa_id: UUID,
+    data: List[FapItem],
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(require_perfil("admin")),
+):
+    """Upsert do FAP por ano. Faixa 0,5 a 2,0. Isolamento por tenant."""
+    if str(empresa_id) != str(current_user.empresa_id):
+        raise HTTPException(status_code=403, detail="Sem permissão para esta empresa")
+    for item in data:
+        if not (0.5 <= item.indice <= 2.0):
+            raise HTTPException(status_code=422, detail=f"FAP {item.indice} fora da faixa 0,5–2,0 (ano {item.ano}).")
+        existente = (await db.execute(
+            select(EmpresaFAP).where(EmpresaFAP.empresa_id == empresa_id, EmpresaFAP.ano == item.ano)
+        )).scalar_one_or_none()
+        if existente:
+            existente.indice = item.indice
+        else:
+            db.add(EmpresaFAP(empresa_id=empresa_id, ano=item.ano, indice=item.indice))
+    await db.commit()
+    return {"ok": True, "total": len(data)}
 
 
 @router.get("/opcoes/fpas")

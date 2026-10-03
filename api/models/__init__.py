@@ -15,6 +15,7 @@ from api.models.achado import Achado
 from api.models.memoria_prescricao import MemoriaCalculoPrescricao
 from api.models.estabelecimento import Estabelecimento
 from api.models.estabelecimento_fap import EstabelecimentoFAP
+from api.models.empresa_fap import EmpresaFAP
 from api.models.trabalhador import Trabalhador
 from api.models.vinculo import Vinculo
 from api.models.usuario import Usuario
@@ -26,7 +27,7 @@ from api.models.ai_validacao import AiValidacao
 from api.models.audit_log import AuditLog
 
 __all__ = [
-    "Empresa", "EmpresaCnaeSecundario", "Estabelecimento", "EstabelecimentoFAP", "Trabalhador", "Vinculo",
+    "Empresa", "EmpresaCnaeSecundario", "Estabelecimento", "EstabelecimentoFAP", "EmpresaFAP", "Trabalhador", "Vinculo",
     "Usuario", "DocumentoTecnico", "AgenteNocivo", "ExameMedico",
     "CatRegistro", "AiValidacao", "AuditLog", "QuestionarioResposta", "DicionarioRubrica", "RubricaEmpresa", "TabelaFPAS", "CnaeEnquadramento", "CnaeFpasSugestao", "Achado", "MemoriaCalculoPrescricao",
 ]

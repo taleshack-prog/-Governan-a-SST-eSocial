@@ -20,6 +20,9 @@ const UFS = [
   "PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO",
 ];
 
+// Os 5 anos da janela de prescrição (dinâmico, nunca fixo)
+const ANOS_FAP = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 4 + i);
+
 // Máscaras (exibem formatado; o estado guarda só dígitos)
 const maskCnpj = (v: string) => {
   const d = (v || "").replace(/\D/g, "").slice(0, 14);
@@ -57,8 +60,10 @@ export function CadastroEmpresa() {
     endereco: "", numero: "", complemento: "", bairro: "", cidade: "", uf: "", cep: "",
     regime_tributario: "", codigo_fpas: "", grau_risco: "", rat_aplicado: "",
     anexo_simples: "", apura_cprb: false, qtd_estabelecimentos: "",
+    cprb_inicio: "", cprb_fim: "",
     contato_nome: "", contato_email: "", contato_telefone: "",
   });
+  const [fap, setFap] = useState<Record<number, string>>({}); // FAP por ano (RF-0.135)
   const [salvando, setSalvando] = useState(false);
   const [msg, setMsg] = useState("");
   const [enq, setEnq] = useState<any>(null); // enquadramento oficial do CNAE (Anexo V)
@@ -78,6 +83,16 @@ export function CadastroEmpresa() {
       setForm((f: any) => ({ ...f, ...Object.fromEntries(
         Object.entries(r.data).filter(([, v]) => v !== null && v !== undefined)
       ) }));
+    }).catch(() => {});
+  }, [empresaId]);
+
+  // carrega o FAP por ano
+  useEffect(() => {
+    if (!empresaId) return;
+    apiClient.get(`/empresas/${empresaId}/fap`).then((r) => {
+      const m: Record<number, string> = {};
+      (r.data || []).forEach((x: any) => { m[x.ano] = String(x.indice); });
+      setFap(m);
     }).catch(() => {});
   }, [empresaId]);
 
@@ -144,7 +159,16 @@ export function CadastroEmpresa() {
       if (payload.grau_risco !== "") payload.grau_risco = Number(payload.grau_risco); else delete payload.grau_risco;
       if (payload.rat_aplicado !== "") payload.rat_aplicado = Number(payload.rat_aplicado); else delete payload.rat_aplicado;
       if (payload.qtd_estabelecimentos !== "") payload.qtd_estabelecimentos = Number(payload.qtd_estabelecimentos); else delete payload.qtd_estabelecimentos;
+      // CPRB como período (RF-0.136): "" vira null; apura_cprb derivado da existência de início
+      payload.cprb_inicio = form.cprb_inicio || null;
+      payload.cprb_fim = form.cprb_fim || null;
+      payload.apura_cprb = !!form.cprb_inicio;
       await apiClient.put(`/empresas/${empresaId}`, payload);
+      // FAP por ano (RF-0.135)
+      const fapPayload = ANOS_FAP
+        .filter((a) => fap[a] !== undefined && fap[a] !== "")
+        .map((a) => ({ ano: a, indice: Number(fap[a]) }));
+      if (fapPayload.length) await apiClient.put(`/empresas/${empresaId}/fap`, fapPayload);
       setMsg("Dados da empresa salvos com sucesso. O diagnóstico já pode ser calculado.");
     } catch {
       setMsg("Não foi possível salvar. Verifique os campos e tente novamente.");
@@ -155,6 +179,13 @@ export function CadastroEmpresa() {
 
   const inputCls = "w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500";
   const labelCls = "block text-xs font-medium text-gray-600 mb-1";
+  const roCls = "w-full rounded-lg px-3 py-2 text-sm bg-teal-50 border border-teal-200 text-teal-900"; // campo bloqueado (derivado)
+
+  // Divergência devido × aplicado (RF-0.128): a diferença é o produto.
+  const ratDevido = enq && !enq.erro ? enq.aliquota_rat : null;
+  const ratApl = form.rat_aplicado !== "" && form.rat_aplicado != null ? Number(form.rat_aplicado) : null;
+  const diffPp = (ratDevido != null && ratApl != null && Math.abs(ratDevido - ratApl) > 1e-9)
+    ? Math.abs(ratApl - ratDevido) : null;
 
   return (
     <div className="p-6 max-w-4xl">
@@ -231,7 +262,8 @@ export function CadastroEmpresa() {
 
       {/* Enquadramento */}
       <section className="bg-white rounded-xl border border-gray-100 p-5 mb-4">
-        <h2 className="text-sm font-bold text-gray-800 mb-3">Enquadramento previdenciário</h2>
+        <h2 className="text-sm font-bold text-gray-800">Enquadramento previdenciário</h2>
+        <p className="text-[11px] text-gray-400 mb-3">🔒 derivado de tabela oficial, bloqueado · ✎ informado pela empresa</p>
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className={labelCls}>CNAE principal (7 dígitos)</label>
@@ -264,34 +296,71 @@ export function CadastroEmpresa() {
             </select>
           </div>
           <div>
-            <label className={labelCls}>Grau de risco (1 a 3 — definido pelo CNAE)</label>
-            <input type="number" min={1} max={3} className={inputCls} value={form.grau_risco} onChange={(e) => set("grau_risco", e.target.value)} />
+            <label className={labelCls}>🔒 Grau de risco (derivado do CNAE)</label>
+            <div className={roCls}>{enq && !enq.erro ? `${enq.grau_risco} — ${enq.grau_label}` : (form.grau_risco || "—")}</div>
           </div>
           <div>
-            <label className={labelCls}>RAT aplicado hoje (%)</label>
+            <label className={labelCls}>🔒 RAT devido (%)</label>
+            <div className={roCls}>{ratDevido != null ? ratDevido.toFixed(2) : "—"}</div>
+          </div>
+          <div>
+            <label className={labelCls}>✎ RAT aplicado pela empresa (%)</label>
             <input type="number" step="0.01" className={inputCls} value={form.rat_aplicado} onChange={(e) => set("rat_aplicado", e.target.value)} placeholder="ex: 3.00" />
           </div>
-          {enq && (
-            <div className="col-span-2">
-              {enq.erro ? (
-                <p className="text-xs text-amber-600">⚠ {enq.erro}</p>
-              ) : (
-                <div className="rounded-lg bg-teal-50 border border-teal-200 px-3 py-2 text-xs text-teal-900">
-                  <span className="font-semibold">Enquadramento oficial (CNAE {enq.cnae_fmt}):</span>{" "}
-                  {enq.descricao} — grau <b>{enq.grau_label}</b> ({enq.grau_risco}), <b>RAT devido {enq.aliquota_rat.toFixed(0)}%</b>.
-                  <br />
-                  <span className="text-teal-700">Fonte: {enq.fonte}. O "RAT aplicado hoje" acima pode ser ajustado se a empresa recolhe outro valor — a diferença vira achado.</span>
-                </div>
-              )}
-            </div>
-          )}
           <div>
-            <label className={labelCls}>Número de estabelecimentos (matriz + filiais/obras)</label>
-            <input type="number" min={1} className={inputCls} value={form.qtd_estabelecimentos} onChange={(e) => set("qtd_estabelecimentos", e.target.value)} placeholder="ex: 3" />
+            {diffPp != null ? (
+              <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800 h-full flex flex-col justify-center">
+                <b>Divergência de {diffPp.toFixed(2).replace(".", ",")} p.p.</b>
+                <span>Achado gerado no Módulo 1.</span>
+              </div>
+            ) : (enq && !enq.erro && ratApl != null ? (
+              <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2 text-xs text-emerald-700 h-full flex items-center">
+                RAT aplicado confere com o devido.
+              </div>
+            ) : null)}
           </div>
-          <div className="flex items-center gap-2 mt-6">
-            <input type="checkbox" checked={!!form.apura_cprb} onChange={(e) => set("apura_cprb", e.target.checked)} id="cprb" />
-            <label htmlFor="cprb" className="text-sm text-gray-700">Apura CPRB (desoneração da folha)</label>
+          {enq && enq.erro && (
+            <div className="col-span-2"><p className="text-xs text-amber-600">⚠ {enq.erro}</p></div>
+          )}
+          <div className="col-span-2">
+            <label className={labelCls}>Número de estabelecimentos (matriz + filiais/obras)</label>
+            <input type="number" min={1} className={`${inputCls} max-w-[12rem]`} value={form.qtd_estabelecimentos} onChange={(e) => set("qtd_estabelecimentos", e.target.value)} placeholder="ex: 3" />
+          </div>
+        </div>
+      </section>
+
+      {/* FAP por ano (RF-0.135) */}
+      <section className="bg-white rounded-xl border border-gray-100 p-5 mb-4">
+        <h2 className="text-sm font-bold text-gray-800 mb-1">✎ FAP por ano</h2>
+        <p className="text-[11px] text-gray-400 mb-3">
+          Multiplicador de 0,5 a 2,0 que multiplica o RAT. O cálculo retroativo usa o FAP de cada ano (do FAPWeb).
+        </p>
+        <div className="grid grid-cols-5 gap-4">
+          {ANOS_FAP.map((ano) => (
+            <div key={ano}>
+              <label className={labelCls}>{ano}</label>
+              <input type="number" step="0.0001" min={0.5} max={2} className={inputCls}
+                value={fap[ano] ?? ""} onChange={(e) => setFap((m) => ({ ...m, [ano]: e.target.value }))}
+                placeholder="1,0000" />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* CPRB — período (RF-0.136) */}
+      <section className="bg-white rounded-xl border border-gray-100 p-5 mb-4">
+        <h2 className="text-sm font-bold text-gray-800 mb-1">CPRB — desoneração da folha</h2>
+        <p className="text-[11px] text-gray-400 mb-3">
+          A CPRB vale por período (a empresa entra e sai). Quando se aplica, substitui a cota patronal — RAT e Terceiros continuam devidos.
+        </p>
+        <div className="grid grid-cols-2 gap-4 max-w-md">
+          <div>
+            <label className={labelCls}>Início</label>
+            <input type="date" className={inputCls} value={form.cprb_inicio || ""} onChange={(e) => set("cprb_inicio", e.target.value)} />
+          </div>
+          <div>
+            <label className={labelCls}>Fim</label>
+            <input type="date" className={inputCls} value={form.cprb_fim || ""} onChange={(e) => set("cprb_fim", e.target.value)} />
           </div>
         </div>
       </section>
