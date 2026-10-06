@@ -135,7 +135,16 @@ function PainelModal({ estab, onFechar }: { estab: any; onFechar: () => void }) 
       <div className="bg-white rounded-2xl p-6 w-full max-w-5xl shadow-xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold text-gray-900">Enquadramento apurado — {estab.nome}</h2>
-          <button onClick={apurar} disabled={apurando} className="text-xs bg-teal-600 text-white px-3 py-1.5 rounded-lg hover:bg-teal-700 disabled:opacity-50">{apurando ? "Apurando…" : "Reapurar"}</button>
+          <div className="flex gap-2">
+            <button onClick={async () => {
+              try {
+                const r = await apiClient.get(`/estabelecimentos/${estab.id}/memoria`, { responseType: "blob" });
+                const url = URL.createObjectURL(new Blob([r.data], { type: "application/pdf" }));
+                window.open(url, "_blank");
+              } catch { alert("Não foi possível gerar a memória."); }
+            }} className="text-xs border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-50">Memória (PDF)</button>
+            <button onClick={apurar} disabled={apurando} className="text-xs bg-teal-600 text-white px-3 py-1.5 rounded-lg hover:bg-teal-700 disabled:opacity-50">{apurando ? "Apurando…" : "Reapurar"}</button>
+          </div>
         </div>
         <p className="text-[11px] text-gray-400 mt-1 mb-3">
           Série mensal. Grau e RAT devido derivados da atividade preponderante (Anexo I). {emFila > 0 && <span className="text-amber-600">{emFila} competência(s) em conferência.</span>}

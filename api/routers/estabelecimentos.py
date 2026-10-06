@@ -4,7 +4,7 @@
 # lista de atividades com quantitativo por periodo (RF-0.173).
 import re
 from datetime import date, datetime
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import UUID
@@ -308,3 +308,62 @@ async def serie_enquadramento(
             },
         })
     return out
+
+
+# ---- Memória de enquadramento em PDF (RF-0.183) ----
+@router.get("/{estab_id}/memoria")
+async def memoria_enquadramento(
+    estab_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    from datetime import datetime
+    from api.models.empresa import Empresa
+    from api.services.memoria_enquadramento import gerar_memoria_pdf
+    estab = await _tenant_estab(estab_id, current_user, db)
+    empresa = (await db.execute(select(Empresa).where(Empresa.id == estab.empresa_id))).scalar_one_or_none()
+    ativ = (await db.execute(
+        select(EstabelecimentoAtividade).where(EstabelecimentoAtividade.estabelecimento_id == estab_id)
+        .order_by(EstabelecimentoAtividade.vigencia_inicio)
+    )).scalars().all()
+    serie_rows = (await db.execute(
+        select(EstabelecimentoEnquadramento).where(EstabelecimentoEnquadramento.estabelecimento_id == estab_id)
+        .order_by(EstabelecimentoEnquadramento.competencia)
+    )).scalars().all()
+
+    serie = []
+    for r in serie_rows:
+        devida = float(r.aliquota_devida) if r.aliquota_devida is not None else None
+        apl = float(r.aliquota_aplicada) if r.aliquota_aplicada is not None else None
+        serie.append({
+            "competencia": r.competencia.isoformat(), "cnae_preponderante": r.cnae_preponderante,
+            "criterio": r.criterio, "grau_risco": r.grau_risco, "aliquota_devida": devida,
+            "fap": float(r.fap) if r.fap is not None else None,
+            "aliquota_efetiva": float(r.aliquota_efetiva) if r.aliquota_efetiva is not None else None,
+            "aliquota_aplicada": apl,
+            "divergencia_pp": round(apl - devida, 4) if (devida is not None and apl is not None) else None,
+            "em_fila": r.em_fila, "motivo_fila": r.motivo_fila,
+        })
+    autoria = sorted({f"{a.declarado_por or 'n/d'} em {a.declarado_em.date().isoformat()}"
+                      for a in ativ if a.declarado_em})
+    f0 = serie_rows[0] if serie_rows else None
+    dados = {
+        "empresa": {"razao_social": empresa.razao_social if empresa else None, "cnpj": (empresa.cnpj[:8] if empresa and empresa.cnpj else None)},
+        "estab": {"codigo": estab.codigo, "nome": estab.nome, "tipo": estab.tipo_estabelecimento,
+                  "identificador": estab.identificador, "cnpj": estab.cnpj, "posicao": estab.posicao,
+                  "abertura": estab.data_abertura.isoformat() if estab.data_abertura else None,
+                  "encerramento": estab.data_encerramento.isoformat() if estab.data_encerramento else None},
+        "periodo": {"inicio": empresa.periodo_apuracao_inicio.isoformat() if empresa and empresa.periodo_apuracao_inicio else None,
+                    "fim": empresa.periodo_apuracao_fim.isoformat() if empresa and empresa.periodo_apuracao_fim else None},
+        "atividades": [{"cnae": a.cnae, "descricao": a.descricao, "quantitativo": a.quantitativo,
+                        "inicio": a.vigencia_inicio.isoformat(), "fim": a.vigencia_fim.isoformat() if a.vigencia_fim else None} for a in ativ],
+        "serie": serie,
+        "fundamentacao": {"dispositivo": f0.fund_dispositivo if f0 else "Lei 8.212/91, art. 22, II; Decreto 3.048/99, art. 202",
+                          "ato": f0.fund_ato_normativo if f0 else "IN RFB 2.110/2022, art. 43",
+                          "anexo": f0.fund_anexo if f0 else "Anexo I", "vigencia": f0.fund_vigencia if f0 else None},
+        "autoria": autoria,
+        "gerado_em": datetime.utcnow().strftime("%d/%m/%Y %H:%M UTC"),
+    }
+    pdf = gerar_memoria_pdf(dados)
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f"inline; filename=memoria_enquadramento_{estab.codigo}.pdf"})
