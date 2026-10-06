@@ -29,12 +29,14 @@ class Estabelecimento(Base):
     num_empregados: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     folha_mensal: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
 
-    # ---- Cadastro Módulo 0 / RF-0.03 (v2) ----
-    tipo_estabelecimento: Mapped[str] = mapped_column(String(4), nullable=False, default="CNPJ")
+    # ---- Cadastro Módulo 0 / RF-0.03 (v2) + Adendo 04 ----
+    tipo_estabelecimento: Mapped[str] = mapped_column(String(6), nullable=False, default="CNPJ")  # CNPJ|CNO|CAEPF
     atividade_descrita: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(12), nullable=False, default="ativa")
     data_inicio: Mapped[date | None] = mapped_column(Date)
     data_prevista_conclusao: Mapped[date | None] = mapped_column(Date)
+    data_abertura: Mapped[date | None] = mapped_column(Date)       # RF-0.172 (obrigatória na tela)
+    data_encerramento: Mapped[date | None] = mapped_column(Date)   # RF-0.172 (opcional)
     identificador: Mapped[str | None] = mapped_column(String(20))
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)

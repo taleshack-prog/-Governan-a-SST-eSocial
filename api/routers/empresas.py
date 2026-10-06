@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from api.database import get_db
 from api.models.empresa import Empresa
 from api.models.estabelecimento import Estabelecimento
-from api.models.estabelecimento_enquadramento import EstabelecimentoEnquadramento
+from api.models.estabelecimento_atividade import EstabelecimentoAtividade
 from api.models.empresa_regime import EmpresaRegime
 from api.models.empresa_cprb import EmpresaCprb
 from api.models.cnae_enquadramento import CnaeEnquadramento
@@ -55,10 +55,10 @@ def _sem_sobreposicao(periodos: list[tuple[date, Optional[date]]]) -> bool:
     return True
 
 
-async def _garantir_matriz(empresa: Empresa, db: AsyncSession) -> None:
-    """RF-0.152: ao salvar a empresa, garante o estabelecimento matriz e seu enquadramento
-    vigente (v1: uma linha, início na abertura/competência, fim em aberto). O enquadramento
-    vive em tabela filha por vigência (RN-17), nunca como coluna da empresa."""
+async def _garantir_matriz(empresa: Empresa, db: AsyncSession, declarante: str | None = None) -> None:
+    """RF-0.152: ao salvar a empresa, garante o estabelecimento matriz e registra a atividade
+    declarada da matriz (input do motor do Adendo 04). O enquadramento apurado (grau/RAT) é
+    resultado do motor, não é gravado aqui."""
     matriz = (await db.execute(
         select(Estabelecimento).where(
             Estabelecimento.empresa_id == empresa.id, Estabelecimento.posicao == "matriz"
@@ -70,51 +70,29 @@ async def _garantir_matriz(empresa: Empresa, db: AsyncSession) -> None:
             cnpj=_cnpj_matriz(empresa.cnpj), cnae=empresa.cnae_principal,
             posicao="matriz", status="ativa", tipo_estabelecimento="CNPJ",
             endereco=empresa.endereco, cidade=empresa.cidade, uf=empresa.uf,
+            data_abertura=empresa.periodo_apuracao_inicio,
         )
         db.add(matriz)
         await db.flush()
-    else:
-        if empresa.cnae_principal:
-            matriz.cnae = empresa.cnae_principal
+    elif empresa.cnae_principal:
+        matriz.cnae = empresa.cnae_principal
 
-    # deriva grau/RAT/FPAS do CNAE (determinístico para o que der; demais ficam nulos)
-    grau = rat = fpas = None
+    # registra a atividade declarada da matriz (uma linha) — INPUT do motor (RF-0.173)
     if empresa.cnae_principal:
-        ce = (await db.execute(
-            select(CnaeEnquadramento).where(CnaeEnquadramento.cnae == empresa.cnae_principal)
-        )).scalar_one_or_none()
-        if ce:
-            grau, rat = ce.grau_risco, ce.aliquota_rat
-        try:
-            div = int(empresa.cnae_principal[:2])
-            sug = (await db.execute(
-                select(CnaeFpasSugestao).where(
-                    CnaeFpasSugestao.divisao_ini <= div, CnaeFpasSugestao.divisao_fim >= div
-                )
-            )).scalars().first()
-            fpas = sug.fpas_sugerido if sug else None
-        except ValueError:
-            pass
-
-    inicio = empresa.periodo_apuracao_inicio or getattr(matriz, "data_inicio", None) or date.today()
-    enq = (await db.execute(
-        select(EstabelecimentoEnquadramento).where(
-            EstabelecimentoEnquadramento.estabelecimento_id == matriz.id,
-            EstabelecimentoEnquadramento.vigencia_fim.is_(None),
-        ).order_by(EstabelecimentoEnquadramento.vigencia_inicio.desc())
-    )).scalars().first()
-    if enq is None:
-        db.add(EstabelecimentoEnquadramento(
-            estabelecimento_id=matriz.id, vigencia_inicio=inicio,
-            cnae=empresa.cnae_principal, grau_risco=grau, aliquota_rat=rat, codigo_fpas=fpas,
-            origem=(empresa.origem_cadastro or "declarado"),
-        ))
-    else:
-        enq.cnae = empresa.cnae_principal
-        enq.grau_risco = grau
-        enq.aliquota_rat = rat
-        if fpas and not enq.codigo_fpas:
-            enq.codigo_fpas = fpas
+        inicio = empresa.periodo_apuracao_inicio or getattr(matriz, "data_abertura", None) or getattr(matriz, "data_inicio", None) or date.today()
+        ativ = (await db.execute(
+            select(EstabelecimentoAtividade).where(
+                EstabelecimentoAtividade.estabelecimento_id == matriz.id,
+                EstabelecimentoAtividade.vigencia_fim.is_(None),
+            ).order_by(EstabelecimentoAtividade.vigencia_inicio.desc())
+        )).scalars().first()
+        if ativ is None:
+            db.add(EstabelecimentoAtividade(
+                estabelecimento_id=matriz.id, cnae=empresa.cnae_principal,
+                vigencia_inicio=inicio, declarado_por=declarante,
+            ))
+        else:
+            ativ.cnae = empresa.cnae_principal
 
 
 # ---------------- schemas ----------------
@@ -272,7 +250,8 @@ async def atualizar_empresa(
         raise HTTPException(status_code=404, detail="Empresa não encontrada")
     for k, v in data.model_dump(exclude_unset=True).items():
         setattr(empresa, k, v)
-    await _garantir_matriz(empresa, db)   # RF-0.152
+    declarante = getattr(current_user, "email", None) or getattr(current_user, "nome", None)
+    await _garantir_matriz(empresa, db, declarante)   # RF-0.152
     await db.commit()
     return {"id": str(empresa.id), "ok": True}
 
@@ -293,26 +272,40 @@ async def matriz_enquadramento(
     )).scalars().first()
     if matriz is None:
         return {"existe": False}
-    enq = (await db.execute(
-        select(EstabelecimentoEnquadramento).where(
-            EstabelecimentoEnquadramento.estabelecimento_id == matriz.id,
-            EstabelecimentoEnquadramento.vigencia_fim.is_(None),
-        ).order_by(EstabelecimentoEnquadramento.vigencia_inicio.desc())
+    # Preview derivado da atividade declarada da matriz (motor do Adendo 04 ainda não calcula a
+    # série mensal — isso é a Fase 3). Grau/RAT lidos do Anexo I pela CNAE preponderante (aqui,
+    # única atividade declarada).
+    ativ = (await db.execute(
+        select(EstabelecimentoAtividade).where(
+            EstabelecimentoAtividade.estabelecimento_id == matriz.id,
+            EstabelecimentoAtividade.vigencia_fim.is_(None),
+        ).order_by(EstabelecimentoAtividade.quantitativo.desc().nullslast(),
+                   EstabelecimentoAtividade.vigencia_inicio.desc())
     )).scalars().first()
-    if enq is None:
+    if ativ is None:
         return {"existe": True, "estabelecimento_id": str(matriz.id), "enquadramento": None}
+    grau = rat = fpas = None
+    ce = (await db.execute(select(CnaeEnquadramento).where(CnaeEnquadramento.cnae == ativ.cnae))).scalar_one_or_none()
+    if ce:
+        grau, rat = ce.grau_risco, float(ce.aliquota_rat)
+    try:
+        div = int((ativ.cnae or "")[:2])
+        sug = (await db.execute(select(CnaeFpasSugestao).where(
+            CnaeFpasSugestao.divisao_ini <= div, CnaeFpasSugestao.divisao_fim >= div))).scalars().first()
+        fpas = sug.fpas_sugerido if sug else None
+    except ValueError:
+        pass
     return {
         "existe": True,
         "estabelecimento_id": str(matriz.id),
         "enquadramento": {
-            "cnae": enq.cnae,
-            "grau_risco": enq.grau_risco,
-            "grau_label": GRAU_LABEL.get(enq.grau_risco or 0, ""),
-            "aliquota_rat": float(enq.aliquota_rat) if enq.aliquota_rat is not None else None,
-            "codigo_fpas": enq.codigo_fpas,
-            "vigencia_inicio": enq.vigencia_inicio.isoformat() if enq.vigencia_inicio else None,
-            "origem": enq.origem,
-            "confirmado": enq.confirmado,
+            "cnae": ativ.cnae,
+            "grau_risco": grau,
+            "grau_label": GRAU_LABEL.get(grau or 0, ""),
+            "aliquota_rat": rat,
+            "codigo_fpas": fpas,
+            "origem": "derivado (preview — apuração mensal entra no motor)",
+            "confirmado": False,
         },
     }
 
