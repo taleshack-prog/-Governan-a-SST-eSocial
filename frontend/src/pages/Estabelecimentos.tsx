@@ -119,6 +119,59 @@ function AtividadesModal({ estab, onFechar }: { estab: any; onFechar: () => void
   );
 }
 
+// ---------- Painel de enquadramento apurado (RF-0.155/série) ----------
+const CRIT: Record<string, string> = { maior_quantitativo: "maior quantitativo", desempate_grau: "empate → grau", fila_conferencia: "—" };
+function PainelModal({ estab, onFechar }: { estab: any; onFechar: () => void }) {
+  const [rows, setRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [apurando, setApurando] = useState(false);
+  const load = () => { setLoading(true); apiClient.get(`/estabelecimentos/${estab.id}/enquadramento`).then((r) => setRows(r.data || [])).catch(() => setRows([])).finally(() => setLoading(false)); };
+  useEffect(load, [estab.id]);
+  const apurar = async () => { setApurando(true); try { await apiClient.post(`/estabelecimentos/${estab.id}/apurar`); load(); } catch { /* */ } finally { setApurando(false); } };
+  const emFila = rows.filter((r) => r.em_fila).length;
+  const fund = rows.find((r) => r.fundamentacao)?.fundamentacao;
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-5xl shadow-xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold text-gray-900">Enquadramento apurado — {estab.nome}</h2>
+          <button onClick={apurar} disabled={apurando} className="text-xs bg-teal-600 text-white px-3 py-1.5 rounded-lg hover:bg-teal-700 disabled:opacity-50">{apurando ? "Apurando…" : "Reapurar"}</button>
+        </div>
+        <p className="text-[11px] text-gray-400 mt-1 mb-3">
+          Série mensal. Grau e RAT devido derivados da atividade preponderante (Anexo I). {emFila > 0 && <span className="text-amber-600">{emFila} competência(s) em conferência.</span>}
+        </p>
+        {loading ? <div className="p-6 text-center text-gray-400 text-sm">Carregando…</div>
+          : rows.length === 0 ? <div className="p-6 text-center text-gray-400 text-sm">Nada apurado. Cadastre atividades (com quantitativo) e FAP; a série aparece aqui.</div>
+          : (
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 border-b border-gray-200 text-gray-500">
+                <tr>{["Comp.", "Preponderante", "Critério", "Grau", "Devido", "FAP", "Efetivo", "Aplicado", "Diverg.", "Situação"].map((h) => <th key={h} className="text-left px-2 py-2 font-medium">{h}</th>)}</tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {rows.map((r, i) => (
+                  <tr key={i} className={r.em_fila ? "bg-amber-50" : "hover:bg-gray-50"}>
+                    <td className="px-2 py-1.5 font-mono">{r.competencia?.slice(0, 7)}</td>
+                    <td className="px-2 py-1.5">{r.cnae_preponderante || "—"}</td>
+                    <td className="px-2 py-1.5 text-gray-500">{CRIT[r.criterio] || r.criterio || "—"}</td>
+                    <td className="px-2 py-1.5">{r.grau_risco ?? "—"}</td>
+                    <td className="px-2 py-1.5">{r.aliquota_devida != null ? `${r.aliquota_devida.toFixed(2)}%` : "—"}</td>
+                    <td className="px-2 py-1.5">{r.fap != null ? r.fap.toFixed(4) : "—"}</td>
+                    <td className="px-2 py-1.5">{r.aliquota_efetiva != null ? `${r.aliquota_efetiva.toFixed(4)}%` : "—"}</td>
+                    <td className="px-2 py-1.5">{r.aliquota_aplicada != null ? `${r.aliquota_aplicada.toFixed(2)}%` : "—"}</td>
+                    <td className={`px-2 py-1.5 font-medium ${r.divergencia_pp ? "text-amber-700" : "text-gray-400"}`}>{r.divergencia_pp != null ? `${r.divergencia_pp > 0 ? "+" : ""}${r.divergencia_pp.toFixed(2)} p.p.` : "—"}</td>
+                    <td className="px-2 py-1.5">{r.em_fila ? <span className="text-amber-700" title={r.motivo_fila}>⚠ conferência</span> : <span className="text-emerald-600">ok</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        {fund && <p className="text-[11px] text-gray-400 mt-3">Fundamentação: {fund.dispositivo}; {fund.ato_normativo}; {fund.anexo}.</p>}
+        <div className="flex justify-end mt-4"><button onClick={onFechar} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Fechar</button></div>
+      </div>
+    </div>
+  );
+}
+
 // ---------- Modal de estabelecimento ----------
 function EstabModal({ form, setForm, onSalvar, onFechar, isPending, erro }: any) {
   const editando = !!form.id;
@@ -189,6 +242,7 @@ export function Estabelecimentos() {
   const [form, setForm] = useState<any>(FORM_VAZIO);
   const [erro, setErro] = useState("");
   const [ativEstab, setAtivEstab] = useState<any>(null);
+  const [painelEstab, setPainelEstab] = useState<any>(null);
   const [fapEstab, setFapEstab] = useState<any>(null);
   const [fapValores, setFapValores] = useState<Record<number, string>>({});
   const [fapSalvando, setFapSalvando] = useState(false);
@@ -257,6 +311,7 @@ export function Estabelecimentos() {
                     <td className="px-4 py-3 text-gray-600 capitalize">{e.status}</td>
                     <td className="px-4 py-3 space-x-3 text-xs">
                       <button onClick={() => setAtivEstab(e)} className="text-teal-700 hover:underline">Atividades</button>
+                      <button onClick={() => setPainelEstab(e)} className="text-emerald-700 hover:underline">Enquadramento</button>
                       <button onClick={() => abrirFap(e)} className="text-indigo-600 hover:underline">FAP/ano</button>
                       <button onClick={() => { setForm({ ...FORM_VAZIO, ...e, data_abertura: e.data_abertura || "", data_encerramento: e.data_encerramento || "" }); setErro(""); setModal(true); }} className="text-gray-500 hover:underline">Editar</button>
                     </td>
@@ -269,6 +324,7 @@ export function Estabelecimentos() {
 
       {modal && <EstabModal form={form} setForm={setForm} onSalvar={onSalvar} onFechar={() => { setModal(false); setForm(FORM_VAZIO); }} isPending={salvar.isPending} erro={erro} />}
       {ativEstab && <AtividadesModal estab={ativEstab} onFechar={() => setAtivEstab(null)} />}
+      {painelEstab && <PainelModal estab={painelEstab} onFechar={() => setPainelEstab(null)} />}
       {fapEstab && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-full max-w-md">

@@ -288,18 +288,18 @@ async def serie_enquadramento(
     )).scalars().all()
     out = []
     for r in rows:
-        dev = float(r.aliquota_efetiva) if r.aliquota_efetiva is not None else None
+        devida = float(r.aliquota_devida) if r.aliquota_devida is not None else None
         apl = float(r.aliquota_aplicada) if r.aliquota_aplicada is not None else None
         out.append({
             "competencia": r.competencia.isoformat(),
             "cnae_preponderante": r.cnae_preponderante,
             "criterio": r.criterio,
             "grau_risco": r.grau_risco,
-            "aliquota_devida": float(r.aliquota_devida) if r.aliquota_devida is not None else None,
+            "aliquota_devida": devida,
             "fap": float(r.fap) if r.fap is not None else None,
-            "aliquota_efetiva": dev,
+            "aliquota_efetiva": float(r.aliquota_efetiva) if r.aliquota_efetiva is not None else None,
             "aliquota_aplicada": apl,
-            "divergencia_pp": round(apl - dev, 4) if (dev is not None and apl is not None) else None,
+            "divergencia_pp": round(apl - devida, 4) if (devida is not None and apl is not None) else None,
             "em_fila": r.em_fila,
             "motivo_fila": r.motivo_fila,
             "fundamentacao": {
