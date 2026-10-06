@@ -14,6 +14,7 @@ from api.database import get_db
 from api.models.estabelecimento import Estabelecimento
 from api.models.estabelecimento_fap import EstabelecimentoFAP
 from api.models.estabelecimento_atividade import EstabelecimentoAtividade
+from api.models.estabelecimento_enquadramento import EstabelecimentoEnquadramento
 from api.models.cnae_enquadramento import CnaeEnquadramento
 from api.models.usuario import Usuario
 from api.auth import get_current_user, require_perfil
@@ -204,6 +205,8 @@ async def salvar_atividades(
             declarado_por=declarante, declarado_em=datetime.utcnow(),
         ))
     await db.commit()
+    from api.services.motor_enquadramento import apurar_estabelecimento
+    await apurar_estabelecimento(estab_id, db)   # reapura a série ao mudar as atividades
     return {"ok": True, "total": len(data)}
 
 
@@ -253,4 +256,55 @@ async def salvar_fap(
             db.add(EstabelecimentoFAP(estabelecimento_id=estab_id, ano_vigencia=item.ano, valor_fap=item.fap,
                                       origem="declarado", declarado_em=datetime.utcnow()))
     await db.commit()
+    from api.services.motor_enquadramento import apurar_estabelecimento
+    await apurar_estabelecimento(estab_id, db)   # reapura a série ao mudar o FAP
     return {"ok": True, "salvos": len(faps)}
+
+
+# ---- Motor de apuração do enquadramento (RF-0.175-182) ----
+@router.post("/{estab_id}/apurar")
+async def apurar(
+    estab_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(require_perfil("admin")),
+):
+    """Recalcula a série mensal de enquadramento (preponderância → grau → RAT × FAP)."""
+    await _tenant_estab(estab_id, current_user, db)
+    from api.services.motor_enquadramento import apurar_estabelecimento
+    return await apurar_estabelecimento(estab_id, db)
+
+
+@router.get("/{estab_id}/enquadramento")
+async def serie_enquadramento(
+    estab_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Série apurada por competência (somente leitura). Divergência = devido − aplicado (RF-0.180)."""
+    await _tenant_estab(estab_id, current_user, db)
+    rows = (await db.execute(
+        select(EstabelecimentoEnquadramento).where(EstabelecimentoEnquadramento.estabelecimento_id == estab_id)
+        .order_by(EstabelecimentoEnquadramento.competencia)
+    )).scalars().all()
+    out = []
+    for r in rows:
+        dev = float(r.aliquota_efetiva) if r.aliquota_efetiva is not None else None
+        apl = float(r.aliquota_aplicada) if r.aliquota_aplicada is not None else None
+        out.append({
+            "competencia": r.competencia.isoformat(),
+            "cnae_preponderante": r.cnae_preponderante,
+            "criterio": r.criterio,
+            "grau_risco": r.grau_risco,
+            "aliquota_devida": float(r.aliquota_devida) if r.aliquota_devida is not None else None,
+            "fap": float(r.fap) if r.fap is not None else None,
+            "aliquota_efetiva": dev,
+            "aliquota_aplicada": apl,
+            "divergencia_pp": round(apl - dev, 4) if (dev is not None and apl is not None) else None,
+            "em_fila": r.em_fila,
+            "motivo_fila": r.motivo_fila,
+            "fundamentacao": {
+                "dispositivo": r.fund_dispositivo, "ato_normativo": r.fund_ato_normativo,
+                "anexo": r.fund_anexo, "vigencia": r.fund_vigencia,
+            },
+        })
+    return out
