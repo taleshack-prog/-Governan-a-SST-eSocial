@@ -14,9 +14,14 @@ class Empresa(Base):
     razao_social: Mapped[str] = mapped_column(String(300), nullable=False)
     nome_fantasia: Mapped[str | None] = mapped_column(String(300))
     cnpj: Mapped[str] = mapped_column(String(14), unique=True, nullable=False)
-    cnae_principal: Mapped[str] = mapped_column(String(7), nullable=False)
-    regime_tributario: Mapped[str | None] = mapped_column(String(50))
-    grau_risco: Mapped[int | None] = mapped_column(Integer)
+    cnae_principal: Mapped[str | None] = mapped_column(String(7))  # DEPRECADO: enquadramento migra p/ estabelecimento (RN-17)
+    regime_tributario: Mapped[str | None] = mapped_column(String(50))  # DEPRECADO: regime vira lista (empresa_regime)
+    grau_risco: Mapped[int | None] = mapped_column(Integer)  # DEPRECADO (RN-17)
+
+    # ---- Adendo 03 (RF-0.150/0.151) ----
+    periodo_apuracao_inicio: Mapped[date | None] = mapped_column(Date)
+    periodo_apuracao_fim: Mapped[date | None] = mapped_column(Date)
+    origem_cadastro: Mapped[str | None] = mapped_column(String(16))  # consultado | declarado
 
     # ---- Endereco da matriz (migration 023/025) — espelha o estabelecimento ----
     endereco: Mapped[str | None] = mapped_column(String(500))   # logradouro

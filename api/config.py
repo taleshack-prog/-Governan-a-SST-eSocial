@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     embedding_dimension: int = 384
 
+    # Consulta de CNPJ (Adendo 03 RF-0.150) — provider atras de adapter, trocavel por config
+    cnpj_provider: str = "brasilapi"          # brasilapi | serpro (futuro)
+    cnpj_timeout: int = 12
+
     # CORS
     cors_origins: List[str] = ["http://localhost:3004", "http://localhost:3003", "http://localhost:3000", "http://localhost:3005", "http://localhost:8003"]
 
