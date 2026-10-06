@@ -18,6 +18,28 @@ router = APIRouter()
 GRAU_LABEL = {1: "leve", 2: "médio", 3: "grave"}
 
 
+@router.get("/buscar")
+async def buscar_cnae(
+    q: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Autocomplete sobre o Anexo I (RF-0.173): busca por código (dígitos) ou descrição."""
+    termo = (q or "").strip()
+    if len(termo) < 2:
+        return []
+    digitos = re.sub(r"\D", "", termo)
+    cond = CnaeEnquadramento.descricao.ilike(f"%{termo}%")
+    if digitos:
+        cond = cond | CnaeEnquadramento.cnae.like(f"{digitos}%")
+    rows = (await db.execute(
+        select(CnaeEnquadramento).where(cond).order_by(CnaeEnquadramento.cnae).limit(15)
+    )).scalars().all()
+    return [{"cnae": r.cnae, "cnae_fmt": r.cnae_fmt, "descricao": r.descricao,
+             "grau_risco": r.grau_risco, "grau_label": GRAU_LABEL.get(r.grau_risco, ""),
+             "aliquota_rat": float(r.aliquota_rat)} for r in rows]
+
+
 @router.get("/{codigo}/enquadramento")
 async def enquadrar_cnae(
     codigo: str,
