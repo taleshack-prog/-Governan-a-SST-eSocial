@@ -3,7 +3,7 @@
 # A empresa guarda identificacao, periodo de apuracao, regime/CPRB por periodo e contato.
 import re
 from uuid import UUID
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -110,6 +110,8 @@ class EmpresaUpdate(BaseModel):
     cnae_principal: str | None = None            # usado p/ semear o enquadramento da matriz
     periodo_apuracao_inicio: date | None = None
     periodo_apuracao_fim: date | None = None
+    data_abertura: date | None = None
+    data_encerramento: date | None = None
     origem_cadastro: str | None = None
     endereco: str | None = None
     numero: str | None = None
@@ -133,6 +135,60 @@ class RegimeItem(BaseModel):
 class CprbItem(BaseModel):
     inicio: date
     fim: date | None = None
+    # RF-0.166: fim em branco = "vigente ate hoje". Afirmacao forte -> exige confirmacao
+    # explicita; sem ela, o sistema fecha no fim do ano-calendario do inicio.
+    fim_confirmado: bool = False
+
+
+class CprbPayload(BaseModel):
+    """RF-0.163: estado explicito da CPRB. Periodos so valem quando status == 'optante'."""
+    status: str = "nao_informado"            # nao_informado | nao_optante | optante
+    periodos: List[CprbItem] = []
+
+
+_CPRB_STATUS = {"nao_informado", "nao_optante", "optante"}
+_CPRB_LIMITE_FIM = date(2027, 12, 31)        # RF-0.165: extingue em 2028 (Lei 14.973/2024)
+
+
+def _mesma_competencia(a: Optional[date], b: Optional[date]) -> bool:
+    return bool(a and b and a.year == b.year and a.month == b.month)
+
+
+def _resolver_e_validar_cprb(itens: List[CprbItem], empresa: Empresa) -> list[tuple[date, Optional[date]]]:
+    """Aplica RF-0.164/0.165/0.166 a cada periodo e devolve os pares (inicio, fim) resolvidos.
+    Lanca HTTP 422 na primeira violacao, com mensagem acionavel."""
+    abertura, encerramento = empresa.data_abertura, empresa.data_encerramento
+    resolvidos: list[tuple[date, Optional[date]]] = []
+    for it in itens:
+        ini = it.inicio
+        # RF-0.166: fim em branco
+        fim = it.fim
+        if fim is None and not it.fim_confirmado:
+            fim = date(ini.year, 12, 31)     # fecha no fim do ano-calendario do inicio
+        if fim is not None and fim < ini:
+            raise HTTPException(status_code=422, detail="Período de CPRB com fim anterior ao início.")
+
+        # RF-0.164: ano-calendario — inicio em janeiro, salvo se coincidir com a abertura
+        if ini.month != 1 and not _mesma_competencia(ini, abertura):
+            raise HTTPException(status_code=422, detail=(
+                f"Período de CPRB deve iniciar em janeiro (opção anual e irretratável, "
+                f"Lei 12.546/2011, art. 9º, §13). Início {ini.strftime('%m/%Y')} só é aceito se "
+                f"coincidir com a abertura da empresa."))
+        # fim em dezembro, salvo se coincidir com o encerramento
+        if fim is not None and fim.month != 12 and not _mesma_competencia(fim, encerramento):
+            raise HTTPException(status_code=422, detail=(
+                f"Período de CPRB deve terminar em dezembro. Fim {fim.strftime('%m/%Y')} só é "
+                f"aceito se coincidir com o encerramento da empresa."))
+
+        # RF-0.165: teto em 12/2027
+        if ini > _CPRB_LIMITE_FIM:
+            raise HTTPException(status_code=422, detail="CPRB extinta a partir de 2028 (Lei 14.973/2024): início não pode ultrapassar 12/2027.")
+        if fim is not None and fim > _CPRB_LIMITE_FIM:
+            raise HTTPException(status_code=422, detail="CPRB extinta a partir de 2028 (Lei 14.973/2024): nenhum período pode ultrapassar 12/2027.")
+        # periodo em aberto (fim confirmado) tambem nao vale alem de 2027 no calculo — a tabela
+        # de transicao ja trava isso; aqui mantemos o None (vigente) so se o inicio for valido.
+        resolvidos.append((ini, fim))
+    return resolvidos
 
 
 # ---------------- CRUD empresa ----------------
@@ -209,6 +265,8 @@ async def obter_empresa(
         "cnae_principal": empresa.cnae_principal,   # semente do enquadramento da matriz
         "periodo_apuracao_inicio": empresa.periodo_apuracao_inicio.isoformat() if empresa.periodo_apuracao_inicio else None,
         "periodo_apuracao_fim": empresa.periodo_apuracao_fim.isoformat() if empresa.periodo_apuracao_fim else None,
+        "data_abertura": empresa.data_abertura.isoformat() if empresa.data_abertura else None,
+        "data_encerramento": empresa.data_encerramento.isoformat() if empresa.data_encerramento else None,
         "origem_cadastro": empresa.origem_cadastro,
         "endereco": empresa.endereco,
         "numero": empresa.numero,
@@ -353,7 +411,7 @@ async def salvar_regime(
     return {"ok": True, "total": len(data)}
 
 
-# ---- CPRB por período (RF-0.157) ----
+# ---- CPRB: estado + períodos (RF-0.157/0.163..0.166) ----
 @router.get("/{empresa_id}/cprb")
 async def listar_cprb(
     empresa_id: UUID,
@@ -362,33 +420,68 @@ async def listar_cprb(
 ):
     if str(empresa_id) != str(current_user.empresa_id):
         raise HTTPException(status_code=403, detail="Sem permissão para esta empresa")
+    empresa = (await db.execute(select(Empresa).where(Empresa.id == empresa_id))).scalar_one_or_none()
+    if not empresa:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
     rows = (await db.execute(
         select(EmpresaCprb).where(EmpresaCprb.empresa_id == empresa_id).order_by(EmpresaCprb.inicio)
     )).scalars().all()
-    return [{"inicio": r.inicio.isoformat(), "fim": r.fim.isoformat() if r.fim else None} for r in rows]
+    return {
+        "status": empresa.cprb_status or "nao_informado",
+        "verificado_por": empresa.cprb_verificado_por,
+        "verificado_em": empresa.cprb_verificado_em.isoformat() if empresa.cprb_verificado_em else None,
+        "periodos": [{"inicio": r.inicio.isoformat(), "fim": r.fim.isoformat() if r.fim else None} for r in rows],
+    }
 
 
 @router.put("/{empresa_id}/cprb")
 async def salvar_cprb(
     empresa_id: UUID,
-    data: List[CprbItem],
+    data: CprbPayload,
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(require_perfil("admin")),
 ):
-    """Substitui a lista de períodos de CPRB. Valida sem sobreposição (RF-0.157)."""
+    """RF-0.163..0.166: grava o ESTADO da CPRB e, só no 'optante', a lista de períodos.
+    - nao_informado: padrão; sem autor/data; a conferência/memória registra que não foi verificada.
+    - nao_optante: marcação explícita (autor + data); sem períodos; cálculo com patronal cheia.
+    - optante: exige ao menos um período; valida ano-calendário, teto 12/2027 e fim em branco."""
     if str(empresa_id) != str(current_user.empresa_id):
         raise HTTPException(status_code=403, detail="Sem permissão para esta empresa")
-    for it in data:
-        if it.fim and it.fim < it.inicio:
-            raise HTTPException(status_code=422, detail="Período de CPRB com fim anterior ao início.")
-    if not _sem_sobreposicao([(it.inicio, it.fim) for it in data]):
-        raise HTTPException(status_code=422, detail="Períodos de CPRB se sobrepõem.")
+    if data.status not in _CPRB_STATUS:
+        raise HTTPException(status_code=422, detail="Estado de CPRB inválido.")
+    empresa = (await db.execute(select(Empresa).where(Empresa.id == empresa_id))).scalar_one_or_none()
+    if not empresa:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+
+    resolvidos: list[tuple[date, Optional[date]]] = []
+    if data.status == "optante":
+        if not data.periodos:
+            raise HTTPException(status_code=422, detail="Optante pela CPRB exige ao menos um período.")
+        resolvidos = _resolver_e_validar_cprb(data.periodos, empresa)   # RF-0.164/0.165/0.166
+        if not _sem_sobreposicao(resolvidos):
+            raise HTTPException(status_code=422, detail="Períodos de CPRB se sobrepõem.")
+
+    # regrava os períodos (vazios quando não é optante)
     existentes = (await db.execute(
         select(EmpresaCprb).where(EmpresaCprb.empresa_id == empresa_id)
     )).scalars().all()
     for e in existentes:
         await db.delete(e)
-    for it in data:
-        db.add(EmpresaCprb(empresa_id=empresa_id, inicio=it.inicio, fim=it.fim))
+    for ini, fim in resolvidos:
+        db.add(EmpresaCprb(empresa_id=empresa_id, inicio=ini, fim=fim))
+
+    # estado + autoria (RF-0.163): carimba autor/data só numa marcação explícita (nao_optante/optante);
+    # mantém o carimbo anterior se o estado não mudou; limpa no nao_informado.
+    declarante = getattr(current_user, "email", None) or getattr(current_user, "nome", None)
+    if data.status == "nao_informado":
+        empresa.cprb_status = "nao_informado"
+        empresa.cprb_verificado_por = None
+        empresa.cprb_verificado_em = None
+    else:
+        novo = empresa.cprb_status != data.status or empresa.cprb_verificado_em is None
+        empresa.cprb_status = data.status
+        if novo:
+            empresa.cprb_verificado_por = declarante
+            empresa.cprb_verificado_em = datetime.now(timezone.utc)
     await db.commit()
-    return {"ok": True, "total": len(data)}
+    return {"ok": True, "status": empresa.cprb_status, "total": len(resolvidos)}

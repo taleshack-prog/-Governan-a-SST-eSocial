@@ -319,9 +319,13 @@ async def memoria_enquadramento(
 ):
     from datetime import datetime
     from api.models.empresa import Empresa
+    from api.models.empresa_cprb import EmpresaCprb
     from api.services.memoria_enquadramento import gerar_memoria_pdf
     estab = await _tenant_estab(estab_id, current_user, db)
     empresa = (await db.execute(select(Empresa).where(Empresa.id == estab.empresa_id))).scalar_one_or_none()
+    cprb_rows = (await db.execute(
+        select(EmpresaCprb).where(EmpresaCprb.empresa_id == estab.empresa_id).order_by(EmpresaCprb.inicio)
+    )).scalars().all() if empresa else []
     ativ = (await db.execute(
         select(EstabelecimentoAtividade).where(EstabelecimentoAtividade.estabelecimento_id == estab_id)
         .order_by(EstabelecimentoAtividade.vigencia_inicio)
@@ -362,6 +366,12 @@ async def memoria_enquadramento(
                           "ato": f0.fund_ato_normativo if f0 else "IN RFB 2.110/2022, art. 43",
                           "anexo": f0.fund_anexo if f0 else "Anexo I", "vigencia": f0.fund_vigencia if f0 else None},
         "autoria": autoria,
+        "cprb": {
+            "status": (empresa.cprb_status if empresa else None) or "nao_informado",
+            "verificado_por": empresa.cprb_verificado_por if empresa else None,
+            "verificado_em": empresa.cprb_verificado_em.strftime("%d/%m/%Y") if (empresa and empresa.cprb_verificado_em) else None,
+            "periodos": [{"inicio": c.inicio.isoformat(), "fim": c.fim.isoformat() if c.fim else None} for c in cprb_rows],
+        },
         "gerado_em": datetime.utcnow().strftime("%d/%m/%Y %H:%M UTC"),
     }
     pdf = gerar_memoria_pdf(dados)

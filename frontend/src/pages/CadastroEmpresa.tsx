@@ -42,13 +42,36 @@ const mesesEntre = (a: string, b: string) => {
   return (yb - ya) * 12 + (mb - ma);
 };
 
-interface Periodo { regime?: string; anexo_simples?: string; inicio: string; fim: string; }
+interface Periodo { regime?: string; anexo_simples?: string; inicio: string; fim: string; fim_aberto?: boolean; }
+type CprbStatus = "nao_informado" | "nao_optante" | "optante";
+
+// RF-0.164/0.165/0.166: valida um período de CPRB no front (espelho do backend). Devolve "" se ok.
+const CPRB_FIM_LIMITE = "2027-12";
+const validaCprbPeriodo = (p: Periodo, abertura: string, encerramento: string): string => {
+  if (!p.inicio) return "Informe o início do período de CPRB.";
+  const [ya, ma] = p.inicio.split("-").map(Number);
+  const abreComp = (abertura || "").slice(0, 7), encComp = (encerramento || "").slice(0, 7);
+  if (ma !== 1 && p.inicio !== abreComp)
+    return `Opção anual: o período deve iniciar em janeiro (ou na abertura da empresa). Início ${p.inicio}.`;
+  if (`${ya}-${String(ma).padStart(2, "0")}` > CPRB_FIM_LIMITE)
+    return "CPRB extinta em 2028: início não pode ultrapassar 12/2027.";
+  const fim = p.fim || (p.fim_aberto ? "" : `${ya}-12`);   // sem fim e sem "em aberto" → fecha em dez do ano
+  if (fim) {
+    if (fim < p.inicio) return "Fim anterior ao início.";
+    const [, mf] = fim.split("-").map(Number);
+    if (mf !== 12 && fim !== encComp)
+      return `Opção anual: o período deve terminar em dezembro (ou no encerramento da empresa). Fim ${fim}.`;
+    if (fim > CPRB_FIM_LIMITE) return "CPRB extinta em 2028: nenhum período pode ultrapassar 12/2027.";
+  }
+  return "";
+};
 
 export function CadastroEmpresa() {
   const empresaId = useAuthStore((s) => s.user?.empresa_id);
   const [form, setForm] = useState<any>({
     razao_social: "", nome_fantasia: "", cnpj: "", cnae_principal: "",
     periodo_inicio: ymMinus(59), periodo_fim: ymToday(),
+    data_abertura: "", data_encerramento: "",
     endereco: "", numero: "", complemento: "", bairro: "", cidade: "", uf: "", cep: "",
     contato_nome: "", contato_email: "", contato_telefone: "",
   });
@@ -56,6 +79,8 @@ export function CadastroEmpresa() {
   const [secundarios, setSecundarios] = useState<any[]>([]);
   const [regimes, setRegimes] = useState<Periodo[]>([]);
   const [cprb, setCprb] = useState<Periodo[]>([]);
+  const [cprbStatus, setCprbStatus] = useState<CprbStatus>("nao_informado");
+  const [cprbVerif, setCprbVerif] = useState<{ por?: string; em?: string }>({});
   const [espelho, setEspelho] = useState<any>(null);
   const [numEstab, setNumEstab] = useState<number>(0);
   const [cnpjErro, setCnpjErro] = useState("");
@@ -77,6 +102,7 @@ export function CadastroEmpresa() {
         cnpj: d.cnpj ?? "", cnae_principal: d.cnae_principal ?? "",
         periodo_inicio: dateToYm(d.periodo_apuracao_inicio) || f.periodo_inicio,
         periodo_fim: dateToYm(d.periodo_apuracao_fim) || f.periodo_fim,
+        data_abertura: d.data_abertura ?? "", data_encerramento: d.data_encerramento ?? "",
         endereco: d.endereco ?? "", numero: d.numero ?? "", complemento: d.complemento ?? "",
         bairro: d.bairro ?? "", cidade: d.cidade ?? "", uf: d.uf ?? "", cep: d.cep ?? "",
         contato_nome: d.contato_nome ?? "", contato_email: d.contato_email ?? "", contato_telefone: d.contato_telefone ?? "",
@@ -85,7 +111,12 @@ export function CadastroEmpresa() {
       setNumEstab(d.num_estabelecimentos ?? 0);
     }).catch(() => {});
     apiClient.get(`/empresas/${empresaId}/regime`).then((r) => setRegimes(r.data || [])).catch(() => {});
-    apiClient.get(`/empresas/${empresaId}/cprb`).then((r) => setCprb(r.data || [])).catch(() => {});
+    apiClient.get(`/empresas/${empresaId}/cprb`).then((r) => {
+      const d = r.data || {};
+      setCprbStatus((d.status as CprbStatus) || "nao_informado");
+      setCprb((d.periodos || []).map((p: any) => ({ inicio: dateToYm(p.inicio), fim: dateToYm(p.fim), fim_aberto: !p.fim })));
+      setCprbVerif({ por: d.verificado_por, em: d.verificado_em });
+    }).catch(() => {});
     carregarEspelho();
   }, [empresaId]);
 
@@ -110,6 +141,7 @@ export function CadastroEmpresa() {
         endereco: x.logradouro ?? f.endereco, numero: x.numero ?? f.numero,
         complemento: x.complemento ?? f.complemento, bairro: x.bairro ?? f.bairro,
         cidade: x.municipio ?? f.cidade, uf: x.uf ?? f.uf, cep: x.cep ?? f.cep,
+        data_abertura: x.data_abertura ?? f.data_abertura,
       }));
       setSecundarios(x.cnaes_secundarios || []);
       setOrigem("consultado");
@@ -137,12 +169,21 @@ export function CadastroEmpresa() {
     if (!empresaId) return;
     if (form.cnpj && !validaCnpj(form.cnpj)) { setCnpjErro("CNPJ inválido (dígito verificador)."); setMsg("Corrija o CNPJ antes de salvar."); return; }
     if (mesesEntre(form.periodo_inicio, form.periodo_fim) < 0) { setMsg("Período de apuração: início depois do fim."); return; }
+    // RF-0.163..0.166: valida o bloco CPRB antes de enviar
+    if (cprbStatus === "optante") {
+      if (cprb.length === 0) { setMsg("Optante pela CPRB: informe ao menos um período."); return; }
+      for (const p of cprb) {
+        const err = validaCprbPeriodo(p, form.data_abertura, form.data_encerramento);
+        if (err) { setMsg(`CPRB — ${err}`); return; }
+      }
+    }
     setSalvando(true); setMsg("");
     try {
       await apiClient.put(`/empresas/${empresaId}`, {
         razao_social: form.razao_social, nome_fantasia: form.nome_fantasia, cnpj: form.cnpj,
         cnae_principal: form.cnae_principal || null,
         periodo_apuracao_inicio: ymToDate(form.periodo_inicio), periodo_apuracao_fim: ymToDate(form.periodo_fim),
+        data_abertura: form.data_abertura || null, data_encerramento: form.data_encerramento || null,
         origem_cadastro: origem || "declarado",
         endereco: form.endereco, numero: form.numero, complemento: form.complemento,
         bairro: form.bairro, cidade: form.cidade, uf: form.uf, cep: form.cep,
@@ -152,12 +193,20 @@ export function CadastroEmpresa() {
         regime: p.regime, anexo_simples: p.regime === "simples" ? (p.anexo_simples || null) : null,
         inicio: ymToDate(p.inicio), fim: p.fim ? ymToDate(p.fim) : null,
       })));
-      await apiClient.put(`/empresas/${empresaId}/cprb`, cprb.filter((p) => p.inicio).map((p) => ({
-        inicio: ymToDate(p.inicio), fim: p.fim ? ymToDate(p.fim) : null,
-      })));
+      await apiClient.put(`/empresas/${empresaId}/cprb`, {
+        status: cprbStatus,
+        periodos: cprbStatus === "optante"
+          ? cprb.filter((p) => p.inicio).map((p) => ({
+              inicio: ymToDate(p.inicio),
+              fim: p.fim_aberto ? null : (p.fim ? ymToDate(p.fim) : null),
+              fim_confirmado: !!p.fim_aberto,   // RF-0.166: "em aberto" é a confirmação explícita
+            }))
+          : [],
+      });
       setMsg("Dados salvos. A matriz foi criada/atualizada e o enquadramento espelhado abaixo.");
       carregarEspelho();
       apiClient.get(`/empresas/${empresaId}`).then((r) => setNumEstab(r.data.num_estabelecimentos ?? numEstab)).catch(() => {});
+      apiClient.get(`/empresas/${empresaId}/cprb`).then((r) => setCprbVerif({ por: r.data?.verificado_por, em: r.data?.verificado_em })).catch(() => {});
     } catch {
       setMsg("Não foi possível salvar. Verifique os campos (períodos não podem se sobrepor).");
     } finally { setSalvando(false); }
@@ -282,25 +331,75 @@ export function CadastroEmpresa() {
         ))}
       </section>
 
-      {/* CPRB por período (RF-0.157/0.158) */}
+      {/* CPRB — estado explícito de verificação (RF-0.163..0.166) */}
       <section className="bg-white rounded-xl border border-gray-100 p-5 mb-4">
-        <div className="flex items-center justify-between mb-1">
-          <h2 className="text-sm font-bold text-gray-800">CPRB — desoneração da folha (por período)</h2>
-          <button type="button" onClick={() => setCprb((l) => [...l, { inicio: form.periodo_inicio, fim: "" }])}
-            className="text-[11px] text-teal-700 hover:underline">+ período</button>
-        </div>
+        <h2 className="text-sm font-bold text-gray-800 mb-1">CPRB — desoneração da folha</h2>
         <p className="text-[11px] text-gray-400 mb-3">
-          Opção anual (a empresa entra e sai). A partir de 01/2025 a CPRB <b>coexiste</b> com a cota patronal parcial
-          (2025: 5% · 2026: 10% · 2027: 15% · 2028: 20%); RAT e Terceiros sempre devidos.
+          O estado precisa ser explícito: um bloco vazio não diz se a empresa <b>não optou</b> ou se
+          <b> ninguém verificou</b>. Opção anual e irretratável por ano-calendário (Lei 12.546/2011, art. 9º, §13);
+          extingue-se em 2028 (Lei 14.973/2024). Não confundir com o período de apuração.
         </p>
-        {cprb.length === 0 && <p className="text-xs text-gray-500">Sem períodos de CPRB.</p>}
-        {cprb.map((p, i) => (
-          <div key={i} className="grid grid-cols-12 gap-2 mb-2 items-center">
-            <input type="month" className={`${inputCls} col-span-5`} value={p.inicio || ""} onChange={(e) => setCprb((l) => l.map((x, j) => j === i ? { ...x, inicio: e.target.value } : x))} />
-            <input type="month" className={`${inputCls} col-span-5`} value={p.fim || ""} onChange={(e) => setCprb((l) => l.map((x, j) => j === i ? { ...x, fim: e.target.value } : x))} placeholder="fim (aberto)" />
-            <button type="button" className="col-span-2 text-red-400 text-sm" onClick={() => setCprb((l) => l.filter((_, j) => j !== i))}>✕ remover</button>
+
+        {/* seletor dos três estados */}
+        <div className="flex flex-col gap-2 mb-3">
+          {([
+            ["nao_informado", "Não verificado", "padrão — vai à conferência; a memória registra que a CPRB não foi verificada"],
+            ["nao_optante", "Verificado: não optante", "marcação explícita (autor e data); cálculo com a patronal cheia"],
+            ["optante", "Optante", "com a lista de períodos abaixo"],
+          ] as [CprbStatus, string, string][]).map(([v, label, hint]) => (
+            <label key={v} className={`flex items-start gap-2 rounded-lg border p-2 cursor-pointer ${cprbStatus === v ? "border-teal-400 bg-teal-50" : "border-gray-200"}`}>
+              <input type="radio" name="cprb_status" className="mt-0.5" checked={cprbStatus === v} onChange={() => setCprbStatus(v)} />
+              <span><b className="text-sm text-gray-800">{label}</b><br /><span className="text-[11px] text-gray-500">{hint}</span></span>
+            </label>
+          ))}
+        </div>
+
+        {cprbStatus === "nao_optante" && (cprbVerif.por || cprbVerif.em) && (
+          <p className="text-[11px] text-gray-500 mb-2">
+            Última verificação: {cprbVerif.por || "—"}{cprbVerif.em ? ` em ${new Date(cprbVerif.em).toLocaleDateString("pt-BR")}` : ""}.
+          </p>
+        )}
+
+        {cprbStatus === "optante" && (
+          <div className="border-t border-gray-100 pt-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-medium text-gray-600">Períodos de opção (janeiro a dezembro)</span>
+              <button type="button" onClick={() => setCprb((l) => [...l, { inicio: "", fim: "", fim_aberto: false }])}
+                className="text-[11px] text-teal-700 hover:underline">+ período</button>
+            </div>
+            <p className="text-[11px] text-gray-400 mb-2">
+              Coexistência com a patronal parcial a partir de 01/2025 (2025: 5% · 2026: 10% · 2027: 15%);
+              RAT e Terceiros sempre devidos.
+            </p>
+            {cprb.length === 0 && <p className="text-xs text-gray-500">Nenhum período. Adicione ao menos um.</p>}
+            {cprb.map((p, i) => {
+              const err = validaCprbPeriodo(p, form.data_abertura, form.data_encerramento);
+              return (
+                <div key={i} className="mb-2">
+                  <div className="grid grid-cols-12 gap-2 items-center">
+                    <input type="month" max={CPRB_FIM_LIMITE} className={`${inputCls} col-span-4`} value={p.inicio || ""}
+                      onChange={(e) => setCprb((l) => l.map((x, j) => j === i ? { ...x, inicio: e.target.value } : x))} />
+                    <input type="month" max={CPRB_FIM_LIMITE} disabled={!!p.fim_aberto}
+                      className={`${inputCls} col-span-4 ${p.fim_aberto ? "opacity-40" : ""}`}
+                      value={p.fim_aberto ? "" : (p.fim || "")}
+                      placeholder={p.fim_aberto ? "vigente" : "fim (dez.)"}
+                      onChange={(e) => setCprb((l) => l.map((x, j) => j === i ? { ...x, fim: e.target.value } : x))} />
+                    <label className="col-span-3 flex items-center gap-1 text-[11px] text-gray-600">
+                      <input type="checkbox" checked={!!p.fim_aberto}
+                        onChange={(e) => setCprb((l) => l.map((x, j) => j === i ? { ...x, fim_aberto: e.target.checked, fim: e.target.checked ? "" : x.fim } : x))} />
+                      em aberto
+                    </label>
+                    <button type="button" className="col-span-1 text-red-400 text-sm" onClick={() => setCprb((l) => l.filter((_, j) => j !== i))}>✕</button>
+                  </div>
+                  {err && <p className="text-[11px] text-red-500 mt-1">{err}</p>}
+                  {!err && !p.fim && !p.fim_aberto && p.inicio && (
+                    <p className="text-[11px] text-amber-600 mt-1">Fim em branco: sem marcar “em aberto”, fecha em 12/{p.inicio.slice(0, 4)}.</p>
+                  )}
+                </div>
+              );
+            })}
           </div>
-        ))}
+        )}
       </section>
 
       {/* Contato + estabelecimentos */}

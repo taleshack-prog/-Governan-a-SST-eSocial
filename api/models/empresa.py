@@ -22,6 +22,15 @@ class Empresa(Base):
     periodo_apuracao_inicio: Mapped[date | None] = mapped_column(Date)
     periodo_apuracao_fim: Mapped[date | None] = mapped_column(Date)
     origem_cadastro: Mapped[str | None] = mapped_column(String(16))  # consultado | declarado
+    data_abertura: Mapped[date | None] = mapped_column(Date)       # excecao ano-calendario CPRB (RF-0.164)
+    data_encerramento: Mapped[date | None] = mapped_column(Date)
+
+    # ---- CPRB: estado explicito de verificacao (RF-0.163) ----
+    # nao_informado (padrao) = ninguem verificou -> conferencia; nao_optante = marcado, patronal
+    # cheia; optante = com a lista de periodos (empresa_cprb).
+    cprb_status: Mapped[str] = mapped_column(String(16), nullable=False, default="nao_informado")
+    cprb_verificado_por: Mapped[str | None] = mapped_column(String(200))
+    cprb_verificado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # ---- Endereco da matriz (migration 023/025) — espelha o estabelecimento ----
     endereco: Mapped[str | None] = mapped_column(String(500))   # logradouro

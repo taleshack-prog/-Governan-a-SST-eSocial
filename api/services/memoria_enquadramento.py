@@ -102,6 +102,27 @@ def gerar_memoria_pdf(d: dict) -> bytes:
     el.append(_p("Desempate pelo maior grau de risco: IN RFB 2.110/2022, art. 43, §1º — <i>inciso a confirmar (B.1)</i>. "
                  "Portaria interministerial do FAP de cada ano: <i>a confirmar (B.4)</i>. "
                  "Soluções de Consulta Cosit sobre atividade preponderante × principal: <i>a confirmar (B.2/B.3)</i>.", small))
+    # CPRB — estado explícito da verificação (RF-0.163). O bloco nunca fica ambíguo: ou foi
+    # verificado (optante/não optante, com autor e data), ou consta pendente de conferência.
+    cprb = d.get("cprb") or {}
+    st = cprb.get("status") or "nao_informado"
+    el.append(_p("Contribuição previdenciária sobre a receita bruta (CPRB)", h2))
+    if st == "optante":
+        pers = cprb.get("periodos") or []
+        linhas = "; ".join(f"{(p.get('inicio') or '')[:7]} a {(p.get('fim') or '')[:7] or 'vigente'}" for p in pers) or "sem períodos informados"
+        verif = f" Verificado por {cprb['verificado_por']}" + (f" em {cprb['verificado_em']}" if cprb.get("verificado_em") else "") + "." if cprb.get("verificado_por") else ""
+        el.append(_p(f"<b>Optante</b> pela desoneração da folha nos períodos: {linhas}. "
+                     f"A partir de 01/2025 a CPRB coexiste com a cota patronal parcial (Lei 14.973/2024); "
+                     f"RAT e Terceiros permanecem devidos.{verif}", body))
+    elif st == "nao_optante":
+        verif = f"Verificado por {cprb['verificado_por']}" + (f" em {cprb['verificado_em']}" if cprb.get("verificado_em") else "") + "." if cprb.get("verificado_por") else "Marcação explícita."
+        el.append(_p(f"<b>Não optante</b> pela CPRB. {verif} O cálculo da contribuição patronal "
+                     f"roda com a alíquota integral sobre a folha.", body))
+    else:
+        el.append(_p("<b>Não verificada.</b> Não há confirmação de opção ou não opção pela CPRB — "
+                     "item pendente de conferência. Enquanto não verificada, não é afirmada "
+                     "desoneração da folha.", body))
+
     aut = d.get("autoria") or []
     if aut:
         el.append(_p("Declaração dos quantitativos: " + "; ".join(aut) + ".", small))
