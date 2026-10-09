@@ -212,6 +212,27 @@ export function CadastroEmpresa() {
     } finally { setSalvando(false); }
   };
 
+  const zerar = async () => {
+    if (!empresaId) return;
+    const nome = form.razao_social || "esta empresa";
+    if (!window.confirm(`Zerar o cadastro de "${nome}"?\n\nIsto apaga estabelecimentos, atividades, enquadramento apurado, regime e CPRB, e limpa os dados da empresa. O login é mantido. Ação irreversível.`)) return;
+    setSalvando(true); setMsg("");
+    try {
+      await apiClient.post(`/empresas/${empresaId}/reset`);
+      // recarrega a tela zerada
+      setForm((f: any) => ({
+        ...f, cnae_principal: "", periodo_inicio: ymMinus(59), periodo_fim: ymToday(),
+        data_abertura: "", data_encerramento: "",
+        endereco: "", numero: "", complemento: "", bairro: "", cidade: "", uf: "", cep: "",
+      }));
+      setRegimes([]); setCprb([]); setCprbStatus("nao_informado"); setCprbVerif({});
+      setSecundarios([]); setOrigem(""); setEspelho(null); setNumEstab(0);
+      setMsg("Cadastro zerado. Informe o novo CNPJ e os dados da empresa, depois salve.");
+    } catch (e: any) {
+      setMsg(e?.response?.data?.detail || "Não foi possível zerar a empresa.");
+    } finally { setSalvando(false); }
+  };
+
   const inputCls = "w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500";
   const roCls = "w-full rounded-lg px-3 py-2 text-sm bg-teal-50 border border-teal-200 text-teal-900";
   const labelCls = "block text-xs font-medium text-gray-600 mb-1";
@@ -413,11 +434,24 @@ export function CadastroEmpresa() {
         <p className="text-[11px] text-gray-400 mt-3">Estabelecimentos ativos: <b>{numEstab}</b> (contagem automática).</p>
       </section>
 
-      {msg && <p className={`text-sm mb-3 ${msg.includes("salvos") ? "text-emerald-600" : "text-red-600"}`}>{msg}</p>}
+      {msg && <p className={`text-sm mb-3 ${msg.includes("salvos") || msg.includes("zerado") ? "text-emerald-600" : "text-red-600"}`}>{msg}</p>}
       <button onClick={salvar} disabled={salvando}
         className="bg-indigo-600 text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
         {salvando ? "Salvando…" : "Salvar dados da empresa"}
       </button>
+
+      {/* Zona de perigo — zerar cadastro (uso em teste) */}
+      <section className="mt-8 border border-red-200 bg-red-50 rounded-xl p-5">
+        <h2 className="text-sm font-bold text-red-700 mb-1">Zerar empresa</h2>
+        <p className="text-[11px] text-red-600 mb-3">
+          Apaga estabelecimentos, atividades, enquadramento apurado, regime e CPRB, e limpa os dados do
+          cadastro para começar outra empresa. O login é mantido. Ação irreversível.
+        </p>
+        <button onClick={zerar} disabled={salvando}
+          className="border border-red-300 text-red-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-100 disabled:opacity-50">
+          Zerar cadastro da empresa
+        </button>
+      </section>
     </div>
   );
 }

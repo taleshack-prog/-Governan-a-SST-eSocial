@@ -7,7 +7,8 @@ from datetime import date, datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete
+from sqlalchemy.exc import IntegrityError
 from pydantic import BaseModel
 
 from api.database import get_db
@@ -16,6 +17,7 @@ from api.models.estabelecimento import Estabelecimento
 from api.models.estabelecimento_atividade import EstabelecimentoAtividade
 from api.models.empresa_regime import EmpresaRegime
 from api.models.empresa_cprb import EmpresaCprb
+from api.models.empresa_cnae_secundario import EmpresaCnaeSecundario
 from api.models.cnae_enquadramento import CnaeEnquadramento
 from api.models.cnae_fpas_sugestao import CnaeFpasSugestao
 from api.models.usuario import Usuario
@@ -312,6 +314,49 @@ async def atualizar_empresa(
     await _garantir_matriz(empresa, db, declarante)   # RF-0.152
     await db.commit()
     return {"id": str(empresa.id), "ok": True}
+
+
+@router.post("/{empresa_id}/reset")
+async def zerar_empresa(
+    empresa_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(require_perfil("admin")),
+):
+    """Zera o cadastro do tenant (uso em testes): apaga estabelecimentos (e, por cascata no banco,
+    atividades/enquadramento/FAP/RAT/custeio/rubrica/achado), regime, CPRB e CNAEs secundários, e
+    limpa os campos de cadastro da empresa. NÃO apaga a linha da empresa (mantém o login) nem mexe
+    em razão social/CNPJ (reaproveitados ou sobrescritos na tela). Bloqueia se houver dados
+    vinculados que impeçam (trabalhador/documento/vínculo apontando para o estabelecimento)."""
+    if str(empresa_id) != str(current_user.empresa_id):
+        raise HTTPException(status_code=403, detail="Sem permissão para esta empresa")
+    empresa = (await db.execute(select(Empresa).where(Empresa.id == empresa_id))).scalar_one_or_none()
+    if not empresa:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+    try:
+        # estabelecimentos primeiro (cascata no banco cuida dos filhos do estabelecimento)
+        await db.execute(delete(Estabelecimento).where(Estabelecimento.empresa_id == empresa_id))
+        await db.execute(delete(EmpresaRegime).where(EmpresaRegime.empresa_id == empresa_id))
+        await db.execute(delete(EmpresaCprb).where(EmpresaCprb.empresa_id == empresa_id))
+        await db.execute(delete(EmpresaCnaeSecundario).where(EmpresaCnaeSecundario.empresa_id == empresa_id))
+        # limpa os campos de cadastro (mantém razao_social/cnpj — NOT NULL/UNIQUE, sobrescritos na tela)
+        empresa.cnae_principal = None
+        empresa.periodo_apuracao_inicio = None
+        empresa.periodo_apuracao_fim = None
+        empresa.data_abertura = None
+        empresa.data_encerramento = None
+        empresa.origem_cadastro = None
+        empresa.endereco = empresa.numero = empresa.complemento = None
+        empresa.bairro = empresa.cidade = empresa.uf = empresa.cep = None
+        empresa.cprb_status = "nao_informado"
+        empresa.cprb_verificado_por = None
+        empresa.cprb_verificado_em = None
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=(
+            "Não foi possível zerar: há dados vinculados a um estabelecimento "
+            "(trabalhador, documento ou vínculo). Remova-os antes de zerar a empresa."))
+    return {"id": str(empresa.id), "ok": True, "zerado": True}
 
 
 # ---- Espelho do enquadramento da matriz (RF-0.155) ----
