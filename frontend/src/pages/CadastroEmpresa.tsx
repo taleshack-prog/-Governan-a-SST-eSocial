@@ -66,6 +66,28 @@ const validaCprbPeriodo = (p: Periodo, abertura: string, encerramento: string): 
   return "";
 };
 
+// RF-0.156: regime não pode ter lacuna dentro do período de apuração. Devolve "" se ok.
+const proxMes = (ym: string) => { const [y, m] = ym.split("-").map(Number); return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`; };
+const validaRegime = (regimes: Periodo[], pIni: string, pFim: string): string => {
+  if (!pIni || !pFim) return "";
+  for (const r of regimes) {
+    if (!r.regime && r.inicio) return "Há período de regime sem o regime selecionado.";
+    if (r.regime && !r.inicio) return "Há regime sem data de início.";
+    if (r.regime === "simples" && !r.anexo_simples) return "Simples Nacional exige o anexo.";
+    if (r.inicio && r.fim && r.fim < r.inicio) return "Período de regime com fim anterior ao início.";
+  }
+  const validos = regimes.filter((r) => r.regime && r.inicio);
+  if (validos.length === 0) return `Declare o regime tributário para o período de apuração (${pIni} a ${pFim}).`;
+  // varre mês a mês a janela de apuração procurando o primeiro mês descoberto
+  let m = pIni;
+  while (m <= pFim) {
+    const coberto = validos.some((r) => r.inicio <= m && (!r.fim || r.fim >= m));
+    if (!coberto) return `Lacuna de regime em ${m}: todo o período de apuração precisa estar coberto.`;
+    m = proxMes(m);
+  }
+  return "";
+};
+
 export function CadastroEmpresa() {
   const empresaId = useAuthStore((s) => s.user?.empresa_id);
   const [form, setForm] = useState<any>({
@@ -76,6 +98,7 @@ export function CadastroEmpresa() {
     contato_nome: "", contato_email: "", contato_telefone: "",
   });
   const [origem, setOrigem] = useState<string>("");          // consultado | declarado
+  const [consultadoEm, setConsultadoEm] = useState<string>("");
   const [secundarios, setSecundarios] = useState<any[]>([]);
   const [regimes, setRegimes] = useState<Periodo[]>([]);
   const [cprb, setCprb] = useState<Periodo[]>([]);
@@ -108,9 +131,13 @@ export function CadastroEmpresa() {
         contato_nome: d.contato_nome ?? "", contato_email: d.contato_email ?? "", contato_telefone: d.contato_telefone ?? "",
       }));
       setOrigem(d.origem_cadastro ?? "");
+      setConsultadoEm(d.consultado_em ?? "");
+      setSecundarios(d.cnaes_secundarios ?? []);
       setNumEstab(d.num_estabelecimentos ?? 0);
     }).catch(() => {});
-    apiClient.get(`/empresas/${empresaId}/regime`).then((r) => setRegimes(r.data || [])).catch(() => {});
+    apiClient.get(`/empresas/${empresaId}/regime`).then((r) => setRegimes(
+      (r.data || []).map((p: any) => ({ regime: p.regime, anexo_simples: p.anexo_simples, inicio: dateToYm(p.inicio), fim: dateToYm(p.fim) }))
+    )).catch(() => {});
     apiClient.get(`/empresas/${empresaId}/cprb`).then((r) => {
       const d = r.data || {};
       setCprbStatus((d.status as CprbStatus) || "nao_informado");
@@ -145,6 +172,7 @@ export function CadastroEmpresa() {
       }));
       setSecundarios(x.cnaes_secundarios || []);
       setOrigem("consultado");
+      setConsultadoEm(x.consultado_em || new Date().toISOString());
       setConsultaMsg(`Consultado na Receita (${x.situacao_cadastral || "situação n/d"}). Revise e confirme — o dado vale após salvar.`);
     } catch (e: any) {
       setOrigem("declarado");
@@ -169,6 +197,9 @@ export function CadastroEmpresa() {
     if (!empresaId) return;
     if (form.cnpj && !validaCnpj(form.cnpj)) { setCnpjErro("CNPJ inválido (dígito verificador)."); setMsg("Corrija o CNPJ antes de salvar."); return; }
     if (mesesEntre(form.periodo_inicio, form.periodo_fim) < 0) { setMsg("Período de apuração: início depois do fim."); return; }
+    // RF-0.156: regime sem lacuna no período de apuração
+    const errRegime = validaRegime(regimes, form.periodo_inicio, form.periodo_fim);
+    if (errRegime) { setMsg(`Regime — ${errRegime}`); return; }
     // RF-0.163..0.166: valida o bloco CPRB antes de enviar
     if (cprbStatus === "optante") {
       if (cprb.length === 0) { setMsg("Optante pela CPRB: informe ao menos um período."); return; }
@@ -185,6 +216,8 @@ export function CadastroEmpresa() {
         periodo_apuracao_inicio: ymToDate(form.periodo_inicio), periodo_apuracao_fim: ymToDate(form.periodo_fim),
         data_abertura: form.data_abertura || null, data_encerramento: form.data_encerramento || null,
         origem_cadastro: origem || "declarado",
+        consultado_em: origem === "consultado" ? (consultadoEm || null) : null,
+        cnaes_secundarios: secundarios.map((c: any) => c.codigo).filter(Boolean),
         endereco: form.endereco, numero: form.numero, complemento: form.complemento,
         bairro: form.bairro, cidade: form.cidade, uf: form.uf, cep: form.cep,
         contato_nome: form.contato_nome, contato_email: form.contato_email, contato_telefone: form.contato_telefone,
@@ -226,7 +259,7 @@ export function CadastroEmpresa() {
         endereco: "", numero: "", complemento: "", bairro: "", cidade: "", uf: "", cep: "",
       }));
       setRegimes([]); setCprb([]); setCprbStatus("nao_informado"); setCprbVerif({});
-      setSecundarios([]); setOrigem(""); setEspelho(null); setNumEstab(0);
+      setSecundarios([]); setOrigem(""); setConsultadoEm(""); setEspelho(null); setNumEstab(0);
       setMsg("Cadastro zerado. Informe o novo CNPJ e os dados da empresa, depois salve.");
     } catch (e: any) {
       setMsg(e?.response?.data?.detail || "Não foi possível zerar a empresa.");
@@ -261,7 +294,7 @@ export function CadastroEmpresa() {
             </div>
             {cnpjErro && <p className="text-[11px] text-red-500 mt-1">{cnpjErro}</p>}
             {consultaMsg && <p className="text-[11px] text-amber-600 mt-1">{consultaMsg}</p>}
-            {origem && <p className="text-[11px] text-gray-400 mt-1">Origem do cadastro: <b>{origem}</b>{origem === "consultado" ? " (confirme antes de valer)" : ""}.</p>}
+            {origem && <p className="text-[11px] text-gray-400 mt-1">Origem do cadastro: <b>{origem}</b>{origem === "consultado" ? " (confirme antes de valer)" : ""}{origem === "consultado" && consultadoEm ? ` · consultado em ${new Date(consultadoEm).toLocaleString("pt-BR")}` : ""}.</p>}
           </div>
           <div>
             <label className={labelCls}>Período de apuração (competências)</label>
@@ -280,9 +313,21 @@ export function CadastroEmpresa() {
             <label className={labelCls}>Nome fantasia</label>
             <input className={inputCls} value={form.nome_fantasia} onChange={(e) => set("nome_fantasia", e.target.value)} />
           </div>
+          <div>
+            <label className={labelCls}>Data de abertura {origem === "consultado" ? "(consultada)" : ""}</label>
+            <input type="date" className={inputCls} value={form.data_abertura || ""} onChange={(e) => set("data_abertura", e.target.value)} />
+          </div>
+          <div>
+            <label className={labelCls}>Data de encerramento (se houver)</label>
+            <input type="date" className={inputCls} value={form.data_encerramento || ""} onChange={(e) => set("data_encerramento", e.target.value)} />
+          </div>
+          <div className="col-span-2">
+            <label className={labelCls}>CNAE principal</label>
+            <input className={inputCls} value={form.cnae_principal} onChange={(e) => set("cnae_principal", e.target.value.replace(/\D/g, "").slice(0, 7))} placeholder="0000000" />
+          </div>
         </div>
         {secundarios.length > 0 && (
-          <p className="text-[11px] text-gray-400 mt-2">CNAEs secundários (consultados): {secundarios.map((c) => c.codigo).join(", ")}.</p>
+          <p className="text-[11px] text-gray-400 mt-2">CNAEs secundários: {secundarios.map((c) => c.codigo).join(", ")}.</p>
         )}
       </section>
 

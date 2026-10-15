@@ -66,22 +66,28 @@ async def _garantir_matriz(empresa: Empresa, db: AsyncSession, declarante: str |
             Estabelecimento.empresa_id == empresa.id, Estabelecimento.posicao == "matriz"
         )
     )).scalars().first()
+    # abertura da matriz = abertura REAL da empresa (consulta), não o período de apuração (RF-0.152)
+    abertura = empresa.data_abertura or empresa.periodo_apuracao_inicio
     if matriz is None:
         matriz = Estabelecimento(
             empresa_id=empresa.id, codigo="MATRIZ", nome=empresa.razao_social or "Matriz",
             cnpj=_cnpj_matriz(empresa.cnpj), cnae=empresa.cnae_principal,
             posicao="matriz", status="ativa", tipo_estabelecimento="CNPJ",
             endereco=empresa.endereco, cidade=empresa.cidade, uf=empresa.uf,
-            data_abertura=empresa.periodo_apuracao_inicio,
+            data_abertura=abertura, data_encerramento=empresa.data_encerramento,
         )
         db.add(matriz)
         await db.flush()
-    elif empresa.cnae_principal:
-        matriz.cnae = empresa.cnae_principal
+    else:
+        if empresa.cnae_principal:
+            matriz.cnae = empresa.cnae_principal
+        if abertura:
+            matriz.data_abertura = abertura
+        matriz.data_encerramento = empresa.data_encerramento
 
     # registra a atividade declarada da matriz (uma linha) — INPUT do motor (RF-0.173)
     if empresa.cnae_principal:
-        inicio = empresa.periodo_apuracao_inicio or getattr(matriz, "data_abertura", None) or getattr(matriz, "data_inicio", None) or date.today()
+        inicio = abertura or getattr(matriz, "data_abertura", None) or date.today()
         ativ = (await db.execute(
             select(EstabelecimentoAtividade).where(
                 EstabelecimentoAtividade.estabelecimento_id == matriz.id,
@@ -115,6 +121,8 @@ class EmpresaUpdate(BaseModel):
     data_abertura: date | None = None
     data_encerramento: date | None = None
     origem_cadastro: str | None = None
+    consultado_em: datetime | None = None             # data/hora da consulta (RF-0.150)
+    cnaes_secundarios: List[str] | None = None         # lista de códigos, gravada à parte
     endereco: str | None = None
     numero: str | None = None
     complemento: str | None = None
@@ -259,17 +267,22 @@ async def obter_empresa(
             Estabelecimento.empresa_id == empresa_id, Estabelecimento.status == "ativa"
         )
     )).scalar_one()
+    secundarios = (await db.execute(
+        select(EmpresaCnaeSecundario.cnae).where(EmpresaCnaeSecundario.empresa_id == empresa_id)
+    )).scalars().all()
     return {
         "id": str(empresa.id),
         "razao_social": empresa.razao_social,
         "nome_fantasia": empresa.nome_fantasia,
         "cnpj": empresa.cnpj,
         "cnae_principal": empresa.cnae_principal,   # semente do enquadramento da matriz
+        "cnaes_secundarios": [{"codigo": c} for c in secundarios],
         "periodo_apuracao_inicio": empresa.periodo_apuracao_inicio.isoformat() if empresa.periodo_apuracao_inicio else None,
         "periodo_apuracao_fim": empresa.periodo_apuracao_fim.isoformat() if empresa.periodo_apuracao_fim else None,
         "data_abertura": empresa.data_abertura.isoformat() if empresa.data_abertura else None,
         "data_encerramento": empresa.data_encerramento.isoformat() if empresa.data_encerramento else None,
         "origem_cadastro": empresa.origem_cadastro,
+        "consultado_em": empresa.consultado_em.isoformat() if empresa.consultado_em else None,
         "endereco": empresa.endereco,
         "numero": empresa.numero,
         "complemento": empresa.complemento,
@@ -308,8 +321,19 @@ async def atualizar_empresa(
     empresa = (await db.execute(select(Empresa).where(Empresa.id == empresa_id))).scalar_one_or_none()
     if not empresa:
         raise HTTPException(status_code=404, detail="Empresa não encontrada")
-    for k, v in data.model_dump(exclude_unset=True).items():
+    payload = data.model_dump(exclude_unset=True)
+    # CNAEs secundários são relação 1:N — tratados à parte (RF-0.150: gravar todo o retorno da consulta)
+    secundarios = payload.pop("cnaes_secundarios", None)
+    for k, v in payload.items():
         setattr(empresa, k, v)
+    if secundarios is not None:
+        await db.execute(delete(EmpresaCnaeSecundario).where(EmpresaCnaeSecundario.empresa_id == empresa_id))
+        vistos = set()
+        for cod in secundarios:
+            c = re.sub(r"\D", "", cod or "")[:7]
+            if c and c not in vistos:
+                vistos.add(c)
+                db.add(EmpresaCnaeSecundario(empresa_id=empresa_id, cnae=c))
     declarante = getattr(current_user, "email", None) or getattr(current_user, "nome", None)
     await _garantir_matriz(empresa, db, declarante)   # RF-0.152
     await db.commit()
@@ -345,6 +369,7 @@ async def zerar_empresa(
         empresa.data_abertura = None
         empresa.data_encerramento = None
         empresa.origem_cadastro = None
+        empresa.consultado_em = None
         empresa.endereco = empresa.numero = empresa.complemento = None
         empresa.bairro = empresa.cidade = empresa.uf = empresa.cep = None
         empresa.cprb_status = "nao_informado"
@@ -375,9 +400,12 @@ async def matriz_enquadramento(
     )).scalars().first()
     if matriz is None:
         return {"existe": False}
+    empresa_cnae_principal = (await db.execute(
+        select(Empresa.cnae_principal).where(Empresa.id == empresa_id)
+    )).scalar_one_or_none()
     # Preview derivado da atividade declarada da matriz (motor do Adendo 04 ainda não calcula a
     # série mensal — isso é a Fase 3). Grau/RAT lidos do Anexo I pela CNAE preponderante (aqui,
-    # única atividade declarada).
+    # única atividade declarada); se não houver atividade ainda, usa a CNAE principal da empresa.
     ativ = (await db.execute(
         select(EstabelecimentoAtividade).where(
             EstabelecimentoAtividade.estabelecimento_id == matriz.id,
@@ -385,14 +413,17 @@ async def matriz_enquadramento(
         ).order_by(EstabelecimentoAtividade.quantitativo.desc().nullslast(),
                    EstabelecimentoAtividade.vigencia_inicio.desc())
     )).scalars().first()
-    if ativ is None:
+    # CNAE base: atividade declarada da matriz; se ainda não houver, cai na CNAE principal da
+    # empresa (a matriz pode existir sem atividade registrada — não deixar o espelho vazio).
+    cnae_base = (ativ.cnae if ativ else None) or empresa_cnae_principal
+    if not cnae_base:
         return {"existe": True, "estabelecimento_id": str(matriz.id), "enquadramento": None}
     grau = rat = fpas = None
-    ce = (await db.execute(select(CnaeEnquadramento).where(CnaeEnquadramento.cnae == ativ.cnae))).scalar_one_or_none()
+    ce = (await db.execute(select(CnaeEnquadramento).where(CnaeEnquadramento.cnae == cnae_base))).scalar_one_or_none()
     if ce:
         grau, rat = ce.grau_risco, float(ce.aliquota_rat)
     try:
-        div = int((ativ.cnae or "")[:2])
+        div = int((cnae_base or "")[:2])
         sug = (await db.execute(select(CnaeFpasSugestao).where(
             CnaeFpasSugestao.divisao_ini <= div, CnaeFpasSugestao.divisao_fim >= div))).scalars().first()
         fpas = sug.fpas_sugerido if sug else None

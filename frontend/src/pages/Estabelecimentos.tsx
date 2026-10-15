@@ -306,7 +306,7 @@ export function Estabelecimentos() {
           : (
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>{["Código", "Nome", "Natureza", "Posição", "Abertura", "Status", "Ações"].map((h) => (
+                <tr>{["Código", "Nome", "CNPJ", "Natureza", "Posição", "Abertura", "Encerramento", "Status", "Ações"].map((h) => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{h}</th>))}</tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -314,9 +314,11 @@ export function Estabelecimentos() {
                   <tr key={e.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 font-mono text-gray-600 text-xs">{e.codigo}</td>
                     <td className="px-4 py-3 font-medium text-gray-900">{e.nome}</td>
+                    <td className="px-4 py-3 font-mono text-gray-600 text-xs">{e.cnpj ? maskCnpj(e.cnpj) : (e.identificador || "—")}</td>
                     <td className="px-4 py-3 text-gray-600">{e.tipo_estabelecimento}</td>
                     <td className="px-4 py-3 text-gray-600 capitalize">{e.posicao}</td>
                     <td className="px-4 py-3 text-gray-600">{e.data_abertura || "—"}</td>
+                    <td className="px-4 py-3 text-gray-600">{e.data_encerramento || "—"}</td>
                     <td className="px-4 py-3 text-gray-600 capitalize">{e.status}</td>
                     <td className="px-4 py-3 space-x-3 text-xs">
                       <button onClick={() => setAtivEstab(e)} className="text-teal-700 hover:underline">Atividades</button>

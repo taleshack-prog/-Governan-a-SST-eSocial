@@ -22,6 +22,7 @@ class Empresa(Base):
     periodo_apuracao_inicio: Mapped[date | None] = mapped_column(Date)
     periodo_apuracao_fim: Mapped[date | None] = mapped_column(Date)
     origem_cadastro: Mapped[str | None] = mapped_column(String(16))  # consultado | declarado
+    consultado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # data/hora da consulta de CNPJ (RF-0.150)
     data_abertura: Mapped[date | None] = mapped_column(Date)       # excecao ano-calendario CPRB (RF-0.164)
     data_encerramento: Mapped[date | None] = mapped_column(Date)
 
