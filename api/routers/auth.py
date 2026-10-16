@@ -5,7 +5,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from api.database import get_db
+from api.database import get_db, set_escritorio_ctx, aplicar_escritorio_agora
 from api.models.usuario import Usuario
 from api.auth import verify_password, create_access_token, get_current_user, hash_password
 from pydantic import BaseModel, EmailStr
@@ -44,6 +44,13 @@ async def login(
             detail="Email ou senha incorretos",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # Adendo 05 / RN-24: a busca acima roda SEM contexto de escritorio (ainda nao sabemos qual e —
+    # e por isso que a policy de SELECT da 'usuarios' tolera a GUC vazia). Agora que o usuario esta
+    # autenticado, FIXA o contexto ANTES de gravar: sem isso o UPDATE de ultimo_login nao casa com
+    # a policy, atinge zero linhas e o ORM derruba o login inteiro.
+    set_escritorio_ctx(user.escritorio_id)
+    await aplicar_escritorio_agora(db)
 
     # Atualizar último login
     user.ultimo_login = datetime.now(timezone.utc)
