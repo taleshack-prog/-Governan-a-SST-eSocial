@@ -38,10 +38,38 @@ from api.routers import (
 )
 
 
+async def _checar_papel_rls() -> None:
+    """Adendo 05 / RN-24: o RLS so vale se a aplicacao NAO conectar com papel privilegiado.
+    Superusuario ignora RLS sempre; BYPASSRLS tambem. Se isso acontecer, o isolamento por
+    escritorio nao produz erro nenhum — simplesmente nao filtra. Logo, avisa alto na partida."""
+    from sqlalchemy import text
+    from api.database import engine
+    try:
+        async with engine.connect() as conn:
+            r = (await conn.execute(text(
+                "SELECT current_user, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user"
+            ))).fetchone()
+        if r is None:
+            return
+        usuario, super_, bypass = r[0], bool(r[1]), bool(r[2])
+        if super_ or bypass:
+            print("=" * 78)
+            print(f"⚠️  ATENCAO: a aplicacao conectou como '{usuario}' "
+                  f"(superuser={super_}, bypassrls={bypass}).")
+            print("    O RLS do Adendo 05 NAO esta sendo aplicado — nao ha isolamento entre")
+            print("    escritorios. Defina APP_DB_USER/APP_DB_PASSWORD para o papel radar_app.")
+            print("=" * 78)
+        else:
+            print(f"🔒 Isolamento por escritorio ativo — conectado como '{usuario}' (RLS aplicavel).")
+    except Exception as e:  # nunca derrubar a partida por causa da checagem
+        print(f"⚠️  Nao foi possivel verificar o papel do banco: {type(e).__name__}: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     print(f"🚀 {settings.app_name} iniciando [env={settings.app_env}]")
+    await _checar_papel_rls()
     yield
     # Shutdown
     print(f"🛑 {settings.app_name} encerrando")
@@ -129,8 +157,18 @@ async def debug_db():
     }
     try:
         async with engine.connect() as conn:
-            row = await conn.execute(text("SELECT current_user, version()"))
+            row = await conn.execute(text(
+                "SELECT current_user, version(), "
+                "(SELECT rolsuper FROM pg_roles WHERE rolname = current_user), "
+                "(SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user)"
+            ))
             r = row.fetchone()
-            return {"status": "ok", "config": config, "pg_user": r[0], "pg_version": r[1][:50]}
+            # RN-24: se o papel for superuser ou tiver bypassrls, o RLS nao filtra nada.
+            privilegiado = bool(r[2]) or bool(r[3])
+            return {
+                "status": "ok", "config": config, "pg_user": r[0], "pg_version": r[1][:50],
+                "rolsuper": bool(r[2]), "rolbypassrls": bool(r[3]),
+                "rls_aplicavel": not privilegiado,
+            }
     except Exception as e:
         return {"status": "error", "config": config, "error": str(e), "type": type(e).__name__}
