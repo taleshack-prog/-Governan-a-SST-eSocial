@@ -79,8 +79,11 @@ Responda SOMENTE o JSON."""
 
         logger.info(f"Tipo detectado: {tipo}")
 
-        from api.database import get_sync_session
+        from api.database import get_sync_session, ativar_escritorio_por_empresa
         with get_sync_session() as db:
+            # Adendo 05 / RN-24: worker roda fora de request — ativa o contexto do escritorio
+            # ANTES de tocar em dado de cliente, senao o RLS devolve zero linhas.
+            ativar_escritorio_por_empresa(db, empresa_id)
             salvos = salvar_por_tipo(db, tipo, dados, empresa_id, nome_arquivo, conteudo, texto_completo)
 
         return {

@@ -1,7 +1,7 @@
 # api/models/empresa.py — SST ESOCIAL GOV
 import uuid
 from datetime import datetime, date
-from sqlalchemy import String, Integer, SmallInteger, Boolean, DateTime, Date, Numeric, ForeignKey
+from sqlalchemy import String, Integer, SmallInteger, Boolean, DateTime, Date, Numeric, ForeignKey, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from api.database import Base
@@ -11,8 +11,12 @@ class Empresa(Base):
     __tablename__ = "empresas"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    # Adendo 05: tenant. NULLABLE enquanto o backend (migration 032) nao preenche em todo insert.
-    escritorio_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("escritorios.id"))
+    # Adendo 05: tenant. server_default faz o ORM OMITIR a coluna no insert, para o banco
+    # preenche-la a partir da GUC app.escritorio (migration 032a) — sem tocar em cada insert.
+    escritorio_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("escritorios.id"),
+        server_default=text("current_setting('app.escritorio', true)::uuid"),
+    )
     arquivada: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)   # RF-0.207
     arquivada_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     razao_social: Mapped[str] = mapped_column(String(300), nullable=False)

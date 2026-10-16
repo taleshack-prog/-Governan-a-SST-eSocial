@@ -1,7 +1,7 @@
 # api/models/usuario.py — SST ESOCIAL GOV
 import uuid
 from datetime import datetime
-from sqlalchemy import String, Boolean, DateTime, ForeignKey
+from sqlalchemy import String, Boolean, DateTime, ForeignKey, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from api.database import Base
@@ -11,8 +11,12 @@ class Usuario(Base):
     __tablename__ = "usuarios"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    # Adendo 05: usuario pertence a UM escritorio (tenant). NULLABLE ate a 032 preencher em todo insert.
-    escritorio_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("escritorios.id"))
+    # Adendo 05: usuario pertence a UM escritorio (tenant). server_default = GUC app.escritorio,
+    # para o ORM omitir no insert e o banco preencher (migration 032a).
+    escritorio_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("escritorios.id"),
+        server_default=text("current_setting('app.escritorio', true)::uuid"),
+    )
     papel: Mapped[str] = mapped_column(String(12), nullable=False, default="operador")  # titular|operador|leitor|cliente
     empresa_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("empresas.id"))
     email: Mapped[str] = mapped_column(String(254), unique=True, nullable=False)

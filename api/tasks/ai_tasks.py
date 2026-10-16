@@ -34,7 +34,7 @@ def processar_ltcat_task(self, conteudo_hex: str, empresa_id: str, nome_arquivo:
         from api.models.documento import DocumentoTecnico
         from api.models.agente_nocivo import AgenteNocivo
         from api.models.trabalhador import Trabalhador
-        from api.database import get_sync_session
+        from api.database import get_sync_session, ativar_escritorio_por_empresa
         from sqlalchemy import select
         import fitz
 
@@ -48,6 +48,8 @@ def processar_ltcat_task(self, conteudo_hex: str, empresa_id: str, nome_arquivo:
 
         # Salvar no banco via sessão síncrona
         with get_sync_session() as db:
+            # Adendo 05 / RN-24: ativa o contexto do escritorio antes de qualquer dado de cliente
+            ativar_escritorio_por_empresa(db, empresa_id)
             # Extrair texto para salvar
             doc_fitz = fitz.open(stream=conteudo, filetype="pdf")
             doc_texto = "".join(p.get_text() for p in doc_fitz)[:50000]

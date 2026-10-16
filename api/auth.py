@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from api.config import settings
-from api.database import get_db
+from api.database import get_db, set_escritorio_ctx, aplicar_escritorio_agora
 from api.models.usuario import Usuario
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -69,7 +69,34 @@ async def get_current_user(
     user = result.scalar_one_or_none()
     if user is None or not user.ativo:
         raise credentials_exception
+    # Adendo 05 / RN-24: fixa o escritorio do request. A partir daqui toda transacao carrega a
+    # GUC app.escritorio (via after_begin), e o RLS filtra no banco. Tambem aplica na transacao
+    # corrente, cujo after_begin ja passou na consulta do usuario acima.
+    set_escritorio_ctx(user.escritorio_id)
+    await aplicar_escritorio_agora(db)
     return user
+
+
+# Adendo 05 / RF-0.204 — papeis de acesso do ESCRITORIO (eixo distinto do 'perfil' funcional).
+# titular: responde pelo contrato; unico que exclui empresa em definitivo.
+# operador: cria/edita empresas, estabelecimentos, atividades; resolve a fila de conferencia.
+# leitor: ve e exporta, nao altera.
+# cliente: previsto e DESLIGADO — ve apenas a empresa vinculada, somente leitura.
+PAPEIS_HIERARQUIA = {"titular": 100, "operador": 60, "leitor": 20, "cliente": 10}
+
+
+def require_papel(papel_minimo: str):
+    """Exige papel minimo no escritorio. Nunca substitui o RLS — e autorizacao, nao isolamento."""
+    async def dependency(current_user: Usuario = Depends(get_current_user)):
+        atual = PAPEIS_HIERARQUIA.get(getattr(current_user, "papel", None) or "leitor", 0)
+        minimo = PAPEIS_HIERARQUIA.get(papel_minimo, 999)
+        if atual < minimo:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Ação restrita ao papel '{papel_minimo}' ou superior.",
+            )
+        return current_user
+    return dependency
 
 
 def require_perfil(perfil_minimo: str):
