@@ -19,8 +19,8 @@ def _build_engine():
     # connect_args ssl="require" é obrigatório para Supabase
     url = SAUrl.create(
         drivername="postgresql+asyncpg",
-        username=settings.postgres_user,
-        password=settings.postgres_password,
+        username=settings.db_user,
+        password=settings.db_password,
         host=settings.postgres_host,
         port=settings.postgres_port,
         database=settings.postgres_db,
@@ -117,8 +117,8 @@ from contextlib import contextmanager
 def _build_sync_engine():
     url = SAUrl.create(
         drivername="postgresql",
-        username=settings.postgres_user,
-        password=settings.postgres_password,
+        username=settings.db_user,
+        password=settings.db_password,
         host=settings.postgres_host,
         port=settings.postgres_port,
         database=settings.postgres_db,

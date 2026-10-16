@@ -25,6 +25,18 @@ class Settings(BaseSettings):
     postgres_password: str = "changeme"
     database_url: str = ""
     database_url_sync: str = ""
+    # Role da aplicacao (Adendo 05 RN-24): NOSUPERUSER NOBYPASSRLS, para o RLS valer.
+    # Vazio => cai no POSTGRES_USER/POSTGRES_PASSWORD (dono do banco).
+    app_db_user: str = ""
+    app_db_password: str = ""
+
+    @property
+    def db_user(self) -> str:
+        return self.app_db_user or self.postgres_user
+
+    @property
+    def db_password(self) -> str:
+        return self.app_db_password if self.app_db_user else self.postgres_password
 
     # Redis / Celery
     redis_url: str = "redis://redis:6379/0"
@@ -54,7 +66,7 @@ class Settings(BaseSettings):
         if self.database_url:
             return self.database_url
         return (
-            f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
+            f"postgresql+asyncpg://{self.db_user}:{self.db_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 
@@ -62,7 +74,7 @@ class Settings(BaseSettings):
         if self.database_url_sync:
             return self.database_url_sync
         return (
-            f"postgresql://{self.postgres_user}:{self.postgres_password}"
+            f"postgresql://{self.db_user}:{self.db_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 

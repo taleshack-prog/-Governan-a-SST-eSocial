@@ -124,8 +124,8 @@ async def debug_db():
         "host": settings.postgres_host,
         "port": settings.postgres_port,
         "db": settings.postgres_db,
-        "user": settings.postgres_user,
-        "password_set": bool(settings.postgres_password and settings.postgres_password != "changeme"),
+        "user": settings.db_user,
+        "password_set": bool(settings.db_password and settings.db_password != "changeme"),
     }
     try:
         async with engine.connect() as conn:
