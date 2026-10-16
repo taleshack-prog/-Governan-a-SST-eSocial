@@ -11,6 +11,9 @@ class Usuario(Base):
     __tablename__ = "usuarios"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Adendo 05: usuario pertence a UM escritorio (tenant). NULLABLE ate a 032 preencher em todo insert.
+    escritorio_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("escritorios.id"))
+    papel: Mapped[str] = mapped_column(String(12), nullable=False, default="operador")  # titular|operador|leitor|cliente
     empresa_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("empresas.id"))
     email: Mapped[str] = mapped_column(String(254), unique=True, nullable=False)
     senha_hash: Mapped[str] = mapped_column(String(256), nullable=False)

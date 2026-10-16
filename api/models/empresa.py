@@ -1,7 +1,7 @@
 # api/models/empresa.py — SST ESOCIAL GOV
 import uuid
 from datetime import datetime, date
-from sqlalchemy import String, Integer, SmallInteger, Boolean, DateTime, Date, Numeric
+from sqlalchemy import String, Integer, SmallInteger, Boolean, DateTime, Date, Numeric, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from api.database import Base
@@ -11,6 +11,10 @@ class Empresa(Base):
     __tablename__ = "empresas"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Adendo 05: tenant. NULLABLE enquanto o backend (migration 032) nao preenche em todo insert.
+    escritorio_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("escritorios.id"))
+    arquivada: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)   # RF-0.207
+    arquivada_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     razao_social: Mapped[str] = mapped_column(String(300), nullable=False)
     nome_fantasia: Mapped[str | None] = mapped_column(String(300))
     cnpj: Mapped[str] = mapped_column(String(14), unique=True, nullable=False)

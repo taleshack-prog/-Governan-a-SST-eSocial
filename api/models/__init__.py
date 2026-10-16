@@ -3,6 +3,7 @@
 # Arquivo: api/models/__init__.py
 # ==============================================================
 
+from api.models.escritorio import Escritorio
 from api.models.empresa import Empresa
 from api.models.empresa_cnae_secundario import EmpresaCnaeSecundario
 from api.models.questionario_resposta import QuestionarioResposta
@@ -32,6 +33,7 @@ from api.models.ai_validacao import AiValidacao
 from api.models.audit_log import AuditLog
 
 __all__ = [
+    "Escritorio",
     "Empresa", "EmpresaCnaeSecundario", "Estabelecimento", "EstabelecimentoFAP", "EstabelecimentoEnquadramento",
     "EstabelecimentoAtividade", "EstabelecimentoRatAplicado",
     "EmpresaRegime", "EmpresaCprb", "CprbTransicao", "Trabalhador", "Vinculo",
