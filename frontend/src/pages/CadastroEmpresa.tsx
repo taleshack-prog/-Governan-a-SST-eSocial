@@ -45,6 +45,11 @@ const mesesEntre = (a: string, b: string) => {
 interface Periodo { regime?: string; anexo_simples?: string; inicio: string; fim: string; fim_aberto?: boolean; }
 type CprbStatus = "nao_informado" | "nao_optante" | "optante";
 
+// Situação da competência no espelho (espelha api/services/enquadramento_situacao.py)
+const ESP_SIT: Record<string, string> = {
+  conferencia: "conferência", apurado: "apurado (falta o aplicado)", conferido: "conferido",
+};
+
 // RF-0.164/0.165/0.166: valida um período de CPRB no front (espelho do backend). Devolve "" se ok.
 const CPRB_FIM_LIMITE = "2027-12";
 const validaCprbPeriodo = (p: Periodo, abertura: string, encerramento: string): string => {
@@ -149,7 +154,11 @@ export function CadastroEmpresa() {
 
   const carregarEspelho = () => {
     if (!empresaId) return;
-    apiClient.get(`/empresas/${empresaId}/matriz-enquadramento`).then((r) => setEspelho(r.data)).catch(() => {});
+    // Nunca engolir o erro: antes um 500 aqui caía no texto de "aparece depois", e o espelho
+    // parecia apenas não implementado. Agora a falha aparece na tela.
+    apiClient.get(`/empresas/${empresaId}/matriz-enquadramento`)
+      .then((r) => setEspelho(r.data))
+      .catch((e) => setEspelho({ erro: e?.response?.data?.detail || "Não foi possível ler o enquadramento da matriz." }));
   };
 
   // Consulta de CNPJ pelo backend (RF-0.150)
@@ -160,15 +169,19 @@ export function CadastroEmpresa() {
     try {
       const r = await apiClient.get(`/empresas/consulta-cnpj/${d}`);
       const x = r.data;
+      // A consulta devolve STRING VAZIA (não null) para o que a Receita não tem — nome fantasia,
+      // número, complemento. Com `??` o vazio passava e apagava o que o usuário tinha digitado.
+      // Aqui vazio é ausência: mantém o que já está no formulário.
+      const ou = (novo: any, atual: any) => (novo === null || novo === undefined || String(novo).trim() === "" ? atual : novo);
       setForm((f: any) => ({
         ...f,
-        razao_social: x.razao_social ?? f.razao_social,
-        nome_fantasia: x.nome_fantasia ?? f.nome_fantasia,
-        cnae_principal: x.cnae_principal ?? f.cnae_principal,
-        endereco: x.logradouro ?? f.endereco, numero: x.numero ?? f.numero,
-        complemento: x.complemento ?? f.complemento, bairro: x.bairro ?? f.bairro,
-        cidade: x.municipio ?? f.cidade, uf: x.uf ?? f.uf, cep: x.cep ?? f.cep,
-        data_abertura: x.data_abertura ?? f.data_abertura,
+        razao_social: ou(x.razao_social, f.razao_social),
+        nome_fantasia: ou(x.nome_fantasia, f.nome_fantasia),
+        cnae_principal: ou(x.cnae_principal, f.cnae_principal),
+        endereco: ou(x.logradouro, f.endereco), numero: ou(x.numero, f.numero),
+        complemento: ou(x.complemento, f.complemento), bairro: ou(x.bairro, f.bairro),
+        cidade: ou(x.municipio, f.cidade), uf: ou(x.uf, f.uf), cep: ou(x.cep, f.cep),
+        data_abertura: ou(x.data_abertura, f.data_abertura),
       }));
       setSecundarios(x.cnaes_secundarios || []);
       setOrigem("consultado");
@@ -338,15 +351,37 @@ export function CadastroEmpresa() {
           <a href="/estabelecimentos" className="text-[11px] text-teal-700 hover:underline">editar em Estabelecimentos →</a>
         </div>
         <p className="text-[11px] text-gray-400 mb-3">🔒 pertence ao estabelecimento matriz — somente leitura aqui (RN-17).</p>
-        {!espelho?.existe || !espelho?.enquadramento ? (
-          <p className="text-xs text-gray-500">A matriz é criada ao salvar; o enquadramento aparece aqui depois.</p>
+        {espelho?.erro ? (
+          <p className="text-xs text-red-500">{espelho.erro}</p>
+        ) : espelho === null ? (
+          <p className="text-xs text-gray-400">Carregando…</p>
+        ) : !espelho?.existe ? (
+          <p className="text-xs text-gray-500">A matriz é criada ao salvar o cadastro.</p>
+        ) : !espelho?.enquadramento ? (
+          <p className="text-xs text-gray-500">{espelho.motivo || "Enquadramento ainda não disponível."}</p>
         ) : (
-          <div className="grid grid-cols-4 gap-4">
-            <div><label className={labelCls}>CNAE</label><div className={roCls}>{espelho.enquadramento.cnae || "—"}</div></div>
-            <div><label className={labelCls}>Grau de risco</label><div className={roCls}>{espelho.enquadramento.grau_risco ? `${espelho.enquadramento.grau_risco} — ${espelho.enquadramento.grau_label}` : "—"}</div></div>
-            <div><label className={labelCls}>RAT devido (%)</label><div className={roCls}>{espelho.enquadramento.aliquota_rat != null ? espelho.enquadramento.aliquota_rat.toFixed(2) : "—"}</div></div>
-            <div><label className={labelCls}>FPAS (sugerido)</label><div className={roCls}>{espelho.enquadramento.codigo_fpas || "—"}</div></div>
-          </div>
+          <>
+            <div className="grid grid-cols-4 gap-4">
+              <div><label className={labelCls}>CNAE preponderante</label><div className={roCls}>{espelho.enquadramento.cnae || "—"}</div></div>
+              <div><label className={labelCls}>Grau de risco</label><div className={roCls}>{espelho.enquadramento.grau_risco ? `${espelho.enquadramento.grau_risco} — ${espelho.enquadramento.grau_label}` : "—"}</div></div>
+              <div><label className={labelCls}>RAT devido (%)</label><div className={roCls}>{espelho.enquadramento.aliquota_rat != null ? espelho.enquadramento.aliquota_rat.toFixed(2) : "—"}</div></div>
+              <div><label className={labelCls}>RAT aplicado (%)</label><div className={roCls}>{espelho.enquadramento.aliquota_aplicada != null ? espelho.enquadramento.aliquota_aplicada.toFixed(2) : "não informado"}</div></div>
+            </div>
+            {espelho.enquadramento.confirmado && (
+              <div className="grid grid-cols-4 gap-4 mt-3">
+                <div><label className={labelCls}>FAP</label><div className={roCls}>{espelho.enquadramento.fap != null ? espelho.enquadramento.fap.toFixed(4) : "—"}</div></div>
+                <div><label className={labelCls}>Alíquota efetiva (%)</label><div className={roCls}>{espelho.enquadramento.aliquota_efetiva != null ? espelho.enquadramento.aliquota_efetiva.toFixed(4) : "—"}</div></div>
+                <div><label className={labelCls}>Divergência</label><div className={roCls}>{espelho.enquadramento.divergencia_pp != null ? `${espelho.enquadramento.divergencia_pp > 0 ? "+" : ""}${espelho.enquadramento.divergencia_pp.toFixed(2)} p.p.` : "—"}</div></div>
+                <div><label className={labelCls}>Situação</label><div className={roCls}>{ESP_SIT[espelho.enquadramento.situacao] || "—"}</div></div>
+              </div>
+            )}
+            <p className="text-[11px] text-gray-400 mt-2">
+              {espelho.enquadramento.competencia
+                ? `Competência ${espelho.enquadramento.competencia.slice(5, 7)}/${espelho.enquadramento.competencia.slice(0, 4)} — ${espelho.enquadramento.origem}.`
+                : espelho.enquadramento.origem}
+              {espelho.motivo && ` ${espelho.motivo}`}
+            </p>
+          </>
         )}
       </section>
 

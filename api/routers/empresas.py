@@ -15,6 +15,7 @@ from api.database import get_db
 from api.models.empresa import Empresa
 from api.models.estabelecimento import Estabelecimento
 from api.models.estabelecimento_atividade import EstabelecimentoAtividade
+from api.models.estabelecimento_enquadramento import EstabelecimentoEnquadramento
 from api.models.empresa_regime import EmpresaRegime
 from api.models.empresa_cprb import EmpresaCprb
 from api.models.empresa_cnae_secundario import EmpresaCnaeSecundario
@@ -22,6 +23,7 @@ from api.models.cnae_enquadramento import CnaeEnquadramento
 from api.models.cnae_fpas_sugestao import CnaeFpasSugestao
 from api.models.usuario import Usuario
 from api.auth import get_current_user, require_perfil
+from api.services.enquadramento_situacao import situacao_de, divergencia_de
 
 router = APIRouter()
 
@@ -403,21 +405,65 @@ async def matriz_enquadramento(
     empresa_cnae_principal = (await db.execute(
         select(Empresa.cnae_principal).where(Empresa.id == empresa_id)
     )).scalar_one_or_none()
-    # Preview derivado da atividade declarada da matriz (motor do Adendo 04 ainda não calcula a
-    # série mensal — isso é a Fase 3). Grau/RAT lidos do Anexo I pela CNAE preponderante (aqui,
-    # única atividade declarada); se não houver atividade ainda, usa a CNAE principal da empresa.
+    # PRIMEIRA FONTE: a série APURADA da matriz (motor do Adendo 04, Fase 3). É o número real,
+    # da competência corrente. Antes este endpoint só sabia montar um preview do Anexo I, o que
+    # fazia o espelho ignorar a apuração que já existia.
+    E = EstabelecimentoEnquadramento
+    hoje = date.today().replace(day=1)
+    apurada = (await db.execute(
+        select(E).where(E.estabelecimento_id == matriz.id, E.competencia <= hoje)
+        .order_by(E.competencia.desc()).limit(1)
+    )).scalars().first()
+    if apurada is None:   # série inteira no futuro: mostra a primeira, dizendo qual é
+        apurada = (await db.execute(
+            select(E).where(E.estabelecimento_id == matriz.id)
+            .order_by(E.competencia.asc()).limit(1)
+        )).scalars().first()
+
+    if apurada is not None and apurada.aliquota_devida is not None:
+        devida = float(apurada.aliquota_devida)
+        aplicada = float(apurada.aliquota_aplicada) if apurada.aliquota_aplicada is not None else None
+        efetiva = float(apurada.aliquota_efetiva) if apurada.aliquota_efetiva is not None else None
+        return {
+            "existe": True,
+            "estabelecimento_id": str(matriz.id),
+            "enquadramento": {
+                "cnae": apurada.cnae_preponderante,
+                "grau_risco": apurada.grau_risco,
+                "grau_label": GRAU_LABEL.get(apurada.grau_risco or 0, ""),
+                "aliquota_rat": devida,
+                "fap": float(apurada.fap) if apurada.fap is not None else None,
+                "aliquota_efetiva": efetiva,
+                "aliquota_aplicada": aplicada,
+                "divergencia_pp": divergencia_de(efetiva, aplicada),
+                "situacao": situacao_de(apurada.em_fila, devida, aplicada),
+                "codigo_fpas": None,
+                "competencia": apurada.competencia.isoformat(),
+                "origem": "apurado pelo motor (atividade preponderante)",
+                "confirmado": True,
+            },
+        }
+
+    # SEGUNDA FONTE: preview do Anexo I, enquanto a série não existe. Vale para a matriz recém-
+    # criada, antes de declarar quantitativo e FAP.
     ativ = (await db.execute(
         select(EstabelecimentoAtividade).where(
             EstabelecimentoAtividade.estabelecimento_id == matriz.id,
-            EstabelecimentoAtividade.vigencia_fim.is_(None),
-        ).order_by(EstabelecimentoAtividade.quantitativo.desc().nullslast(),
+        ).order_by(EstabelecimentoAtividade.vigencia_fim.is_(None).desc(),
+                   EstabelecimentoAtividade.quantitativo.desc().nullslast(),
                    EstabelecimentoAtividade.vigencia_inicio.desc())
     )).scalars().first()
     # CNAE base: atividade declarada da matriz; se ainda não houver, cai na CNAE principal da
     # empresa (a matriz pode existir sem atividade registrada — não deixar o espelho vazio).
     cnae_base = (ativ.cnae if ativ else None) or empresa_cnae_principal
     if not cnae_base:
-        return {"existe": True, "estabelecimento_id": str(matriz.id), "enquadramento": None}
+        # Nunca devolver vazio mudo: dizer POR QUE está vazio é o que permite à tela orientar.
+        return {
+            "existe": True, "estabelecimento_id": str(matriz.id), "enquadramento": None,
+            "motivo": ("A matriz ainda não tem atividade declarada nem CNAE principal na empresa. "
+                       "Informe o CNAE principal aqui ou cadastre a atividade da matriz em "
+                       "Estabelecimentos."),
+        }
     grau = rat = fpas = None
     ce = (await db.execute(select(CnaeEnquadramento).where(CnaeEnquadramento.cnae == cnae_base))).scalar_one_or_none()
     if ce:
@@ -433,14 +479,21 @@ async def matriz_enquadramento(
         "existe": True,
         "estabelecimento_id": str(matriz.id),
         "enquadramento": {
-            "cnae": ativ.cnae,
+            "cnae": cnae_base,          # BUG CORRIGIDO: era ativ.cnae, que estourava quando a
+                                        # matriz não tinha atividade — 500 engolido pelo front,
+                                        # que então exibia o texto de "aparece aqui depois".
             "grau_risco": grau,
             "grau_label": GRAU_LABEL.get(grau or 0, ""),
             "aliquota_rat": rat,
             "codigo_fpas": fpas,
-            "origem": "derivado (preview — apuração mensal entra no motor)",
+            "competencia": None,
+            "origem": ("derivado do Anexo I pela CNAE principal — a matriz ainda não tem "
+                       "atividade declarada" if not ativ else
+                       "derivado do Anexo I pela atividade declarada — série ainda não apurada"),
             "confirmado": False,
         },
+        "motivo": ("Prévia: a série mensal ainda não foi apurada. Declare o quantitativo da "
+                   "atividade e o FAP do ano em Estabelecimentos para o número virar apuração."),
     }
 
 

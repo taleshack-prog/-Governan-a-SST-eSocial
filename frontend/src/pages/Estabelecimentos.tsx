@@ -28,6 +28,17 @@ const FORM_VAZIO = {
 };
 const inp = "w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm";
 const lbl = "text-xs font-medium text-gray-600";
+const ro = "mt-1 border border-gray-200 bg-gray-50 rounded-lg px-3 py-2 text-sm text-gray-700";
+
+// Situação da competência (espelha api/services/enquadramento_situacao.py).
+// "apurado" não é "ok": o devido está calculado, mas ninguém informou o que a empresa aplicou.
+const SIT: Record<string, { txt: string; cls: string; ajuda: string }> = {
+  conferencia: { txt: "conferência", cls: "text-amber-700", ajuda: "Falta dado para apurar o devido." },
+  apurado: { txt: "apurado", cls: "text-sky-700", ajuda: "Devido calculado. Falta informar o RAT aplicado pela empresa — nada foi comparado ainda." },
+  conferido: { txt: "conferido", cls: "text-emerald-600", ajuda: "Devido e aplicado comparados." },
+};
+
+const mesBR = (iso?: string | null) => (iso ? `${iso.slice(5, 7)}/${iso.slice(0, 4)}` : "—");
 
 // ---------- Autocomplete de CNAE sobre o Anexo I ----------
 function CnaeAutocomplete({ value, onPick }: { value: string; onPick: (c: any) => void }) {
@@ -128,7 +139,8 @@ function PainelModal({ estab, onFechar }: { estab: any; onFechar: () => void }) 
   const load = () => { setLoading(true); apiClient.get(`/estabelecimentos/${estab.id}/enquadramento`).then((r) => setRows(r.data || [])).catch(() => setRows([])).finally(() => setLoading(false)); };
   useEffect(load, [estab.id]);
   const apurar = async () => { setApurando(true); try { await apiClient.post(`/estabelecimentos/${estab.id}/apurar`); load(); } catch { /* */ } finally { setApurando(false); } };
-  const emFila = rows.filter((r) => r.em_fila).length;
+  const emFila = rows.filter((r) => r.situacao === "conferencia").length;
+  const semAplicado = rows.filter((r) => r.situacao === "apurado").length;
   const fund = rows.find((r) => r.fundamentacao)?.fundamentacao;
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -147,7 +159,10 @@ function PainelModal({ estab, onFechar }: { estab: any; onFechar: () => void }) 
           </div>
         </div>
         <p className="text-[11px] text-gray-400 mt-1 mb-3">
-          Série mensal. Grau e RAT devido derivados da atividade preponderante (Anexo I). {emFila > 0 && <span className="text-amber-600">{emFila} competência(s) em conferência.</span>}
+          Série mensal. Grau e RAT devido derivados da atividade preponderante (Anexo I).
+          Divergência = aplicado − alíquota efetiva (RAT × FAP).{" "}
+          {emFila > 0 && <span className="text-amber-600">{emFila} em conferência. </span>}
+          {semAplicado > 0 && <span className="text-sky-700">{semAplicado} apurada(s) sem o RAT aplicado informado.</span>}
         </p>
         {loading ? <div className="p-6 text-center text-gray-400 text-sm">Carregando…</div>
           : rows.length === 0 ? <div className="p-6 text-center text-gray-400 text-sm">Nada apurado. Cadastre atividades (com quantitativo) e FAP; a série aparece aqui.</div>
@@ -158,7 +173,7 @@ function PainelModal({ estab, onFechar }: { estab: any; onFechar: () => void }) 
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {rows.map((r, i) => (
-                  <tr key={i} className={r.em_fila ? "bg-amber-50" : "hover:bg-gray-50"}>
+                  <tr key={i} className={r.situacao === "conferencia" ? "bg-amber-50" : r.situacao === "apurado" ? "bg-sky-50/40" : "hover:bg-gray-50"}>
                     <td className="px-2 py-1.5 font-mono">{r.competencia?.slice(0, 7)}</td>
                     <td className="px-2 py-1.5">{r.cnae_preponderante || "—"}</td>
                     <td className="px-2 py-1.5 text-gray-500">{CRIT[r.criterio] || r.criterio || "—"}</td>
@@ -168,7 +183,12 @@ function PainelModal({ estab, onFechar }: { estab: any; onFechar: () => void }) 
                     <td className="px-2 py-1.5">{r.aliquota_efetiva != null ? `${r.aliquota_efetiva.toFixed(4)}%` : "—"}</td>
                     <td className="px-2 py-1.5">{r.aliquota_aplicada != null ? `${r.aliquota_aplicada.toFixed(2)}%` : "—"}</td>
                     <td className={`px-2 py-1.5 font-medium ${r.divergencia_pp ? "text-amber-700" : "text-gray-400"}`}>{r.divergencia_pp != null ? `${r.divergencia_pp > 0 ? "+" : ""}${r.divergencia_pp.toFixed(2)} p.p.` : "—"}</td>
-                    <td className="px-2 py-1.5">{r.em_fila ? <span className="text-amber-700" title={r.motivo_fila}>⚠ conferência</span> : <span className="text-emerald-600">ok</span>}</td>
+                    <td className="px-2 py-1.5">
+                      <span className={SIT[r.situacao]?.cls || "text-gray-400"}
+                        title={r.motivo_fila || SIT[r.situacao]?.ajuda || ""}>
+                        {r.situacao === "conferencia" ? "⚠ " : ""}{SIT[r.situacao]?.txt || "—"}
+                      </span>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -176,6 +196,166 @@ function PainelModal({ estab, onFechar }: { estab: any; onFechar: () => void }) 
           )}
         {fund && <p className="text-[11px] text-gray-400 mt-3">Fundamentação: {fund.dispositivo}; {fund.ato_normativo}; {fund.anexo}.</p>}
         <div className="flex justify-end mt-4"><button onClick={onFechar} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Fechar</button></div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- RAT aplicado pela empresa (item 1) ----------
+// O único número do enquadramento que o sistema não calcula. É o que a empresa usou na folha —
+// a diferença entre ele e a alíquota efetiva é o achado. Nunca preencher automaticamente.
+function RatAplicadoModal({ estab, onFechar }: { estab: any; onFechar: () => void }) {
+  const [rows, setRows] = useState<any[]>([]);
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState("");
+  useEffect(() => {
+    apiClient.get(`/estabelecimentos/${estab.id}/rat-aplicado`).then((r) => setRows(r.data || [])).catch(() => setRows([]));
+  }, [estab.id]);
+  const upd = (i: number, k: string, v: any) => setRows((l) => l.map((x, j) => (j === i ? { ...x, [k]: v } : x)));
+
+  const problema = (): string => {
+    const pre = rows.filter((r) => r.aliquota !== "" && r.aliquota != null && r.inicio);
+    if (pre.length !== rows.length) return "Toda linha precisa de alíquota e início.";
+    for (const r of pre) {
+      const a = Number(r.aliquota);
+      if (!(a >= 0.5 && a <= 6.0)) return `Alíquota ${r.aliquota}% fora da faixa possível (0,50% a 6,00% = RAT × FAP).`;
+      if (r.fim && r.fim < r.inicio) return "Há um período com fim anterior ao início.";
+    }
+    const ord = [...pre].sort((x, y) => String(x.inicio).localeCompare(String(y.inicio)));
+    for (let i = 0; i < ord.length - 1; i++) {
+      if (!ord[i].fim || ord[i].fim >= ord[i + 1].inicio) return "Há períodos sobrepostos. Feche o anterior antes de abrir o próximo.";
+    }
+    return "";
+  };
+
+  const salvar = async () => {
+    const p = problema();
+    if (p) { setErro(p); return; }
+    setSalvando(true); setErro("");
+    try {
+      await apiClient.put(`/estabelecimentos/${estab.id}/rat-aplicado`,
+        rows.map((r) => ({ aliquota: Number(r.aliquota), inicio: r.inicio, fim: r.fim || null })));
+      onFechar();
+    } catch (e: any) { setErro(e?.response?.data?.detail || "Não foi possível salvar."); }
+    finally { setSalvando(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-2xl shadow-xl max-h-[90vh] overflow-y-auto">
+        <h2 className="text-lg font-bold text-gray-900">RAT aplicado pela empresa — {estab.nome}</h2>
+        <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-800 my-3">
+          Informe aqui a alíquota que a empresa <b>efetivamente usou na folha</b>, como está na GFIP/eSocial —
+          não o que deveria ter usado. O sistema nunca preenche este campo: a diferença entre ele e a
+          alíquota efetiva apurada é justamente o achado.
+        </div>
+        <div className="grid grid-cols-12 gap-2 text-[11px] text-gray-500 font-medium px-1">
+          <div className="col-span-4">Alíquota aplicada (%)</div><div className="col-span-3">Início</div>
+          <div className="col-span-3">Fim</div><div className="col-span-2"></div>
+        </div>
+        {rows.length === 0 && <p className="text-xs text-gray-400 py-3">Nenhum período informado. As competências ficam como <b>apurado</b> até que o aplicado seja declarado.</p>}
+        {rows.map((r, i) => (
+          <div key={i} className="grid grid-cols-12 gap-2 mb-2 items-start">
+            <input type="number" step="0.01" min="0.5" max="6" className={`${inp} col-span-4`} value={r.aliquota ?? ""}
+              onChange={(e) => upd(i, "aliquota", e.target.value)} placeholder="ex.: 2,00" />
+            <input type="month" className={`${inp} col-span-3`} value={r.inicio ? String(r.inicio).slice(0, 7) : ""}
+              onChange={(e) => upd(i, "inicio", e.target.value ? `${e.target.value}-01` : "")} />
+            <input type="month" className={`${inp} col-span-3`} value={r.fim ? String(r.fim).slice(0, 7) : ""}
+              onChange={(e) => upd(i, "fim", e.target.value ? `${e.target.value}-01` : "")} />
+            <button type="button" className="col-span-2 text-red-400 text-sm mt-2" onClick={() => setRows((l) => l.filter((_, j) => j !== i))}>✕</button>
+          </div>
+        ))}
+        <button type="button" className="text-[11px] text-teal-700 hover:underline"
+          onClick={() => setRows((l) => [...l, { aliquota: "", inicio: "", fim: "" }])}>+ adicionar período</button>
+        <p className="text-[11px] text-gray-400 mt-2">Deixe o fim em branco no período que segue vigente.</p>
+        {erro && <p className="text-xs text-red-500 mt-2">{erro}</p>}
+        <div className="flex justify-end gap-2 mt-5">
+          <button onClick={onFechar} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancelar</button>
+          <button onClick={salvar} disabled={salvando} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
+            {salvando ? "Salvando…" : "Salvar e reapurar"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- FPAS por período (item 4) ----------
+function FpasModal({ estab, onFechar }: { estab: any; onFechar: () => void }) {
+  const [rows, setRows] = useState<any[]>([]);
+  const [opcoes, setOpcoes] = useState<any[]>([]);
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState("");
+  useEffect(() => {
+    apiClient.get(`/estabelecimentos/${estab.id}/fpas`).then((r) => setRows(r.data || [])).catch(() => setRows([]));
+    apiClient.get(`/empresas/opcoes/fpas`).then((r) => setOpcoes(r.data || [])).catch(() => setOpcoes([]));
+  }, [estab.id]);
+  const upd = (i: number, k: string, v: any) => setRows((l) => l.map((x, j) => (j === i ? { ...x, [k]: v } : x)));
+
+  const problema = (): string => {
+    for (const r of rows) if (!r.codigo_fpas || !r.inicio) return "Toda linha precisa de código FPAS e início.";
+    const ord = [...rows].sort((x, y) => String(x.inicio).localeCompare(String(y.inicio)));
+    for (let i = 0; i < ord.length - 1; i++) {
+      if (!ord[i].fim || ord[i].fim >= ord[i + 1].inicio) return "Há períodos sobrepostos. Feche o anterior antes de abrir o próximo.";
+    }
+    return "";
+  };
+
+  const salvar = async () => {
+    const p = problema();
+    if (p) { setErro(p); return; }
+    setSalvando(true); setErro("");
+    try {
+      await apiClient.put(`/estabelecimentos/${estab.id}/fpas`,
+        rows.map((r) => ({ codigo_fpas: r.codigo_fpas, inicio: r.inicio, fim: r.fim || null })));
+      onFechar();
+    } catch (e: any) { setErro(e?.response?.data?.detail || "Não foi possível salvar."); }
+    finally { setSalvando(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-3xl shadow-xl max-h-[90vh] overflow-y-auto">
+        <h2 className="text-lg font-bold text-gray-900">FPAS — {estab.nome}</h2>
+        <p className="text-[11px] text-gray-400 mt-1 mb-3">
+          O FPAS determina a composição das contribuições a Terceiros. Como essa composição muda
+          dentro da janela de apuração, o código é informado <b>por período</b>. Opções: Anexo III da
+          IN RFB 2.110/2022.
+        </p>
+        <div className="grid grid-cols-12 gap-2 text-[11px] text-gray-500 font-medium px-1">
+          <div className="col-span-6">Código FPAS</div><div className="col-span-2">Início</div>
+          <div className="col-span-2">Fim</div><div className="col-span-2"></div>
+        </div>
+        {rows.length === 0 && <p className="text-xs text-gray-400 py-3">Nenhum período informado.</p>}
+        {rows.map((r, i) => (
+          <div key={i} className="grid grid-cols-12 gap-2 mb-2 items-start">
+            <select className={`${inp} col-span-6`} value={r.codigo_fpas || ""} onChange={(e) => upd(i, "codigo_fpas", e.target.value)}>
+              <option value="">— selecione —</option>
+              {opcoes.map((o) => (
+                <option key={o.codigo} value={o.codigo}>{o.codigo} — {o.descricao} ({o.aliquota_terceiros?.toFixed(2)}%)</option>
+              ))}
+            </select>
+            <input type="month" className={`${inp} col-span-2`} value={r.inicio ? String(r.inicio).slice(0, 7) : ""}
+              onChange={(e) => upd(i, "inicio", e.target.value ? `${e.target.value}-01` : "")} />
+            <input type="month" className={`${inp} col-span-2`} value={r.fim ? String(r.fim).slice(0, 7) : ""}
+              onChange={(e) => upd(i, "fim", e.target.value ? `${e.target.value}-01` : "")} />
+            <button type="button" className="col-span-2 text-red-400 text-sm mt-2" onClick={() => setRows((l) => l.filter((_, j) => j !== i))}>✕</button>
+          </div>
+        ))}
+        <button type="button" className="text-[11px] text-teal-700 hover:underline"
+          onClick={() => setRows((l) => [...l, { codigo_fpas: "", inicio: "", fim: "" }])}>+ adicionar período</button>
+        <p className="text-[11px] text-gray-400 mt-2">
+          A alíquota mostrada ao lado de cada código é a vigente na tabela de referência. O cálculo de
+          Terceiros por competência depende de versionar essa tabela — está na fila, e até lá o FPAS
+          fica registrado aqui sem produzir valor apurado.
+        </p>
+        {erro && <p className="text-xs text-red-500 mt-2">{erro}</p>}
+        <div className="flex justify-end gap-2 mt-5">
+          <button onClick={onFechar} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancelar</button>
+          <button onClick={salvar} disabled={salvando} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
+            {salvando ? "Salvando…" : "Salvar FPAS"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -230,7 +410,34 @@ function EstabModal({ form, setForm, onSalvar, onFechar, isPending, erro }: any)
             <div className="col-span-2"><label className={lbl}>Cidade</label><input className={inp} value={form.cidade} onChange={(e) => setForm({ ...form, cidade: e.target.value })} /></div>
             <div><label className={lbl}>UF</label><input className={inp} value={form.uf} maxLength={2} onChange={(e) => setForm({ ...form, uf: e.target.value.toUpperCase() })} /></div>
           </div>
-          <p className="text-[11px] text-gray-400">O grau de risco e o RAT devido são derivados da atividade preponderante (não se escolhem aqui). Cadastre as atividades após salvar.</p>
+          {/* Enquadramento apurado — visível e não editável (item 2). "Campo bloqueado" no
+              adendo significa somente leitura, não invisível. */}
+          {editando && (
+            <div className="border-t border-gray-100 pt-3">
+              <div className="flex items-baseline justify-between">
+                <label className={lbl}>Enquadramento apurado</label>
+                <span className="text-[11px] text-gray-400">
+                  {form.enquadramento_atual?.competencia ? `competência ${mesBR(form.enquadramento_atual.competencia)}` : "sem série apurada"}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-3 mt-1">
+                <div><span className="text-[11px] text-gray-500">Grau de risco</span>
+                  <div className={ro}>{form.enquadramento_atual?.grau_risco
+                    ? `${form.enquadramento_atual.grau_risco} — ${form.enquadramento_atual.grau_label}` : "—"}</div></div>
+                <div><span className="text-[11px] text-gray-500">RAT devido</span>
+                  <div className={ro}>{form.enquadramento_atual?.aliquota_devida != null
+                    ? `${form.enquadramento_atual.aliquota_devida.toFixed(2)}%` : "—"}</div></div>
+                <div><span className="text-[11px] text-gray-500">Situação</span>
+                  <div className={`${ro} ${SIT[form.enquadramento_atual?.situacao]?.cls || ""}`}>
+                    {SIT[form.enquadramento_atual?.situacao]?.txt || "—"}</div></div>
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1">
+                🔒 Derivado da atividade preponderante (RN-20) — não se escolhe aqui. Para mudar,
+                altere as atividades.
+              </p>
+            </div>
+          )}
+          {!editando && <p className="text-[11px] text-gray-400">O grau de risco e o RAT devido são derivados da atividade preponderante (não se escolhem aqui). Cadastre as atividades após salvar.</p>}
         </div>
         {erro && <p className="text-xs text-red-500 mt-3">{erro}</p>}
         <div className="flex gap-3 mt-5">
@@ -252,6 +459,8 @@ export function Estabelecimentos() {
   const [erro, setErro] = useState("");
   const [ativEstab, setAtivEstab] = useState<any>(null);
   const [painelEstab, setPainelEstab] = useState<any>(null);
+  const [ratEstab, setRatEstab] = useState<any>(null);
+  const [fpasPeriodoEstab, setFpasPeriodoEstab] = useState<any>(null);
   const [fapEstab, setFapEstab] = useState<any>(null);
   const [fapValores, setFapValores] = useState<Record<number, string>>({});
   const [fapSalvando, setFapSalvando] = useState(false);
@@ -272,6 +481,7 @@ export function Estabelecimentos() {
     setErro("");
     const p: any = { ...form };
     ["cnpj", "identificador", "endereco", "cidade", "uf", "data_encerramento"].forEach((k) => { if (!p[k]) p[k] = null; });
+    delete p.enquadramento_atual;   // bloco somente leitura; não é campo do cadastro
     if (!p.id) delete p.id;
     salvar.mutate(p);
   };
@@ -306,7 +516,7 @@ export function Estabelecimentos() {
           : (
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>{["Código", "Nome", "CNPJ", "Natureza", "Posição", "Abertura", "Encerramento", "Status", "Ações"].map((h) => (
+                <tr>{["Código", "Nome", "CNPJ", "Natureza", "Posição", "Grau", "RAT devido", "Abertura", "Encerramento", "Status", "Ações"].map((h) => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{h}</th>))}</tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -317,6 +527,17 @@ export function Estabelecimentos() {
                     <td className="px-4 py-3 font-mono text-gray-600 text-xs">{e.cnpj ? maskCnpj(e.cnpj) : (e.identificador || "—")}</td>
                     <td className="px-4 py-3 text-gray-600">{e.tipo_estabelecimento}</td>
                     <td className="px-4 py-3 text-gray-600 capitalize">{e.posicao}</td>
+                    {/* Enquadramento apurado da competência corrente — somente leitura (item 2) */}
+                    <td className="px-4 py-3 text-gray-600" title={e.enquadramento_atual?.competencia ? `competência ${mesBR(e.enquadramento_atual.competencia)}` : "série não apurada"}>
+                      {e.enquadramento_atual?.grau_risco
+                        ? <span>{e.enquadramento_atual.grau_risco} <span className="text-gray-400 text-xs">{e.enquadramento_atual.grau_label}</span></span>
+                        : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-gray-600" title={e.enquadramento_atual?.motivo_fila || SIT[e.enquadramento_atual?.situacao]?.ajuda || "série não apurada"}>
+                      {e.enquadramento_atual?.aliquota_devida != null
+                        ? <span>{e.enquadramento_atual.aliquota_devida.toFixed(2)}% <span className={`text-xs ${SIT[e.enquadramento_atual.situacao]?.cls || ""}`}>{SIT[e.enquadramento_atual.situacao]?.txt}</span></span>
+                        : "—"}
+                    </td>
                     <td className="px-4 py-3 text-gray-600">{e.data_abertura || "—"}</td>
                     <td className="px-4 py-3 text-gray-600">{e.data_encerramento || "—"}</td>
                     <td className="px-4 py-3 text-gray-600 capitalize">{e.status}</td>
@@ -324,6 +545,8 @@ export function Estabelecimentos() {
                       <button onClick={() => setAtivEstab(e)} className="text-teal-700 hover:underline">Atividades</button>
                       <button onClick={() => setPainelEstab(e)} className="text-emerald-700 hover:underline">Enquadramento</button>
                       <button onClick={() => abrirFap(e)} className="text-indigo-600 hover:underline">FAP/ano</button>
+                      <button onClick={() => setRatEstab(e)} className="text-amber-700 hover:underline">RAT aplicado</button>
+                      <button onClick={() => setFpasPeriodoEstab(e)} className="text-violet-700 hover:underline">FPAS</button>
                       <button onClick={() => { setForm({ ...FORM_VAZIO, ...e, data_abertura: e.data_abertura || "", data_encerramento: e.data_encerramento || "" }); setErro(""); setModal(true); }} className="text-gray-500 hover:underline">Editar</button>
                     </td>
                   </tr>
@@ -336,6 +559,9 @@ export function Estabelecimentos() {
       {modal && <EstabModal form={form} setForm={setForm} onSalvar={onSalvar} onFechar={() => { setModal(false); setForm(FORM_VAZIO); }} isPending={salvar.isPending} erro={erro} />}
       {ativEstab && <AtividadesModal estab={ativEstab} onFechar={() => setAtivEstab(null)} />}
       {painelEstab && <PainelModal estab={painelEstab} onFechar={() => setPainelEstab(null)} />}
+      {/* Reapura a série ao fechar: grau/RAT da listagem precisam refletir o que acabou de mudar */}
+      {ratEstab && <RatAplicadoModal estab={ratEstab} onFechar={() => { setRatEstab(null); qc.invalidateQueries({ queryKey: ["estabelecimentos"] }); }} />}
+      {fpasPeriodoEstab && <FpasModal estab={fpasPeriodoEstab} onFechar={() => setFpasPeriodoEstab(null)} />}
       {fapEstab && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-full max-w-md">

@@ -15,15 +15,39 @@ from api.models.estabelecimento import Estabelecimento
 from api.models.estabelecimento_fap import EstabelecimentoFAP
 from api.models.estabelecimento_atividade import EstabelecimentoAtividade
 from api.models.estabelecimento_enquadramento import EstabelecimentoEnquadramento
+from api.models.estabelecimento_rat_aplicado import EstabelecimentoRatAplicado
+from api.models.estabelecimento_fpas_periodo import EstabelecimentoFpasPeriodo
 from api.models.cnae_enquadramento import CnaeEnquadramento
+from api.models.tabela_fpas import TabelaFPAS
 from api.models.usuario import Usuario
 from api.auth import get_current_user, require_perfil
+from api.services.enquadramento_situacao import situacao_de, divergencia_de
 
 router = APIRouter()
 
 TIPOS_ESTABELECIMENTO = ("CNPJ", "CNO", "CAEPF")   # RF-0.171
 POSICOES = ("matriz", "filial", "obra")
 STATUS_VALIDOS = ("ativa", "paralisada", "encerrada")
+GRAU_LABEL = {1: "leve", 2: "médio", 3: "grave"}
+
+
+def _sem_sobreposicao(periodos: list, rotulo: str) -> None:
+    """Periodos de um mesmo estabelecimento nao podem se sobrepor.
+
+    O motor pega o PRIMEIRO periodo vigente na competencia: com sobreposicao o resultado
+    dependeria da ordem das linhas no banco. Em documento com peso juridico isso e inaceitavel —
+    melhor recusar a gravacao e dizer onde esta o conflito.
+    """
+    ordenados = sorted(periodos, key=lambda p: p.inicio)
+    for ant, prox in zip(ordenados, ordenados[1:]):
+        if ant.fim is None or ant.fim >= prox.inicio:
+            fim_txt = "em aberto" if ant.fim is None else ant.fim.strftime("%m/%Y")
+            raise HTTPException(
+                status_code=422,
+                detail=(f"Períodos de {rotulo} sobrepostos: o que começa em "
+                        f"{ant.inicio.strftime('%m/%Y')} ({fim_txt}) invade o que começa em "
+                        f"{prox.inicio.strftime('%m/%Y')}. Feche o anterior antes de abrir o próximo."),
+            )
 
 
 def _cnpj_valido(v: str | None) -> bool:
@@ -79,6 +103,61 @@ class EstabelecimentoIn(BaseModel):
     data_encerramento: date | None = None
 
 
+async def _enquadramento_corrente(estab_ids: list, db: AsyncSession) -> dict:
+    """Enquadramento APURADO da competencia corrente, por estabelecimento (item 2 da revisao).
+
+    'Corrente' = a competencia mais recente ja decorrida. Se a serie inteira ainda esta no futuro
+    (janela de apuracao que comeca adiante), devolve a primeira — nunca nada, e sempre dizendo A
+    QUAL competencia o numero se refere, porque grau e RAT mudam mes a mes.
+
+    Le a SERIE APURADA, nao as colunas estaticas estabelecimentos.grau_risco/aliquota_rat: aquelas
+    sao resquicio de quando o enquadramento era campo escolhido, nunca foram preenchidas pelo
+    motor, e mostra-las seria exibir um valor que ninguem calculou.
+    """
+    if not estab_ids:
+        return {}
+    E = EstabelecimentoEnquadramento
+    hoje = date.today().replace(day=1)
+
+    # 1) ultima competencia ja decorrida (o caso normal)
+    decorridas = (await db.execute(
+        select(E).where(E.estabelecimento_id.in_(estab_ids), E.competencia <= hoje)
+        .order_by(E.estabelecimento_id, E.competencia.desc())
+        .distinct(E.estabelecimento_id)
+    )).scalars().all()
+    por_estab = {str(r.estabelecimento_id): r for r in decorridas}
+
+    # 2) quem nao tem competencia decorrida: primeira da serie
+    faltantes = [i for i in estab_ids if str(i) not in por_estab]
+    if faltantes:
+        futuras = (await db.execute(
+            select(E).where(E.estabelecimento_id.in_(faltantes))
+            .order_by(E.estabelecimento_id, E.competencia.asc())
+            .distinct(E.estabelecimento_id)
+        )).scalars().all()
+        for r in futuras:
+            por_estab[str(r.estabelecimento_id)] = r
+
+    out = {}
+    for k, r in por_estab.items():
+        devida = float(r.aliquota_devida) if r.aliquota_devida is not None else None
+        efetiva = float(r.aliquota_efetiva) if r.aliquota_efetiva is not None else None
+        aplicada = float(r.aliquota_aplicada) if r.aliquota_aplicada is not None else None
+        out[k] = {
+            "competencia": r.competencia.isoformat(),
+            "grau_risco": r.grau_risco,
+            "grau_label": GRAU_LABEL.get(r.grau_risco or 0, ""),
+            "aliquota_devida": devida,
+            "fap": float(r.fap) if r.fap is not None else None,
+            "aliquota_efetiva": efetiva,
+            "aliquota_aplicada": aplicada,
+            "divergencia_pp": divergencia_de(efetiva, aplicada),
+            "situacao": situacao_de(r.em_fila, devida, aplicada),
+            "motivo_fila": r.motivo_fila,
+        }
+    return out
+
+
 @router.get("/")
 async def listar_estabelecimentos(
     db: AsyncSession = Depends(get_db),
@@ -88,7 +167,14 @@ async def listar_estabelecimentos(
         select(Estabelecimento).where(Estabelecimento.empresa_id == current_user.empresa_id)
         .order_by(Estabelecimento.codigo)
     )
-    return [_to_dict(e) for e in result.scalars()]
+    estabs = list(result.scalars())
+    corrente = await _enquadramento_corrente([e.id for e in estabs], db)
+    saida = []
+    for e in estabs:
+        d = _to_dict(e)
+        d["enquadramento_atual"] = corrente.get(str(e.id))   # None = serie ainda nao apurada
+        saida.append(d)
+    return saida
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
@@ -261,6 +347,145 @@ async def salvar_fap(
     return {"ok": True, "salvos": len(faps)}
 
 
+# ---- RAT aplicado pela empresa, por período (RF-0.179 / item 1 da revisão) ----
+# Este é o único número do enquadramento que o sistema NÃO calcula: é o que a empresa de fato
+# usou na folha dela. Preenchê-lo automaticamente destruiria o produto — a diferença entre ele e
+# a alíquota efetiva é o achado. Por isso: sem valor padrão, sem sugestão, sem herdar do devido.
+class RatAplicadoIn(BaseModel):
+    aliquota: float
+    inicio: date
+    fim: date | None = None
+
+
+@router.get("/{estab_id}/rat-aplicado")
+async def listar_rat_aplicado(
+    estab_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    await _tenant_estab(estab_id, current_user, db)
+    rows = (await db.execute(
+        select(EstabelecimentoRatAplicado)
+        .where(EstabelecimentoRatAplicado.estabelecimento_id == estab_id)
+        .order_by(EstabelecimentoRatAplicado.inicio)
+    )).scalars().all()
+    return [{"aliquota": float(r.aliquota), "inicio": r.inicio.isoformat(),
+             "fim": r.fim.isoformat() if r.fim else None} for r in rows]
+
+
+@router.put("/{estab_id}/rat-aplicado")
+async def salvar_rat_aplicado(
+    estab_id: UUID,
+    data: list[RatAplicadoIn],
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(require_perfil("admin")),
+):
+    """Substitui a lista de períodos do RAT aplicado. Reapura a série ao final."""
+    await _tenant_estab(estab_id, current_user, db)
+    for it in data:
+        # Faixa possível: RAT 1% x FAP 0,5 = 0,5% até RAT 3% x FAP 2,0 = 6,0%. Fora disso não é
+        # um RAT — é erro de digitação. Recusar aqui evita um achado fantasma de milhões.
+        if not (0.5 <= it.aliquota <= 6.0):
+            raise HTTPException(
+                status_code=422,
+                detail=(f"Alíquota {it.aliquota}% fora da faixa possível (0,50% a 6,00%). "
+                        f"O RAT aplicado é RAT × FAP: no mínimo 1×0,5 e no máximo 3×2,0."),
+            )
+        if it.fim and it.fim < it.inicio:
+            raise HTTPException(status_code=422, detail="Período com fim anterior ao início.")
+    _sem_sobreposicao(data, "RAT aplicado")
+
+    antigos = (await db.execute(
+        select(EstabelecimentoRatAplicado)
+        .where(EstabelecimentoRatAplicado.estabelecimento_id == estab_id)
+    )).scalars().all()
+    for a in antigos:
+        await db.delete(a)
+    for it in data:
+        db.add(EstabelecimentoRatAplicado(
+            estabelecimento_id=estab_id, aliquota=it.aliquota, inicio=it.inicio, fim=it.fim,
+        ))
+    await db.commit()
+    from api.services.motor_enquadramento import apurar_estabelecimento
+    await apurar_estabelecimento(estab_id, db)
+    return {"ok": True, "periodos": len(data)}
+
+
+# ---- FPAS por período (item 4 da revisão) ----
+# O FPAS determina a composição de Terceiros, e essa composição muda dentro da janela — daí o
+# período. As opções vêm do Anexo III (tabela de referência, global); a escolha é declarada.
+class FpasPeriodoIn(BaseModel):
+    codigo_fpas: str
+    inicio: date
+    fim: date | None = None
+
+
+@router.get("/{estab_id}/fpas")
+async def listar_fpas_estab(
+    estab_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    await _tenant_estab(estab_id, current_user, db)
+    rows = (await db.execute(
+        select(EstabelecimentoFpasPeriodo)
+        .where(EstabelecimentoFpasPeriodo.estabelecimento_id == estab_id)
+        .order_by(EstabelecimentoFpasPeriodo.inicio)
+    )).scalars().all()
+    codigos = {r.codigo_fpas for r in rows}
+    descr = {}
+    if codigos:
+        descr = {t.codigo_fpas: (t.descricao, float(t.aliquota_terceiros)) for t in (await db.execute(
+            select(TabelaFPAS).where(TabelaFPAS.codigo_fpas.in_(codigos))
+        )).scalars().all()}
+    return [{
+        "codigo_fpas": r.codigo_fpas,
+        "descricao": descr.get(r.codigo_fpas, (None, None))[0],
+        "aliquota_terceiros": descr.get(r.codigo_fpas, (None, None))[1],
+        "inicio": r.inicio.isoformat(), "fim": r.fim.isoformat() if r.fim else None,
+        "declarado_por": r.declarado_por,
+    } for r in rows]
+
+
+@router.put("/{estab_id}/fpas")
+async def salvar_fpas_estab(
+    estab_id: UUID,
+    data: list[FpasPeriodoIn],
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(require_perfil("admin")),
+):
+    """Substitui a lista de períodos de FPAS. Recusa código fora do Anexo III (RF-0.182)."""
+    await _tenant_estab(estab_id, current_user, db)
+    for it in data:
+        existe = (await db.execute(
+            select(TabelaFPAS.codigo_fpas).where(TabelaFPAS.codigo_fpas == it.codigo_fpas)
+        )).scalar_one_or_none()
+        if not existe:
+            raise HTTPException(
+                status_code=422,
+                detail=f"FPAS {it.codigo_fpas} não existe no Anexo III da IN RFB 2.110/2022.",
+            )
+        if it.fim and it.fim < it.inicio:
+            raise HTTPException(status_code=422, detail="Período com fim anterior ao início.")
+    _sem_sobreposicao(data, "FPAS")
+
+    declarante = getattr(current_user, "email", None) or getattr(current_user, "nome", None)
+    antigos = (await db.execute(
+        select(EstabelecimentoFpasPeriodo)
+        .where(EstabelecimentoFpasPeriodo.estabelecimento_id == estab_id)
+    )).scalars().all()
+    for a in antigos:
+        await db.delete(a)
+    for it in data:
+        db.add(EstabelecimentoFpasPeriodo(
+            estabelecimento_id=estab_id, codigo_fpas=it.codigo_fpas,
+            inicio=it.inicio, fim=it.fim,
+            declarado_por=declarante, declarado_em=datetime.utcnow(),
+        ))
+    await db.commit()
+    return {"ok": True, "periodos": len(data)}
+
+
 # ---- Motor de apuração do enquadramento (RF-0.175-182) ----
 @router.post("/{estab_id}/apurar")
 async def apurar(
@@ -280,7 +505,11 @@ async def serie_enquadramento(
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    """Série apurada por competência (somente leitura). Divergência = devido − aplicado (RF-0.180)."""
+    """Série apurada por competência (somente leitura).
+
+    Divergência = aplicado − alíquota EFETIVA (RAT × FAP), que é o que a folha recolhe.
+    Situação em três estados (conferência / apurado / conferido): ver enquadramento_situacao.py.
+    """
     await _tenant_estab(estab_id, current_user, db)
     rows = (await db.execute(
         select(EstabelecimentoEnquadramento).where(EstabelecimentoEnquadramento.estabelecimento_id == estab_id)
@@ -290,16 +519,19 @@ async def serie_enquadramento(
     for r in rows:
         devida = float(r.aliquota_devida) if r.aliquota_devida is not None else None
         apl = float(r.aliquota_aplicada) if r.aliquota_aplicada is not None else None
+        efet = float(r.aliquota_efetiva) if r.aliquota_efetiva is not None else None
         out.append({
             "competencia": r.competencia.isoformat(),
             "cnae_preponderante": r.cnae_preponderante,
             "criterio": r.criterio,
             "grau_risco": r.grau_risco,
+            "grau_label": GRAU_LABEL.get(r.grau_risco or 0, ""),
             "aliquota_devida": devida,
             "fap": float(r.fap) if r.fap is not None else None,
-            "aliquota_efetiva": float(r.aliquota_efetiva) if r.aliquota_efetiva is not None else None,
+            "aliquota_efetiva": efet,
             "aliquota_aplicada": apl,
-            "divergencia_pp": round(apl - devida, 4) if (devida is not None and apl is not None) else None,
+            "divergencia_pp": divergencia_de(efet, apl),
+            "situacao": situacao_de(r.em_fila, devida, apl),
             "em_fila": r.em_fila,
             "motivo_fila": r.motivo_fila,
             "fundamentacao": {
@@ -339,13 +571,15 @@ async def memoria_enquadramento(
     for r in serie_rows:
         devida = float(r.aliquota_devida) if r.aliquota_devida is not None else None
         apl = float(r.aliquota_aplicada) if r.aliquota_aplicada is not None else None
+        efet = float(r.aliquota_efetiva) if r.aliquota_efetiva is not None else None
         serie.append({
             "competencia": r.competencia.isoformat(), "cnae_preponderante": r.cnae_preponderante,
             "criterio": r.criterio, "grau_risco": r.grau_risco, "aliquota_devida": devida,
             "fap": float(r.fap) if r.fap is not None else None,
-            "aliquota_efetiva": float(r.aliquota_efetiva) if r.aliquota_efetiva is not None else None,
+            "aliquota_efetiva": efet,
             "aliquota_aplicada": apl,
-            "divergencia_pp": round(apl - devida, 4) if (devida is not None and apl is not None) else None,
+            "divergencia_pp": divergencia_de(efet, apl),
+            "situacao": situacao_de(r.em_fila, devida, apl),
             "em_fila": r.em_fila, "motivo_fila": r.motivo_fila,
         })
     autoria = sorted({f"{a.declarado_por or 'n/d'} em {a.declarado_em.date().isoformat()}"

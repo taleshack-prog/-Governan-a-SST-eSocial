@@ -11,6 +11,10 @@ from reportlab.lib.units import cm
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
 
+from api.services.enquadramento_situacao import (
+    ROTULO, SITUACAO_CONFERENCIA, SITUACAO_APURADO,
+)
+
 GRAU_LABEL = {1: "leve (1%)", 2: "médio (2%)", 3: "grave (3%)"}
 CRIT = {"maior_quantitativo": "maior quantitativo", "desempate_grau": "empate → maior grau", "fila_conferencia": "conferência"}
 
@@ -82,16 +86,39 @@ def gerar_memoria_pdf(d: dict) -> bytes:
                 f"{r['aliquota_efetiva']:.4f}%" if r.get("aliquota_efetiva") is not None else "—",
                 f"{r['aliquota_aplicada']:.2f}%" if r.get("aliquota_aplicada") is not None else "—",
                 f"{r['divergencia_pp']:+.2f}" if r.get("divergencia_pp") is not None else "—",
-                "conf." if r.get("em_fila") else "ok",
+                ROTULO.get(r.get("situacao"), "—"),
             ])
         t = Table(data, repeatRows=1)
         style = [("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
                  ("FONTSIZE", (0, 0), (-1, -1), 7), ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#e5e7eb"))]
         for i, r in enumerate(serie, start=1):
-            if r.get("em_fila"):
+            # Âmbar = falta dado para apurar. Cinza = apurado, mas o aplicado não foi informado,
+            # então nada foi comparado. Sem cor = conferido. Nenhuma competência sai como "ok"
+            # sem que alguém tenha confrontado devido e aplicado.
+            sit = r.get("situacao")
+            if sit == SITUACAO_CONFERENCIA:
                 style.append(("BACKGROUND", (0, i), (-1, i), colors.HexColor("#fef3c7")))
+            elif sit == SITUACAO_APURADO:
+                style.append(("BACKGROUND", (0, i), (-1, i), colors.HexColor("#f3f4f6")))
         t.setStyle(TableStyle(style))
         el.append(t)
+        n_conf = sum(1 for r in serie if r.get("situacao") == SITUACAO_CONFERENCIA)
+        n_apur = sum(1 for r in serie if r.get("situacao") == SITUACAO_APURADO)
+        el.append(Spacer(1, 0.2 * cm))
+        el.append(_p(
+            "<b>Situação por competência.</b> "
+            "<i>conferência</i> — falta dado para apurar o devido (FAP do ano, CNAE fora do "
+            "Anexo I, quantitativo não declarado); nada é afirmado. "
+            "<i>apurado</i> — o devido está calculado, mas a alíquota efetivamente aplicada pela "
+            "empresa não foi informada; não houve comparação. "
+            "<i>conferido</i> — devido e aplicado foram confrontados e a divergência consta na "
+            "coluna anterior. "
+            f"Neste período: {n_conf} em conferência, {n_apur} apuradas sem o aplicado informado.",
+            small))
+        el.append(_p(
+            "A divergência é a diferença entre a alíquota aplicada e a alíquota <b>efetiva</b> "
+            "(RAT × FAP), que é a base do recolhimento do GILRAT — não o RAT devido isolado.",
+            small))
     else:
         el.append(_p("Nenhuma competência apurada no período.", small))
 
