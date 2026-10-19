@@ -16,7 +16,13 @@ class Estabelecimento(Base):
     nome: Mapped[str] = mapped_column(String(300), nullable=False)
     cnpj: Mapped[str | None] = mapped_column(String(14))
     cnae: Mapped[str | None] = mapped_column(String(7))
-    endereco: Mapped[str | None] = mapped_column(String(500))
+    # Endereco ESTRUTURADO (migration 037), mesma forma da tela da empresa: o campo unico
+    # impedia o preenchimento por CEP, e o endereco do estabelecimento entra na memoria.
+    endereco: Mapped[str | None] = mapped_column(String(500))     # logradouro
+    cep: Mapped[str | None] = mapped_column(String(9))
+    numero: Mapped[str | None] = mapped_column(String(20))
+    complemento: Mapped[str | None] = mapped_column(String(120))
+    bairro: Mapped[str | None] = mapped_column(String(120))
     cidade: Mapped[str | None] = mapped_column(String(100))
     uf: Mapped[str | None] = mapped_column(String(2))
 

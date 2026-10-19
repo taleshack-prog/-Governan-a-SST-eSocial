@@ -25,7 +25,15 @@ class EstabelecimentoEnquadramento(Base):
     aliquota_devida: Mapped[float | None] = mapped_column(Numeric(4, 2))
     fap: Mapped[float | None] = mapped_column(Numeric(5, 4))
     aliquota_efetiva: Mapped[float | None] = mapped_column(Numeric(6, 4))
-    aliquota_aplicada: Mapped[float | None] = mapped_column(Numeric(4, 2))
+    # Efetiva aplicada na competencia. Quatro casas (migration 036): o produto RAT x FAP, com
+    # FAP de quatro casas, era truncado em duas.
+    aliquota_aplicada: Mapped[float | None] = mapped_column(Numeric(6, 4))
+    # As DUAS origens aplicadas, propagadas do rat_aplicado (migration 036). Sem elas o painel
+    # e a memoria sabem que divergiu e nao sabem de onde — e e a origem que decide a defesa.
+    rat_aplicado: Mapped[float | None] = mapped_column(Numeric(4, 2))
+    fap_aplicado: Mapped[float | None] = mapped_column(Numeric(5, 4))
+    processo_rat: Mapped[str | None] = mapped_column(String(120))
+    processo_fap: Mapped[str | None] = mapped_column(String(120))
     em_fila: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     motivo_fila: Mapped[str | None] = mapped_column(String(200))
     fund_dispositivo: Mapped[str | None] = mapped_column(String(200))

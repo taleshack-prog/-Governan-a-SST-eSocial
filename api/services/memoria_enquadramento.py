@@ -13,7 +13,14 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 
 from api.services.enquadramento_situacao import (
     ROTULO, SITUACAO_CONFERENCIA, SITUACAO_APURADO,
+    ROTULO_ORIGEM, DEFESA_ORIGEM, ORIGEM_NENHUMA,
+    ORIGEM_GRAU, ORIGEM_FAP, ORIGEM_AMBAS,
 )
+
+# Rotulo curto para a coluna Origem (a tabela ja tem treze colunas).
+ORIGEM_CURTO = {
+    ORIGEM_NENHUMA: "—", ORIGEM_GRAU: "grau", ORIGEM_FAP: "FAP", ORIGEM_AMBAS: "ambas",
+}
 
 GRAU_LABEL = {1: "leve (1%)", 2: "médio (2%)", 3: "grave (3%)"}
 CRIT = {"maior_quantitativo": "maior quantitativo", "desempate_grau": "empate → maior grau", "fila_conferencia": "conferência"}
@@ -36,6 +43,22 @@ def _pp(v) -> str:
         return "—"
     sinal = "+" if v > 0 else ("−" if v < 0 else "")
     return f"{sinal}{_n(abs(float(v)), 2)}"
+
+
+def _d(iso: str | None) -> str:
+    """Data ISO para dia/mes/ano (item 7 da revisao: vale tambem nos documentos gerados)."""
+    if not iso:
+        return "—"
+    s = str(iso)
+    return f"{s[8:10]}/{s[5:7]}/{s[0:4]}" if len(s) >= 10 else s
+
+
+def _comp(iso: str | None) -> str:
+    """Competencia ISO para mes/ano."""
+    if not iso:
+        return "—"
+    s = str(iso)
+    return f"{s[5:7]}/{s[0:4]}" if len(s) >= 7 else s
 
 
 def _p(txt, style):
@@ -67,8 +90,9 @@ def gerar_memoria_pdf(d: dict) -> bytes:
              f"<b>Estabelecimento:</b> {es.get('codigo') or ''} {es.get('nome') or ''} "
              f"({es.get('posicao') or '—'}, natureza {es.get('tipo') or '—'})<br/>"
              f"<b>Matrícula:</b> {es.get('identificador') or es.get('cnpj') or '—'}<br/>"
-             f"<b>Abertura:</b> {es.get('abertura') or '—'} &nbsp;&nbsp; <b>Encerramento:</b> {es.get('encerramento') or 'em atividade'}<br/>"
-             f"<b>Período analisado:</b> {per.get('inicio') or '—'} a {per.get('fim') or '—'}")
+             + (f"<b>Endereço:</b> {es.get('endereco')}<br/>" if es.get("endereco") else "")
+             + f"<b>Abertura:</b> {_d(es.get('abertura'))} &nbsp;&nbsp; <b>Encerramento:</b> {_d(es.get('encerramento')) if es.get('encerramento') else 'em atividade'}<br/>"
+             f"<b>Período analisado:</b> {_d(per.get('inicio'))} a {_d(per.get('fim'))}")
     el.append(_p(ident, body))
 
     # Atividades declaradas
@@ -77,7 +101,7 @@ def gerar_memoria_pdf(d: dict) -> bytes:
     if ativ:
         data = [["CNAE", "Descrição", "Nº trab.", "Vigência"]]
         for a in ativ:
-            vig = f"{a.get('inicio') or ''}" + (f" a {a['fim']}" if a.get("fim") else " (aberto)")
+            vig = _d(a.get("inicio")) + (f" a {_d(a['fim'])}" if a.get("fim") else " (aberto)")
             data.append([a.get("cnae") or "", (a.get("descricao") or "")[:60], str(a.get("quantitativo") if a.get("quantitativo") is not None else "—"), vig])
         t = Table(data, colWidths=[2.2 * cm, 8.2 * cm, 1.8 * cm, 4.5 * cm])
         t.setStyle(TableStyle([
@@ -94,17 +118,25 @@ def gerar_memoria_pdf(d: dict) -> bytes:
     el.append(_p("Enquadramento apurado por competência", h2))
     serie = d.get("serie", [])
     if serie:
-        data = [["Comp.", "Preponderante", "Critério", "Grau", "Devido", "FAP", "Efetivo", "Aplicado", "Diverg.", "Sit."]]
+        # "RAT apl." e "FAP apl." são as DUAS origens declaradas pela empresa (S-1005 aliqRat e
+        # fap). Separá-las é o que permite dizer qual delas causou a divergência — e cada uma se
+        # defende de um jeito diferente.
+        data = [["Comp.", "Preponderante", "Crit.", "Grau", "Devido", "FAP", "Efetivo",
+                 "RAT apl.", "FAP apl.", "Aplicado", "Diverg.", "Origem", "Sit."]]
         for r in serie:
             data.append([
-                (r.get("competencia") or "")[:7], r.get("cnae_preponderante") or "—",
+                _comp(r.get("competencia")), r.get("cnae_preponderante") or "—",
                 CRIT.get(r.get("criterio"), r.get("criterio") or "—"),
                 str(r.get("grau_risco") if r.get("grau_risco") is not None else "—"),
                 _n(r.get("aliquota_devida"), 0, "%"),
                 _n(r.get("fap"), 4),
                 _n(r.get("aliquota_efetiva"), 4, "%"),
-                _n(r.get("aliquota_aplicada"), 2, "%"),
+                _n(r.get("rat_aplicado"), 0, "%"),
+                _n(r.get("fap_aplicado"), 4),
+                _n(r.get("aliquota_aplicada"), 4, "%"),
                 _pp(r.get("divergencia_pp")),
+                ORIGEM_CURTO.get(r.get("origem_divergencia"), "n/d")
+                + ("*" if r.get("amparada") else ""),
                 ROTULO.get(r.get("situacao"), "—"),
             ])
         t = Table(data, repeatRows=1)
@@ -138,6 +170,46 @@ def gerar_memoria_pdf(d: dict) -> bytes:
             "A divergência é a diferença entre a alíquota aplicada e a alíquota <b>efetiva</b> "
             "(RAT × FAP), que é a base do recolhimento do GILRAT — não o RAT devido isolado.",
             small))
+
+        # ---- Origem da divergência: a pergunta que decide a defesa ----
+        # O eSocial (S-1005) valida que aliqRatAjust é o produto de aliqRat por fap. Logo o erro
+        # nunca está no ajustado: está no grau ou no fator. Sem esta decomposição a memória
+        # afirmaria que há divergência sem dizer o que precisa ser corrigido.
+        por_origem: dict[str, list] = {}
+        for r in serie:
+            o = r.get("origem_divergencia")
+            if o and o != ORIGEM_NENHUMA:
+                por_origem.setdefault(o, []).append(_comp(r.get("competencia")))
+        nao_decomposto = [r for r in serie
+                          if r.get("aliquota_aplicada") is not None
+                          and r.get("origem_divergencia") is None]
+        amparadas = sum(1 for r in serie if r.get("amparada"))
+
+        if por_origem or nao_decomposto:
+            el.append(_p("Origem da divergência", h2))
+            for o, comps in sorted(por_origem.items()):
+                faixa = f"{comps[0]} a {comps[-1]}" if len(comps) > 1 else comps[0]
+                # Primeira letra em maiuscula SEM mexer no resto: .capitalize() transformaria
+                # "FAP" em "Fap", que num documento juridico e erro de sigla.
+                rot = ROTULO_ORIGEM.get(o, o)
+                rot = rot[:1].upper() + rot[1:]
+                el.append(_p(
+                    f"<b>{rot}</b> — {len(comps)} competência(s), {faixa}. "
+                    f"{DEFESA_ORIGEM.get(o, '')}", small))
+            if amparadas:
+                el.append(_p(
+                    f"<b>{amparadas} competência(s)</b> têm processo administrativo ou judicial "
+                    "informado amparando a alíquota divergente (assinaladas com * na coluna "
+                    "Origem). O leiaute do eSocial só admite alíquota diversa da prevista com "
+                    "processo informado; nessas competências a divergência não constitui achado.",
+                    small))
+            if nao_decomposto:
+                el.append(_p(
+                    f"<b>{len(nao_decomposto)} competência(s)</b> têm alíquota aplicada informada "
+                    "sem o desdobramento em grau e fator. Nelas a divergência é apurada, mas a "
+                    "origem <b>não é afirmada</b>: o sistema não presume a decomposição. "
+                    "Informe a alíquota RAT e o FAP aplicados no período para que a origem conste.",
+                    small))
     else:
         el.append(_p("Nenhuma competência apurada no período.", small))
 

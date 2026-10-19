@@ -86,11 +86,20 @@ async def apurar_estabelecimento(estab_id, db: AsyncSession) -> dict:
         cnae_prep = criterio = None
         grau = aliq_dev = aliq_ef = None
 
-        # RAT aplicado vigente na competencia
-        aliq_apl = None
+        # RAT aplicado vigente na competencia. Desdobrado em GRAU e FATOR (migration 036): a
+        # efetiva aplicada e o produto dos dois, como o eSocial valida no S-1005. Quando a linha
+        # e antiga e guarda so a efetiva, usa-a e deixa as origens NULL — o sistema registra que
+        # divergiu sem afirmar de onde, em vez de presumir rat=3 / fap=1,0.
+        aliq_apl = rat_apl = fap_apl = None
+        proc_rat = proc_fap = None
         for r in rats:
             if _vigente(comp, r.inicio, r.fim):
-                aliq_apl = float(r.aliquota)
+                proc_rat, proc_fap = r.processo_rat, r.processo_fap
+                if r.aliquota_rat is not None and r.fap_aplicado is not None:
+                    rat_apl, fap_apl = float(r.aliquota_rat), float(r.fap_aplicado)
+                    aliq_apl = round(rat_apl * fap_apl, 4)
+                else:
+                    aliq_apl = float(r.aliquota)
                 break
 
         # atividades vigentes com quantitativo declarado
@@ -133,6 +142,8 @@ async def apurar_estabelecimento(estab_id, db: AsyncSession) -> dict:
             cnae_preponderante=cnae_prep, criterio=(criterio or ("fila_conferencia" if em_fila_flag else None)),
             grau_risco=grau, aliquota_devida=aliq_dev,
             fap=faps.get(comp.year), aliquota_efetiva=aliq_ef, aliquota_aplicada=aliq_apl,
+            rat_aplicado=rat_apl, fap_aplicado=fap_apl,
+            processo_rat=proc_rat, processo_fap=proc_fap,
             em_fila=em_fila_flag, motivo_fila=motivo,
             fund_dispositivo=FUND["dispositivo"], fund_ato_normativo=FUND["ato"],
             fund_anexo=FUND["anexo"], fund_vigencia=versao,

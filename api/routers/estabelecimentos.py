@@ -21,7 +21,9 @@ from api.models.cnae_enquadramento import CnaeEnquadramento
 from api.models.tabela_fpas import TabelaFPAS
 from api.models.usuario import Usuario
 from api.auth import get_current_user, require_perfil
-from api.services.enquadramento_situacao import situacao_de, divergencia_de
+from api.services.enquadramento_situacao import (
+    situacao_de, divergencia_de, origem_divergencia, divergencia_amparada, ROTULO_ORIGEM,
+)
 
 router = APIRouter()
 
@@ -83,6 +85,8 @@ def _to_dict(e: Estabelecimento) -> dict:
         "tipo_estabelecimento": e.tipo_estabelecimento, "posicao": e.posicao,
         "cnpj": e.cnpj, "identificador": e.identificador,
         "status": e.status, "cidade": e.cidade, "uf": e.uf, "endereco": e.endereco,
+        # Endereço estruturado (item 5), mesma forma da tela da empresa — entra na memória
+        "cep": e.cep, "numero": e.numero, "complemento": e.complemento, "bairro": e.bairro,
         "data_abertura": e.data_abertura.isoformat() if e.data_abertura else None,
         "data_encerramento": e.data_encerramento.isoformat() if e.data_encerramento else None,
     }
@@ -96,7 +100,11 @@ class EstabelecimentoIn(BaseModel):
     cnpj: str | None = None
     identificador: str | None = None
     status: str = "ativa"
-    endereco: str | None = None
+    endereco: str | None = None          # logradouro
+    cep: str | None = None
+    numero: str | None = None
+    complemento: str | None = None
+    bairro: str | None = None
     cidade: str | None = None
     uf: str | None = None
     data_abertura: date | None = None
@@ -143,19 +151,52 @@ async def _enquadramento_corrente(estab_ids: list, db: AsyncSession) -> dict:
         devida = float(r.aliquota_devida) if r.aliquota_devida is not None else None
         efetiva = float(r.aliquota_efetiva) if r.aliquota_efetiva is not None else None
         aplicada = float(r.aliquota_aplicada) if r.aliquota_aplicada is not None else None
+        fap_dev = float(r.fap) if r.fap is not None else None
+        rat_apl = float(r.rat_aplicado) if r.rat_aplicado is not None else None
+        fap_apl = float(r.fap_aplicado) if r.fap_aplicado is not None else None
+        orig = origem_divergencia(devida, fap_dev, rat_apl, fap_apl)
         out[k] = {
             "competencia": r.competencia.isoformat(),
             "grau_risco": r.grau_risco,
             "grau_label": GRAU_LABEL.get(r.grau_risco or 0, ""),
             "aliquota_devida": devida,
-            "fap": float(r.fap) if r.fap is not None else None,
+            "fap": fap_dev,
             "aliquota_efetiva": efetiva,
             "aliquota_aplicada": aplicada,
+            "rat_aplicado": rat_apl,
+            "fap_aplicado": fap_apl,
             "divergencia_pp": divergencia_de(efetiva, aplicada),
+            "origem_divergencia": orig,
+            "amparada": divergencia_amparada(orig, r.processo_rat, r.processo_fap),
             "situacao": situacao_de(r.em_fila, devida, aplicada),
             "motivo_fila": r.motivo_fila,
         }
     return out
+
+
+async def _completude(estab_ids: list, db: AsyncSession) -> dict:
+    """Quais insumos cada estabelecimento já tem (item 10 da revisão).
+
+    Com uma construtora de quarenta obras, descobrir o que falta abrindo um por um é inviável.
+    Três marcas: atividade cadastrada, FAP informado e RAT aplicado declarado.
+    """
+    if not estab_ids:
+        return {}
+    async def ids_com(modelo):
+        rows = (await db.execute(
+            select(modelo.estabelecimento_id).where(modelo.estabelecimento_id.in_(estab_ids)).distinct()
+        )).scalars().all()
+        return {str(i) for i in rows}
+    com_ativ = await ids_com(EstabelecimentoAtividade)
+    com_fap = await ids_com(EstabelecimentoFAP)
+    com_rat = await ids_com(EstabelecimentoRatAplicado)
+    com_fpas = await ids_com(EstabelecimentoFpasPeriodo)
+    return {str(i): {
+        "atividade": str(i) in com_ativ,
+        "fap": str(i) in com_fap,
+        "rat_aplicado": str(i) in com_rat,
+        "fpas": str(i) in com_fpas,
+    } for i in estab_ids}
 
 
 @router.get("/")
@@ -168,11 +209,14 @@ async def listar_estabelecimentos(
         .order_by(Estabelecimento.codigo)
     )
     estabs = list(result.scalars())
-    corrente = await _enquadramento_corrente([e.id for e in estabs], db)
+    ids = [e.id for e in estabs]
+    corrente = await _enquadramento_corrente(ids, db)
+    completo = await _completude(ids, db)
     saida = []
     for e in estabs:
         d = _to_dict(e)
         d["enquadramento_atual"] = corrente.get(str(e.id))   # None = serie ainda nao apurada
+        d["completude"] = completo.get(str(e.id))
         saida.append(d)
     return saida
 
@@ -351,8 +395,15 @@ async def salvar_fap(
 # Este é o único número do enquadramento que o sistema NÃO calcula: é o que a empresa de fato
 # usou na folha dela. Preenchê-lo automaticamente destruiria o produto — a diferença entre ele e
 # a alíquota efetiva é o achado. Por isso: sem valor padrão, sem sugestão, sem herdar do devido.
+# Desdobrado em GRAU e FATOR (item 1 da revisão): o eSocial valida no S-1005 que aliqRatAjust é
+# o produto de aliqRat por fap, então o erro nunca está no ajustado — está numa das duas origens,
+# e a resposta decide a defesa.
 class RatAplicadoIn(BaseModel):
-    aliquota: float
+    aliquota_rat: float | None = None       # 1 | 2 | 3
+    fap_aplicado: float | None = None       # 0,5000 a 2,0000
+    aliquota: float | None = None           # efetiva; só para linha antiga, sem desdobramento
+    processo_rat: str | None = None
+    processo_fap: str | None = None
     inicio: date
     fim: date | None = None
 
@@ -369,8 +420,16 @@ async def listar_rat_aplicado(
         .where(EstabelecimentoRatAplicado.estabelecimento_id == estab_id)
         .order_by(EstabelecimentoRatAplicado.inicio)
     )).scalars().all()
-    return [{"aliquota": float(r.aliquota), "inicio": r.inicio.isoformat(),
-             "fim": r.fim.isoformat() if r.fim else None} for r in rows]
+    return [{
+        "aliquota": float(r.aliquota),
+        "aliquota_rat": float(r.aliquota_rat) if r.aliquota_rat is not None else None,
+        "fap_aplicado": float(r.fap_aplicado) if r.fap_aplicado is not None else None,
+        "processo_rat": r.processo_rat, "processo_fap": r.processo_fap,
+        # true = linha antiga, que guarda só a efetiva. A tela pede o desdobramento; o sistema
+        # NÃO infere o par, porque rat=3/fap=1,0 seria valor presumido.
+        "sem_desdobramento": r.aliquota_rat is None,
+        "inicio": r.inicio.isoformat(), "fim": r.fim.isoformat() if r.fim else None,
+    } for r in rows]
 
 
 @router.put("/{estab_id}/rat-aplicado")
@@ -380,20 +439,55 @@ async def salvar_rat_aplicado(
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(require_perfil("admin")),
 ):
-    """Substitui a lista de períodos do RAT aplicado. Reapura a série ao final."""
+    """Substitui a lista de períodos do RAT aplicado. Reapura a série ao final.
+
+    Aceita o período desdobrado (RAT + FAP, o normal) ou, só para compatibilidade com o que já
+    estava gravado, a efetiva isolada. O par é tudo-ou-nada: meio desdobramento não diz qual
+    origem errou, que é justamente o que o campo existe para responder.
+    """
     await _tenant_estab(estab_id, current_user, db)
+    resolvidos = []
     for it in data:
-        # Faixa possível: RAT 1% x FAP 0,5 = 0,5% até RAT 3% x FAP 2,0 = 6,0%. Fora disso não é
-        # um RAT — é erro de digitação. Recusar aqui evita um achado fantasma de milhões.
-        if not (0.5 <= it.aliquota <= 6.0):
-            raise HTTPException(
-                status_code=422,
-                detail=(f"Alíquota {it.aliquota}% fora da faixa possível (0,50% a 6,00%). "
-                        f"O RAT aplicado é RAT × FAP: no mínimo 1×0,5 e no máximo 3×2,0."),
-            )
         if it.fim and it.fim < it.inicio:
             raise HTTPException(status_code=422, detail="Período com fim anterior ao início.")
-    _sem_sobreposicao(data, "RAT aplicado")
+        tem_rat, tem_fap = it.aliquota_rat is not None, it.fap_aplicado is not None
+        if tem_rat != tem_fap:
+            raise HTTPException(
+                status_code=422,
+                detail=("Informe a alíquota RAT e o FAP aplicados juntos. Só um dos dois não "
+                        "permite dizer qual origem causou a divergência — que é o motivo de o "
+                        "campo ser desdobrado."),
+            )
+        if tem_rat:
+            if float(it.aliquota_rat) not in (1.0, 2.0, 3.0):
+                raise HTTPException(
+                    status_code=422,
+                    detail=(f"Alíquota RAT aplicada deve ser 1, 2 ou 3 (grau leve, médio ou "
+                            f"grave). Recebido: {it.aliquota_rat}."),
+                )
+            if not (0.5 <= float(it.fap_aplicado) <= 2.0):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"FAP aplicado {it.fap_aplicado} fora da faixa 0,5000–2,0000.",
+                )
+            efetiva = round(float(it.aliquota_rat) * float(it.fap_aplicado), 4)
+        else:
+            if it.aliquota is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Informe a alíquota RAT e o FAP aplicados no período.",
+                )
+            # Faixa possível da efetiva: 1×0,5 = 0,5% até 3×2,0 = 6,0%. Fora disso não é um RAT,
+            # é erro de digitação — e um erro aqui vira achado fantasma de milhões.
+            if not (0.5 <= float(it.aliquota) <= 6.0):
+                raise HTTPException(
+                    status_code=422,
+                    detail=(f"Alíquota efetiva {it.aliquota}% fora da faixa possível "
+                            f"(0,50% a 6,00% = RAT × FAP)."),
+                )
+            efetiva = round(float(it.aliquota), 4)
+        resolvidos.append((it, efetiva))
+    _sem_sobreposicao([it for it, _ in resolvidos], "RAT aplicado")
 
     antigos = (await db.execute(
         select(EstabelecimentoRatAplicado)
@@ -401,9 +495,12 @@ async def salvar_rat_aplicado(
     )).scalars().all()
     for a in antigos:
         await db.delete(a)
-    for it in data:
+    for it, efetiva in resolvidos:
         db.add(EstabelecimentoRatAplicado(
-            estabelecimento_id=estab_id, aliquota=it.aliquota, inicio=it.inicio, fim=it.fim,
+            estabelecimento_id=estab_id, aliquota=efetiva,
+            aliquota_rat=it.aliquota_rat, fap_aplicado=it.fap_aplicado,
+            processo_rat=(it.processo_rat or None), processo_fap=(it.processo_fap or None),
+            inicio=it.inicio, fim=it.fim,
         ))
     await db.commit()
     from api.services.motor_enquadramento import apurar_estabelecimento
@@ -426,7 +523,7 @@ async def listar_fpas_estab(
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    await _tenant_estab(estab_id, current_user, db)
+    estab = await _tenant_estab(estab_id, current_user, db)
     rows = (await db.execute(
         select(EstabelecimentoFpasPeriodo)
         .where(EstabelecimentoFpasPeriodo.estabelecimento_id == estab_id)
@@ -438,13 +535,30 @@ async def listar_fpas_estab(
         descr = {t.codigo_fpas: (t.descricao, float(t.aliquota_terceiros)) for t in (await db.execute(
             select(TabelaFPAS).where(TabelaFPAS.codigo_fpas.in_(codigos))
         )).scalars().all()}
-    return [{
-        "codigo_fpas": r.codigo_fpas,
-        "descricao": descr.get(r.codigo_fpas, (None, None))[0],
-        "aliquota_terceiros": descr.get(r.codigo_fpas, (None, None))[1],
-        "inicio": r.inicio.isoformat(), "fim": r.fim.isoformat() if r.fim else None,
-        "declarado_por": r.declarado_por,
-    } for r in rows]
+    # Janela sugerida para um período NOVO (item 3): o padrão é a apuração inteira, recortada
+    # pela vida do estabelecimento. Nascendo com um mês só, 59 das 60 competências ficariam sem
+    # FPAS informado — e o usuário não tem como adivinhar que precisa esticar o período.
+    from api.models.empresa import Empresa
+    empresa = (await db.execute(select(Empresa).where(Empresa.id == estab.empresa_id))).scalar_one_or_none()
+    p_ini = (empresa.periodo_apuracao_inicio if empresa else None) or estab.data_abertura
+    p_fim = (empresa.periodo_apuracao_fim if empresa else None)
+    if p_ini and estab.data_abertura:
+        p_ini = max(p_ini, estab.data_abertura)
+    if p_fim and estab.data_encerramento:
+        p_fim = min(p_fim, estab.data_encerramento)
+    return {
+        "janela_sugerida": {
+            "inicio": p_ini.isoformat() if p_ini else None,
+            "fim": p_fim.isoformat() if p_fim else None,
+        },
+        "periodos": [{
+            "codigo_fpas": r.codigo_fpas,
+            "descricao": descr.get(r.codigo_fpas, (None, None))[0],
+            "aliquota_terceiros": descr.get(r.codigo_fpas, (None, None))[1],
+            "inicio": r.inicio.isoformat(), "fim": r.fim.isoformat() if r.fim else None,
+            "declarado_por": r.declarado_por,
+        } for r in rows],
+    }
 
 
 @router.put("/{estab_id}/fpas")
@@ -520,6 +634,10 @@ async def serie_enquadramento(
         devida = float(r.aliquota_devida) if r.aliquota_devida is not None else None
         apl = float(r.aliquota_aplicada) if r.aliquota_aplicada is not None else None
         efet = float(r.aliquota_efetiva) if r.aliquota_efetiva is not None else None
+        fap_dev = float(r.fap) if r.fap is not None else None
+        rat_apl = float(r.rat_aplicado) if r.rat_aplicado is not None else None
+        fap_apl = float(r.fap_aplicado) if r.fap_aplicado is not None else None
+        orig = origem_divergencia(devida, fap_dev, rat_apl, fap_apl)
         out.append({
             "competencia": r.competencia.isoformat(),
             "cnae_preponderante": r.cnae_preponderante,
@@ -527,9 +645,17 @@ async def serie_enquadramento(
             "grau_risco": r.grau_risco,
             "grau_label": GRAU_LABEL.get(r.grau_risco or 0, ""),
             "aliquota_devida": devida,
-            "fap": float(r.fap) if r.fap is not None else None,
+            "fap": fap_dev,
             "aliquota_efetiva": efet,
             "aliquota_aplicada": apl,
+            # As duas origens aplicadas + de qual veio a divergência (item 1 da revisão)
+            "rat_aplicado": rat_apl,
+            "fap_aplicado": fap_apl,
+            "origem_divergencia": orig,
+            "origem_label": ROTULO_ORIGEM.get(orig) if orig else None,
+            "amparada": divergencia_amparada(orig, r.processo_rat, r.processo_fap),
+            "processo_rat": r.processo_rat,
+            "processo_fap": r.processo_fap,
             "divergencia_pp": divergencia_de(efet, apl),
             "situacao": situacao_de(r.em_fila, devida, apl),
             "em_fila": r.em_fila,
@@ -572,12 +698,20 @@ async def memoria_enquadramento(
         devida = float(r.aliquota_devida) if r.aliquota_devida is not None else None
         apl = float(r.aliquota_aplicada) if r.aliquota_aplicada is not None else None
         efet = float(r.aliquota_efetiva) if r.aliquota_efetiva is not None else None
+        fap_dev = float(r.fap) if r.fap is not None else None
+        rat_apl = float(r.rat_aplicado) if r.rat_aplicado is not None else None
+        fap_apl = float(r.fap_aplicado) if r.fap_aplicado is not None else None
+        orig = origem_divergencia(devida, fap_dev, rat_apl, fap_apl)
         serie.append({
             "competencia": r.competencia.isoformat(), "cnae_preponderante": r.cnae_preponderante,
             "criterio": r.criterio, "grau_risco": r.grau_risco, "aliquota_devida": devida,
-            "fap": float(r.fap) if r.fap is not None else None,
+            "fap": fap_dev,
             "aliquota_efetiva": efet,
             "aliquota_aplicada": apl,
+            "rat_aplicado": rat_apl, "fap_aplicado": fap_apl,
+            "origem_divergencia": orig,
+            "amparada": divergencia_amparada(orig, r.processo_rat, r.processo_fap),
+            "processo_rat": r.processo_rat, "processo_fap": r.processo_fap,
             "divergencia_pp": divergencia_de(efet, apl),
             "situacao": situacao_de(r.em_fila, devida, apl),
             "em_fila": r.em_fila, "motivo_fila": r.motivo_fila,
@@ -590,7 +724,13 @@ async def memoria_enquadramento(
         "estab": {"codigo": estab.codigo, "nome": estab.nome, "tipo": estab.tipo_estabelecimento,
                   "identificador": estab.identificador, "cnpj": estab.cnpj, "posicao": estab.posicao,
                   "abertura": estab.data_abertura.isoformat() if estab.data_abertura else None,
-                  "encerramento": estab.data_encerramento.isoformat() if estab.data_encerramento else None},
+                  "encerramento": estab.data_encerramento.isoformat() if estab.data_encerramento else None,
+                  # Endereço estruturado (item 5) — compõe a identificação na memória
+                  "endereco": ", ".join(p for p in [
+                      estab.endereco, estab.numero, estab.complemento, estab.bairro,
+                      f"{estab.cidade}/{estab.uf}" if (estab.cidade and estab.uf) else (estab.cidade or estab.uf),
+                      estab.cep,
+                  ] if p)},
         "periodo": {"inicio": empresa.periodo_apuracao_inicio.isoformat() if empresa and empresa.periodo_apuracao_inicio else None,
                     "fim": empresa.periodo_apuracao_fim.isoformat() if empresa and empresa.periodo_apuracao_fim else None},
         "atividades": [{"cnae": a.cnae, "descricao": a.descricao, "quantitativo": a.quantitativo,

@@ -39,6 +39,69 @@ def situacao_de(em_fila: bool, aliquota_devida, aliquota_aplicada) -> str:
     return SITUACAO_CONFERIDO
 
 
+ORIGEM_NENHUMA = "nenhuma"
+ORIGEM_GRAU = "grau"
+ORIGEM_FAP = "fap"
+ORIGEM_AMBAS = "ambas"
+
+ROTULO_ORIGEM = {
+    ORIGEM_NENHUMA: "sem divergência de origem",
+    ORIGEM_GRAU: "grau de risco",
+    ORIGEM_FAP: "FAP",
+    ORIGEM_AMBAS: "grau e FAP",
+}
+
+# Como se corrige cada origem — e por que a pergunta importa (S-1005 / item 1 da revisão).
+DEFESA_ORIGEM = {
+    ORIGEM_GRAU: "Reenquadramento, com memória de atividade preponderante.",
+    ORIGEM_FAP: "Portaria do FAP e extrato do FAPWeb.",
+    ORIGEM_AMBAS: "Reenquadramento (grau) e portaria/extrato do FAPWeb (FAP) — duas frentes.",
+}
+
+
+def origem_divergencia(aliquota_devida, fap_devido, rat_aplicado, fap_aplicado):
+    """Diz QUAL das duas origens causou a divergência: grau, FAP, ambas ou nenhuma.
+
+    O eSocial (S-1005) valida que aliqRatAjust é o produto de aliqRat por fap. Logo o erro nunca
+    está no ajustado — está no grau de risco ou no fator. E a resposta decide a defesa: grau
+    errado se corrige com reenquadramento e memória de atividade preponderante; FAP errado, com
+    a portaria e o extrato do FAPWeb.
+
+    Devolve None quando a comparação não é possível: faltam dados, ou a linha de RAT aplicado é
+    antiga e guarda só a efetiva, sem o desdobramento. Nesse caso o sistema sabe que divergiu e
+    NÃO afirma de onde — nunca presume rat=3/fap=1,0 para fechar a conta.
+    """
+    if None in (aliquota_devida, fap_devido, rat_aplicado, fap_aplicado):
+        return None
+    grau_difere = round(float(rat_aplicado), 2) != round(float(aliquota_devida), 2)
+    fap_difere = round(float(fap_aplicado), 4) != round(float(fap_devido), 4)
+    if grau_difere and fap_difere:
+        return ORIGEM_AMBAS
+    if grau_difere:
+        return ORIGEM_GRAU
+    if fap_difere:
+        return ORIGEM_FAP
+    return ORIGEM_NENHUMA
+
+
+def divergencia_amparada(origem, processo_rat, processo_fap) -> bool:
+    """True quando a divergência tem processo informado para a(s) origem(ns) que divergiu.
+
+    O leiaute do eSocial só aceita alíquota divergente da prevista se houver processo
+    administrativo ou judicial informado. Sem considerar isso, o sistema apontaria achado onde
+    existe decisão amparando — achado falso ao contrário, que é igualmente grave num laudo.
+    """
+    tem_rat = bool(processo_rat and str(processo_rat).strip())
+    tem_fap = bool(processo_fap and str(processo_fap).strip())
+    if origem == ORIGEM_GRAU:
+        return tem_rat
+    if origem == ORIGEM_FAP:
+        return tem_fap
+    if origem == ORIGEM_AMBAS:
+        return tem_rat and tem_fap
+    return False
+
+
 def divergencia_de(aliquota_efetiva, aliquota_aplicada):
     """Divergencia em pontos percentuais: APLICADO menos EFETIVA.
 
