@@ -113,6 +113,9 @@ export function CadastroEmpresa() {
   const [origem, setOrigem] = useState<string>("");          // consultado | declarado
   const [consultaBruta, setConsultaBruta] = useState<Record<string, string | null> | null>(null);
   const [resumoOrigem, setResumoOrigem] = useState<any>(null);   // composição real, vinda do backend
+  const [arquivada, setArquivada] = useState(false);
+  const [mostrarExclusao, setMostrarExclusao] = useState(false);
+  const [confirmaExclusao, setConfirmaExclusao] = useState("");
   const [consultadoEm, setConsultadoEm] = useState<string>("");
   const [secundarios, setSecundarios] = useState<any[]>([]);
   const [regimes, setRegimes] = useState<Periodo[]>([]);
@@ -147,6 +150,7 @@ export function CadastroEmpresa() {
       }));
       setOrigem(d.origem_cadastro ?? "");
       setResumoOrigem(d.resumo_origem ?? null);
+      setArquivada(!!d.arquivada);
       setConsultadoEm(d.consultado_em ?? "");
       setSecundarios(d.cnaes_secundarios ?? []);
       setNumEstab(d.num_estabelecimentos ?? 0);
@@ -281,24 +285,45 @@ export function CadastroEmpresa() {
     } finally { setSalvando(false); }
   };
 
-  const zerar = async () => {
+  // RF-0.207: arquivar é REVERSÍVEL e preserva tudo; excluir é IRREVERSÍVEL e exige a razão
+  // social digitada. A ação antiga ("Zerar empresa") apagava enquadramento apurado a um clique,
+  // sem volta — saiu do sistema junto com o endpoint.
+  const arquivar = async () => {
     if (!empresaId) return;
-    const nome = form.razao_social || "esta empresa";
-    if (!window.confirm(`Zerar o cadastro de "${nome}"?\n\nIsto apaga estabelecimentos, atividades, enquadramento apurado, regime e CPRB, e limpa os dados da empresa. O login é mantido. Ação irreversível.`)) return;
     setSalvando(true); setMsg("");
     try {
-      await apiClient.post(`/empresas/${empresaId}/reset`);
-      // recarrega a tela zerada
-      setForm((f: any) => ({
-        ...f, cnae_principal: "", periodo_inicio: ymMinus(59), periodo_fim: ymToday(),
-        data_abertura: "", data_encerramento: "",
-        endereco: "", numero: "", complemento: "", bairro: "", cidade: "", uf: "", cep: "",
-      }));
-      setRegimes([]); setCprb([]); setCprbStatus("nao_informado"); setCprbVerif({});
-      setSecundarios([]); setOrigem(""); setConsultadoEm(""); setEspelho(null); setNumEstab(0);
-      setMsg("Cadastro zerado. Informe o novo CNPJ e os dados da empresa, depois salve.");
+      const r = await apiClient.post(`/empresas/${empresaId}/arquivar`);
+      setArquivada(true);
+      setMsg(r.data?.mensagem || "Empresa arquivada.");
     } catch (e: any) {
-      setMsg(e?.response?.data?.detail || "Não foi possível zerar a empresa.");
+      setMsg(e?.response?.data?.detail || "Não foi possível arquivar.");
+    } finally { setSalvando(false); }
+  };
+
+  const desarquivar = async () => {
+    if (!empresaId) return;
+    setSalvando(true); setMsg("");
+    try {
+      await apiClient.post(`/empresas/${empresaId}/desarquivar`);
+      setArquivada(false);
+      setMsg("Empresa restaurada à lista principal.");
+    } catch (e: any) {
+      setMsg(e?.response?.data?.detail || "Não foi possível restaurar.");
+    } finally { setSalvando(false); }
+  };
+
+  const excluir = async () => {
+    if (!empresaId) return;
+    setSalvando(true); setMsg("");
+    try {
+      // A razão social digitada vai no corpo; o backend compara com a cadastrada e recusa se
+      // não for idêntica. A confirmação é do servidor, não da tela.
+      await apiClient.delete(`/empresas/${empresaId}`, { data: { razao_social: confirmaExclusao } });
+      setMsg("Empresa excluída. Cadastre a próxima pelo CNPJ.");
+      setConfirmaExclusao(""); setMostrarExclusao(false);
+      window.location.reload();
+    } catch (e: any) {
+      setMsg(e?.response?.data?.detail || "Não foi possível excluir.");
     } finally { setSalvando(false); }
   };
 
@@ -641,17 +666,66 @@ export function CadastroEmpresa() {
         {salvando ? "Salvando…" : "Salvar dados da empresa"}
       </button>
 
-      {/* Zona de perigo — zerar cadastro (uso em teste) */}
-      <section className="mt-8 border border-red-200 bg-red-50 rounded-xl p-5">
-        <h2 className="text-sm font-bold text-red-700 mb-1">Zerar empresa</h2>
-        <p className="text-[11px] text-red-600 mb-3">
-          Apaga estabelecimentos, atividades, enquadramento apurado, regime e CPRB, e limpa os dados do
-          cadastro para começar outra empresa. O login é mantido. Ação irreversível.
-        </p>
-        <button onClick={zerar} disabled={salvando}
-          className="border border-red-300 text-red-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-100 disabled:opacity-50">
-          Zerar cadastro da empresa
-        </button>
+      {/* RF-0.207: arquivar e excluir. Separados de propósito — um é status, o outro é perda
+          definitiva, e eles não podem parecer a mesma coisa. */}
+      <section className="mt-8 border border-gray-200 rounded-xl p-5">
+        <h2 className="text-sm font-bold text-gray-800 mb-3">Arquivar ou excluir</h2>
+
+        <div className="flex items-start gap-4 pb-4 border-b border-gray-100">
+          <div className="flex-1">
+            <p className="text-xs font-medium text-gray-700">Arquivar — reversível</p>
+            <p className="text-[11px] text-gray-500">
+              A empresa sai da lista principal e <b>todos os dados permanecem íntegros</b>:
+              estabelecimentos, atividades, enquadramento apurado, regime e CPRB. Pode ser
+              restaurada a qualquer momento.
+            </p>
+          </div>
+          {arquivada ? (
+            <button onClick={desarquivar} disabled={salvando}
+              className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50 whitespace-nowrap">
+              Restaurar
+            </button>
+          ) : (
+            <button onClick={arquivar} disabled={salvando}
+              className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50 whitespace-nowrap">
+              Arquivar
+            </button>
+          )}
+        </div>
+
+        <div className="pt-4">
+          <p className="text-xs font-medium text-red-700">Excluir — irreversível</p>
+          <p className="text-[11px] text-gray-500 mb-3">
+            Apaga a empresa e <b>todo o enquadramento já apurado</b>, sem possibilidade de volta.
+            Exige digitar a razão social e é restrita ao titular do escritório. Se a intenção é
+            só tirar da lista, use Arquivar.
+          </p>
+          {!mostrarExclusao ? (
+            <button onClick={() => setMostrarExclusao(true)}
+              className="text-xs text-red-700 hover:underline">
+              Quero excluir esta empresa
+            </button>
+          ) : (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+              <label className="text-[11px] text-red-800">
+                Para confirmar, digite a razão social exatamente como cadastrada:
+                <b> {form.razao_social || "—"}</b>
+              </label>
+              <input className={`${inputCls} mt-2`} value={confirmaExclusao}
+                onChange={(e) => setConfirmaExclusao(e.target.value)}
+                placeholder="Razão social" autoComplete="off" />
+              <div className="flex gap-2 mt-3">
+                <button onClick={() => { setMostrarExclusao(false); setConfirmaExclusao(""); }}
+                  className="px-3 py-1.5 text-xs text-gray-600 hover:text-gray-800">Cancelar</button>
+                <button onClick={excluir}
+                  disabled={salvando || confirmaExclusao.trim().toLowerCase() !== (form.razao_social || "").trim().toLowerCase()}
+                  className="bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-red-700 disabled:opacity-40">
+                  Excluir definitivamente
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </section>
     </div>
   );

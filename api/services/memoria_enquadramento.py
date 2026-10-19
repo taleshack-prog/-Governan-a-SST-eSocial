@@ -1,6 +1,13 @@
 # api/services/memoria_enquadramento.py — SST ESOCIAL GOV
 # Memória de enquadramento em PDF (Adendo 04, seção 6 / RF-0.183). É o documento que sustenta
-# o critério adotado (art. 202, §5º: enquadramento é ato da empresa, revisável a qualquer tempo).
+# o critério adotado (DECRETO 3.048/99, art. 202, §5º: enquadramento é ato da empresa, revisável
+# a qualquer tempo pela Receita Federal).
+#
+# CITAR SEMPRE A NORMA JUNTO DO ARTIGO. Existem dois "art. 202" no vocabulário deste projeto, e
+# a IN RFB 2.321/2026 tornou a confusão provável: o art. 202 do DECRETO 3.048/99 é o nosso — a
+# atividade preponderante, o enquadramento por estabelecimento e a revisão a qualquer tempo. O
+# art. 202 da IN RFB 2.110/2022 (alterado pela IN 2.321/2026) trata de alíquotas sobre a receita
+# da comercialização da produção rural. Mesmo número, normas e matérias diferentes.
 # Fonte do quantitativo = declaração da empresa; fonte do grau = anexo oficial. NÃO cita serviço
 # de consulta de CNPJ. Itens [A CONFIRMAR] (portaria do FAP, incisos) ficam marcados, nunca inventados.
 from io import BytesIO

@@ -529,12 +529,12 @@ async def listar_fpas_estab(
         .where(EstabelecimentoFpasPeriodo.estabelecimento_id == estab_id)
         .order_by(EstabelecimentoFpasPeriodo.inicio)
     )).scalars().all()
-    codigos = {r.codigo_fpas for r in rows}
-    descr = {}
-    if codigos:
-        descr = {t.codigo_fpas: (t.descricao, float(t.aliquota_terceiros)) for t in (await db.execute(
-            select(TabelaFPAS).where(TabelaFPAS.codigo_fpas.in_(codigos))
-        )).scalars().all()}
+    # A alíquota de cada período é lida NA VIGÊNCIA DAQUELE PERÍODO, não "a atual" — a tabela
+    # tem três vigências dentro da janela, e aplicar a de hoje ao passado erra sem emitir erro.
+    from api.services.terceiros import aliquota_em
+    por_periodo = {}
+    for r in rows:
+        por_periodo[r.id] = await aliquota_em(r.codigo_fpas, r.inicio, db)
     # Janela sugerida para um período NOVO (item 3): o padrão é a apuração inteira, recortada
     # pela vida do estabelecimento. Nascendo com um mês só, 59 das 60 competências ficariam sem
     # FPAS informado — e o usuário não tem como adivinhar que precisa esticar o período.
@@ -553,8 +553,13 @@ async def listar_fpas_estab(
         },
         "periodos": [{
             "codigo_fpas": r.codigo_fpas,
-            "descricao": descr.get(r.codigo_fpas, (None, None))[0],
-            "aliquota_terceiros": descr.get(r.codigo_fpas, (None, None))[1],
+            "descricao": por_periodo[r.id]["descricao"],
+            "aliquota_terceiros": por_periodo[r.id]["aliquota_terceiros"],
+            # A fonte viaja junto: o laudo cita o fundamento, e o fundamento muda.
+            "fonte": por_periodo[r.id]["fonte"],
+            "vigencia_aplicada": por_periodo[r.id]["vigencia_inicio"],
+            "em_conferencia": por_periodo[r.id]["em_conferencia"],
+            "motivo": por_periodo[r.id]["motivo"],
             "inicio": r.inicio.isoformat(), "fim": r.fim.isoformat() if r.fim else None,
             "declarado_por": r.declarado_por,
         } for r in rows],

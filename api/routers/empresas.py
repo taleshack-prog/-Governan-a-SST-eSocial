@@ -22,7 +22,7 @@ from api.models.empresa_cnae_secundario import EmpresaCnaeSecundario
 from api.models.cnae_enquadramento import CnaeEnquadramento
 from api.models.cnae_fpas_sugestao import CnaeFpasSugestao
 from api.models.usuario import Usuario
-from api.auth import get_current_user, require_perfil
+from api.auth import get_current_user, require_perfil, require_papel
 from api.services.enquadramento_situacao import situacao_de, divergencia_de
 
 router = APIRouter()
@@ -379,14 +379,22 @@ async def consulta_cnpj(
 
 @router.get("/opcoes/fpas")
 async def listar_fpas(
+    em: date | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    from api.models.tabela_fpas import TabelaFPAS
-    rows = (await db.execute(
-        select(TabelaFPAS).where(TabelaFPAS.ativo == True).order_by(TabelaFPAS.codigo_fpas)
-    )).scalars().all()
-    return [{"codigo": r.codigo_fpas, "descricao": r.descricao, "aliquota_terceiros": float(r.aliquota_terceiros)} for r in rows]
+    """Códigos FPAS oferecíveis NA competência informada (padrão: hoje).
+
+    Filtrado por vigência: a tabela tem três vigências dentro da janela de apuração, e oferecer
+    um código que não vigia naquela competência seria convidar a declarar o impossível. A fonte
+    acompanha cada opção — o laudo cita o fundamento, e o fundamento muda.
+    """
+    from api.services.terceiros import opcoes_em
+    rows = await opcoes_em(em or date.today(), db)
+    return [{"codigo": r["codigo_fpas"], "descricao": r["descricao"],
+             "aliquota_terceiros": r["aliquota_terceiros"], "fonte": r["fonte"],
+             "vigencia_inicio": r["vigencia_inicio"], "vigencia_fim": r["vigencia_fim"]}
+            for r in rows]
 
 
 @router.get("/{empresa_id}")
@@ -423,6 +431,9 @@ async def obter_empresa(
         # Origem por campo + composição real do cadastro (item 1 da revisão)
         "campos_origem": empresa.campos_origem or {},
         "resumo_origem": _resumo_origem(empresa.campos_origem or {}),
+        # RF-0.207: a tela precisa saber se está arquivada para oferecer Restaurar
+        "arquivada": bool(empresa.arquivada),
+        "arquivada_em": empresa.arquivada_em.isoformat() if empresa.arquivada_em else None,
         "endereco": empresa.endereco,
         "numero": empresa.numero,
         "complemento": empresa.complemento,
@@ -486,48 +497,93 @@ async def atualizar_empresa(
     return {"id": str(empresa.id), "ok": True}
 
 
-@router.post("/{empresa_id}/reset")
-async def zerar_empresa(
+# ---- Arquivar e excluir (RF-0.207) — substituem o "Zerar empresa" ----
+# A acao antiga apagava enquadramento ja apurado a UM CLIQUE de distancia, sem possibilidade de
+# volta. Era o risco mais barato de eliminar no sistema inteiro. No lugar dela, duas acoes com
+# naturezas diferentes e protecoes diferentes:
+#   arquivar — REVERSIVEL: a empresa sai da lista principal, os dados permanecem integros;
+#   excluir  — IRREVERSIVEL: exige digitar a razao social e e restrita ao titular.
+# Nenhuma das duas depende da estrutura multiescritorio; so o seletor de empresa depende, e
+# esse segue adiado.
+class ExclusaoConfirmacao(BaseModel):
+    razao_social: str
+
+
+@router.post("/{empresa_id}/arquivar")
+async def arquivar_empresa(
     empresa_id: UUID,
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(require_perfil("admin")),
 ):
-    """Zera o cadastro do tenant (uso em testes): apaga estabelecimentos (e, por cascata no banco,
-    atividades/enquadramento/FAP/RAT/custeio/rubrica/achado), regime, CPRB e CNAEs secundários, e
-    limpa os campos de cadastro da empresa. NÃO apaga a linha da empresa (mantém o login) nem mexe
-    em razão social/CNPJ (reaproveitados ou sobrescritos na tela). Bloqueia se houver dados
-    vinculados que impeçam (trabalhador/documento/vínculo apontando para o estabelecimento)."""
+    """Tira a empresa da lista principal SEM apagar nada. Reversivel."""
     if str(empresa_id) != str(current_user.empresa_id):
         raise HTTPException(status_code=403, detail="Sem permissão para esta empresa")
     empresa = (await db.execute(select(Empresa).where(Empresa.id == empresa_id))).scalar_one_or_none()
     if not empresa:
         raise HTTPException(status_code=404, detail="Empresa não encontrada")
+    empresa.arquivada = True
+    empresa.arquivada_em = datetime.now(timezone.utc)
+    await db.commit()
+    return {"id": str(empresa.id), "arquivada": True,
+            "mensagem": "Empresa arquivada. Os dados seguem íntegros e podem ser restaurados."}
+
+
+@router.post("/{empresa_id}/desarquivar")
+async def desarquivar_empresa(
+    empresa_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(require_perfil("admin")),
+):
+    if str(empresa_id) != str(current_user.empresa_id):
+        raise HTTPException(status_code=403, detail="Sem permissão para esta empresa")
+    empresa = (await db.execute(select(Empresa).where(Empresa.id == empresa_id))).scalar_one_or_none()
+    if not empresa:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+    empresa.arquivada = False
+    empresa.arquivada_em = None
+    await db.commit()
+    return {"id": str(empresa.id), "arquivada": False}
+
+
+@router.delete("/{empresa_id}")
+async def excluir_empresa(
+    empresa_id: UUID,
+    confirmacao: ExclusaoConfirmacao,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(require_papel("titular")),
+):
+    """Apaga a empresa e tudo que pende dela. IRREVERSIVEL.
+
+    Duas travas, porque o que se perde aqui e enquadramento apurado:
+      - exige a RAZAO SOCIAL digitada e identica (nao e um clique);
+      - restrita ao papel TITULAR do escritorio.
+    """
+    if str(empresa_id) != str(current_user.empresa_id):
+        raise HTTPException(status_code=403, detail="Sem permissão para esta empresa")
+    empresa = (await db.execute(select(Empresa).where(Empresa.id == empresa_id))).scalar_one_or_none()
+    if not empresa:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+
+    informada = (confirmacao.razao_social or "").strip()
+    if informada.casefold() != (empresa.razao_social or "").strip().casefold():
+        raise HTTPException(
+            status_code=422,
+            detail=(f"Para excluir, digite a razão social exatamente como cadastrada: "
+                    f"\"{empresa.razao_social}\"."),
+        )
     try:
-        # estabelecimentos primeiro (cascata no banco cuida dos filhos do estabelecimento)
         await db.execute(delete(Estabelecimento).where(Estabelecimento.empresa_id == empresa_id))
         await db.execute(delete(EmpresaRegime).where(EmpresaRegime.empresa_id == empresa_id))
         await db.execute(delete(EmpresaCprb).where(EmpresaCprb.empresa_id == empresa_id))
         await db.execute(delete(EmpresaCnaeSecundario).where(EmpresaCnaeSecundario.empresa_id == empresa_id))
-        # limpa os campos de cadastro (mantém razao_social/cnpj — NOT NULL/UNIQUE, sobrescritos na tela)
-        empresa.cnae_principal = None
-        empresa.periodo_apuracao_inicio = None
-        empresa.periodo_apuracao_fim = None
-        empresa.data_abertura = None
-        empresa.data_encerramento = None
-        empresa.origem_cadastro = None
-        empresa.consultado_em = None
-        empresa.endereco = empresa.numero = empresa.complemento = None
-        empresa.bairro = empresa.cidade = empresa.uf = empresa.cep = None
-        empresa.cprb_status = "nao_informado"
-        empresa.cprb_verificado_por = None
-        empresa.cprb_verificado_em = None
+        await db.delete(empresa)
         await db.commit()
     except IntegrityError:
         await db.rollback()
         raise HTTPException(status_code=409, detail=(
-            "Não foi possível zerar: há dados vinculados a um estabelecimento "
-            "(trabalhador, documento ou vínculo). Remova-os antes de zerar a empresa."))
-    return {"id": str(empresa.id), "ok": True, "zerado": True}
+            "Não foi possível excluir: há dados vinculados (trabalhador, documento ou vínculo). "
+            "Remova-os antes, ou use Arquivar, que preserva tudo."))
+    return {"ok": True, "excluida": True, "razao_social": empresa.razao_social}
 
 
 # ---- Espelho do enquadramento da matriz (RF-0.155) ----

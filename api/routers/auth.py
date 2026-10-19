@@ -35,6 +35,13 @@ async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db),
 ):
+    # A busca pelo e-mail precisa rodar SEM contexto de escritorio: ele so sera conhecido depois
+    # de achar o usuario. Hoje isso acontece sozinho porque cada requisicao ASGI nasce num task
+    # proprio, com copia limpa do ContextVar — mas depender disso e depender de um detalhe do
+    # servidor. Limpar aqui torna a condicao explicita: se o contexto de outra requisicao
+    # vazasse, a policy de leitura filtraria pelo escritorio ERRADO e o usuario receberia
+    # "email ou senha incorretos" sem que houvesse nada de errado com a senha dele.
+    set_escritorio_ctx(None)
     result = await db.execute(select(Usuario).where(Usuario.email == form_data.username))
     user = result.scalar_one_or_none()
 
