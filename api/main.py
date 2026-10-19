@@ -32,6 +32,7 @@ from api.routers.rubricas import router as rubricas_router
 from api.routers.achados import router as achados_router
 from api.routers.relatorios import router as relatorios_router
 from api.routers.cnae import router as cnae_router
+from api.routers.fundamentacao import router as fundamentacao_router
 from api.routers import (
     auth, empresas, trabalhadores, documentos,
     agentes_nocivos, exames_medicos, cat, ai_validacoes, auditoria
@@ -111,6 +112,7 @@ app.include_router(auth.router,             prefix=f"{API_PREFIX}/auth",        
 app.include_router(empresas.router,         prefix=f"{API_PREFIX}/empresas",    tags=["Empresas"])
 app.include_router(estabelecimentos_router, prefix=f"{API_PREFIX}/estabelecimentos", tags=["Estabelecimentos"])
 app.include_router(cnae_router,             prefix=f"{API_PREFIX}/cnae",        tags=["CNAE / Enquadramento"])
+app.include_router(fundamentacao_router,    prefix=f"{API_PREFIX}/fundamentacao", tags=["Fundamentação normativa"])
 app.include_router(diagnostico_router, prefix=f"{API_PREFIX}/diagnostico", tags=["Diagnóstico"])
 app.include_router(rubricas_router, prefix=f"{API_PREFIX}/rubricas", tags=["Rubricas"])
 app.include_router(achados_router, prefix=f"{API_PREFIX}/achados", tags=["Achados"])

@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, date
 from sqlalchemy import String, Integer, SmallInteger, Boolean, DateTime, Date, Numeric, ForeignKey, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from api.database import Base
 
 
@@ -30,6 +30,9 @@ class Empresa(Base):
     periodo_apuracao_inicio: Mapped[date | None] = mapped_column(Date)
     periodo_apuracao_fim: Mapped[date | None] = mapped_column(Date)
     origem_cadastro: Mapped[str | None] = mapped_column(String(16))  # consultado | declarado
+    # Origem POR CAMPO (migration 034): {campo: {origem, valor_consultado, consultado_em,
+    # alterado_em}}. A coluna acima e resumo grosseiro e some na limpeza das depreciadas.
+    campos_origem: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"), default=dict)
     consultado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # data/hora da consulta de CNPJ (RF-0.150)
     data_abertura: Mapped[date | None] = mapped_column(Date)       # excecao ano-calendario CPRB (RF-0.164)
     data_encerramento: Mapped[date | None] = mapped_column(Date)

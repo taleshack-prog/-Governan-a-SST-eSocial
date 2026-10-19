@@ -59,6 +59,137 @@ def _sem_sobreposicao(periodos: list[tuple[date, Optional[date]]]) -> bool:
     return True
 
 
+# Campos cuja origem é rastreada individualmente (item 1 da revisão). Os dois primeiros são os
+# que importam de verdade: entram em cálculo e são citados na memória de enquadramento. Afirmar
+# que vieram da Receita quando vieram do usuário é afirmação falsa em peça lida por fiscal.
+CAMPOS_RASTREADOS = (
+    "cnae_principal", "data_abertura",          # entram em cálculo
+    "razao_social", "nome_fantasia", "data_encerramento",
+    "endereco", "numero", "complemento", "bairro", "cidade", "uf", "cep",
+)
+
+
+def _txt(v) -> str | None:
+    """Normaliza para comparação: data vira ISO, vazio vira None."""
+    if v is None:
+        return None
+    s = v.isoformat() if isinstance(v, (date, datetime)) else str(v)
+    s = s.strip()
+    return s or None
+
+
+def _atualizar_campos_origem(empresa: Empresa, salvos: dict, consultados: dict | None,
+                             consultado_em) -> dict:
+    """Recalcula o mapa de origem por campo. Devolve o mapa novo.
+
+    Regra: um campo é 'consultado' somente enquanto o valor salvo for IGUAL ao que a consulta
+    devolveu. Editado, vira 'declarado' — e o valor consultado é PRESERVADO, porque a diferença
+    entre os dois é ela própria um achado: cliente que troca o CNAE principal à mão para algo
+    diferente do cadastro oficial fica registrado.
+
+    O mapa anterior é preservado: salvar de novo sem reconsultar não apaga a procedência.
+    """
+    mapa = dict(empresa.campos_origem or {})
+    agora = datetime.now(timezone.utc).isoformat()
+    quando = consultado_em.isoformat() if isinstance(consultado_em, datetime) else (consultado_em or None)
+
+    for campo in CAMPOS_RASTREADOS:
+        if campo not in salvos:
+            continue                     # não veio neste PUT: mantém o que já estava
+        valor = _txt(salvos.get(campo))
+        atual = dict(mapa.get(campo) or {})
+
+        if consultados is not None and campo in consultados:
+            # houve consulta nesta gravação: (re)ancora a procedência deste campo
+            atual["valor_consultado"] = _txt(consultados.get(campo))
+            atual["consultado_em"] = quando or atual.get("consultado_em")
+
+        ancora = atual.get("valor_consultado")
+        if ancora is None:
+            atual["origem"] = "declarado" if valor is not None else None
+        elif valor == ancora:
+            atual["origem"] = "consultado"
+            atual["alterado_em"] = None
+        else:
+            if atual.get("origem") != "declarado":
+                atual["alterado_em"] = agora
+            atual["origem"] = "declarado"
+
+        if atual.get("origem") is None and not atual.get("valor_consultado"):
+            mapa.pop(campo, None)        # campo vazio e nunca consultado: nada a registrar
+        else:
+            mapa[campo] = atual
+    return mapa
+
+
+def _resumo_origem(mapa: dict) -> dict:
+    """Composição real do cadastro, para a linha de resumo da tela."""
+    consultados = [c for c, v in (mapa or {}).items() if (v or {}).get("origem") == "consultado"]
+    alterados = [c for c, v in (mapa or {}).items()
+                 if (v or {}).get("origem") == "declarado" and (v or {}).get("valor_consultado")]
+    declarados = [c for c, v in (mapa or {}).items()
+                  if (v or {}).get("origem") == "declarado" and not (v or {}).get("valor_consultado")]
+    quando = None
+    for v in (mapa or {}).values():
+        q = (v or {}).get("consultado_em")
+        if q and (quando is None or q > quando):
+            quando = q
+    return {
+        "consultado_em": quando,
+        "campos_consultados": sorted(consultados),
+        "campos_alterados": sorted(alterados),     # vieram da consulta e foram editados
+        "campos_declarados": sorted(declarados),   # nunca vieram da consulta
+    }
+
+
+def _exigir_cobertura_regime(periodos: list, empresa: Empresa) -> None:
+    """Recusa salvar regime que não cobre a janela de apuração inteira (item 4 da revisão).
+
+    Sem regime tributário não existe base de cálculo. No Simples Nacional a contribuição
+    patronal está no documento único para a maior parte dos anexos e só é devida à parte no
+    Anexo IV — tratar uma empresa do Simples como se devesse patronal cheia produz achado falso
+    de grande valor. Por isso lacuna é erro, não aviso: o cadastro não grava.
+
+    Vale para QUALQUER buraco na janela, não só para a ausência total — a lacuna no meio é a
+    mais perigosa, porque o cadastro parece preenchido.
+    """
+    ini, fim = empresa.periodo_apuracao_inicio, empresa.periodo_apuracao_fim
+    if not ini or not fim:
+        return   # sem janela definida não há o que cobrir; a janela é exigida em outro ponto
+    if not periodos:
+        raise HTTPException(
+            status_code=422,
+            detail=(f"Informe o regime tributário de {ini.strftime('%m/%Y')} a "
+                    f"{fim.strftime('%m/%Y')}. Sem regime não há base de cálculo."),
+        )
+    ordenados = sorted(periodos, key=lambda p: p.inicio)
+    if ordenados[0].inicio > ini:
+        raise HTTPException(
+            status_code=422,
+            detail=(f"O regime começa em {ordenados[0].inicio.strftime('%m/%Y')}, depois do início "
+                    f"da apuração ({ini.strftime('%m/%Y')}). Cubra o período inteiro."),
+        )
+    # procura buraco entre períodos consecutivos
+    cobertura = ordenados[0].fim
+    for prox in ordenados[1:]:
+        if cobertura is None:
+            break            # período aberto absorve o resto
+        seguinte = date(cobertura.year + (cobertura.month // 12), (cobertura.month % 12) + 1, 1)
+        if prox.inicio > seguinte:
+            raise HTTPException(
+                status_code=422,
+                detail=(f"Lacuna no regime tributário entre {seguinte.strftime('%m/%Y')} e "
+                        f"{prox.inicio.strftime('%m/%Y')}. Todo mês da apuração precisa de regime."),
+            )
+        cobertura = prox.fim   # ordenados e sem sobreposição: o fim do próximo é a nova cobertura
+    if cobertura is not None and cobertura < fim:
+        raise HTTPException(
+            status_code=422,
+            detail=(f"O regime termina em {cobertura.strftime('%m/%Y')}, antes do fim da apuração "
+                    f"({fim.strftime('%m/%Y')}). Estenda o último período ou deixe o fim em branco."),
+        )
+
+
 async def _garantir_matriz(empresa: Empresa, db: AsyncSession, declarante: str | None = None) -> None:
     """RF-0.152: ao salvar a empresa, garante o estabelecimento matriz e registra a atividade
     declarada da matriz (input do motor do Adendo 04). O enquadramento apurado (grau/RAT) é
@@ -125,6 +256,10 @@ class EmpresaUpdate(BaseModel):
     origem_cadastro: str | None = None
     consultado_em: datetime | None = None             # data/hora da consulta (RF-0.150)
     cnaes_secundarios: List[str] | None = None         # lista de códigos, gravada à parte
+    # O que a consulta pública devolveu, campo a campo. NÃO é o rótulo de origem: é a matéria
+    # bruta com que o backend DECIDE a origem comparando com o valor salvo (item 1 da revisão).
+    # A tela não tem como afirmar "consultado" sobre um dado digitado.
+    campos_consultados: dict[str, str | None] | None = None
     endereco: str | None = None
     numero: str | None = None
     complemento: str | None = None
@@ -285,6 +420,9 @@ async def obter_empresa(
         "data_encerramento": empresa.data_encerramento.isoformat() if empresa.data_encerramento else None,
         "origem_cadastro": empresa.origem_cadastro,
         "consultado_em": empresa.consultado_em.isoformat() if empresa.consultado_em else None,
+        # Origem por campo + composição real do cadastro (item 1 da revisão)
+        "campos_origem": empresa.campos_origem or {},
+        "resumo_origem": _resumo_origem(empresa.campos_origem or {}),
         "endereco": empresa.endereco,
         "numero": empresa.numero,
         "complemento": empresa.complemento,
@@ -326,8 +464,14 @@ async def atualizar_empresa(
     payload = data.model_dump(exclude_unset=True)
     # CNAEs secundários são relação 1:N — tratados à parte (RF-0.150: gravar todo o retorno da consulta)
     secundarios = payload.pop("cnaes_secundarios", None)
+    consultados = payload.pop("campos_consultados", None)
     for k, v in payload.items():
         setattr(empresa, k, v)
+    # Origem POR CAMPO (item 1): decidida aqui comparando o que foi salvo com o que a consulta
+    # devolveu — nunca aceita pronta do cliente.
+    empresa.campos_origem = _atualizar_campos_origem(
+        empresa, payload, consultados, payload.get("consultado_em") or empresa.consultado_em
+    )
     if secundarios is not None:
         await db.execute(delete(EmpresaCnaeSecundario).where(EmpresaCnaeSecundario.empresa_id == empresa_id))
         vistos = set()
@@ -424,9 +568,23 @@ async def matriz_enquadramento(
         devida = float(apurada.aliquota_devida)
         aplicada = float(apurada.aliquota_aplicada) if apurada.aliquota_aplicada is not None else None
         efetiva = float(apurada.aliquota_efetiva) if apurada.aliquota_efetiva is not None else None
+        # Resumo da SÉRIE INTEIRA (item 7): o espelho mostra uma competência de sessenta, e quem
+        # olha a tela precisa saber disso antes de concluir qualquer coisa sobre o caso — na
+        # mesma empresa a divergência de um ano pode ser crédito e a de outro, passivo.
+        todas = (await db.execute(
+            select(E).where(E.estabelecimento_id == matriz.id)
+        )).scalars().all()
+        resumo = {"total": len(todas), "conferidas": 0, "apuradas": 0, "em_conferencia": 0}
+        for r in todas:
+            s = situacao_de(r.em_fila,
+                            float(r.aliquota_devida) if r.aliquota_devida is not None else None,
+                            float(r.aliquota_aplicada) if r.aliquota_aplicada is not None else None)
+            resumo["conferidas" if s == "conferido" else
+                   "apuradas" if s == "apurado" else "em_conferencia"] += 1
         return {
             "existe": True,
             "estabelecimento_id": str(matriz.id),
+            "serie_resumo": resumo,
             "enquadramento": {
                 "cnae": apurada.cnae_preponderante,
                 "grau_risco": apurada.grau_risco,
@@ -520,14 +678,23 @@ async def salvar_regime(
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(require_perfil("admin")),
 ):
-    """Substitui a lista de períodos de regime. Valida sem sobreposição (RF-0.156)."""
+    """Substitui a lista de períodos de regime. Valida sem sobreposição e SEM LACUNA (RF-0.156).
+
+    A verificação de lacuna existia só no formulário. Qualquer caminho que não passasse pela
+    tela gravava em silêncio — e sem regime tributário não há base de cálculo: tratar uma
+    empresa do Simples como se devesse patronal cheia produz achado falso de grande valor.
+    """
     if str(empresa_id) != str(current_user.empresa_id):
         raise HTTPException(status_code=403, detail="Sem permissão para esta empresa")
+    empresa = (await db.execute(select(Empresa).where(Empresa.id == empresa_id))).scalar_one_or_none()
+    if not empresa:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
     for it in data:
         if it.fim and it.fim < it.inicio:
             raise HTTPException(status_code=422, detail="Período de regime com fim anterior ao início.")
     if not _sem_sobreposicao([(it.inicio, it.fim) for it in data]):
         raise HTTPException(status_code=422, detail="Períodos de regime se sobrepõem.")
+    _exigir_cobertura_regime(data, empresa)
     existentes = (await db.execute(
         select(EmpresaRegime).where(EmpresaRegime.empresa_id == empresa_id)
     )).scalars().all()

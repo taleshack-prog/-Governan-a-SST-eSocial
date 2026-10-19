@@ -7,6 +7,14 @@
 import { useEffect, useState } from "react";
 import { apiClient } from "../api/client";
 import { useAuthStore } from "../store/authStore";
+import { Fundamentacao } from "../components/Fundamentacao";
+import * as fmt from "../utils/formato";
+
+// Item 5: dado derivado se apresenta como VALOR, não como caixa de entrada. Sem borda e sem
+// fundo de input — a diferença entre "isto você preenche" e "isto o sistema calculou" precisa
+// ser evidente sem que ninguém leia a legenda do cadeado.
+const derivLabel = "block text-[11px] text-gray-500";
+const derivVal = "text-lg font-semibold text-gray-900 tabular-nums leading-tight";
 
 const REGIMES = [
   { v: "lucro_real", label: "Lucro Real" },
@@ -103,6 +111,8 @@ export function CadastroEmpresa() {
     contato_nome: "", contato_email: "", contato_telefone: "",
   });
   const [origem, setOrigem] = useState<string>("");          // consultado | declarado
+  const [consultaBruta, setConsultaBruta] = useState<Record<string, string | null> | null>(null);
+  const [resumoOrigem, setResumoOrigem] = useState<any>(null);   // composição real, vinda do backend
   const [consultadoEm, setConsultadoEm] = useState<string>("");
   const [secundarios, setSecundarios] = useState<any[]>([]);
   const [regimes, setRegimes] = useState<Periodo[]>([]);
@@ -136,6 +146,7 @@ export function CadastroEmpresa() {
         contato_nome: d.contato_nome ?? "", contato_email: d.contato_email ?? "", contato_telefone: d.contato_telefone ?? "",
       }));
       setOrigem(d.origem_cadastro ?? "");
+      setResumoOrigem(d.resumo_origem ?? null);
       setConsultadoEm(d.consultado_em ?? "");
       setSecundarios(d.cnaes_secundarios ?? []);
       setNumEstab(d.num_estabelecimentos ?? 0);
@@ -183,6 +194,15 @@ export function CadastroEmpresa() {
         cidade: ou(x.municipio, f.cidade), uf: ou(x.uf, f.uf), cep: ou(x.cep, f.cep),
         data_abertura: ou(x.data_abertura, f.data_abertura),
       }));
+      // Item 1: guarda EXATAMENTE o que a consulta devolveu, por campo. É enviado no salvamento
+      // para o backend decidir a origem comparando com o valor gravado — a tela não afirma
+      // origem, só reporta o que recebeu.
+      setConsultaBruta({
+        razao_social: x.razao_social ?? null, nome_fantasia: x.nome_fantasia ?? null,
+        cnae_principal: x.cnae_principal ?? null, data_abertura: x.data_abertura ?? null,
+        endereco: x.logradouro ?? null, numero: x.numero ?? null, complemento: x.complemento ?? null,
+        bairro: x.bairro ?? null, cidade: x.municipio ?? null, uf: x.uf ?? null, cep: x.cep ?? null,
+      });
       setSecundarios(x.cnaes_secundarios || []);
       setOrigem("consultado");
       setConsultadoEm(x.consultado_em || new Date().toISOString());
@@ -230,6 +250,9 @@ export function CadastroEmpresa() {
         data_abertura: form.data_abertura || null, data_encerramento: form.data_encerramento || null,
         origem_cadastro: origem || "declarado",
         consultado_em: origem === "consultado" ? (consultadoEm || null) : null,
+        // Só vai quando houve consulta nesta sessão de edição; o backend preserva o mapa
+        // anterior quando não vem, para salvar de novo não apagar a procedência.
+        ...(consultaBruta ? { campos_consultados: consultaBruta } : {}),
         cnaes_secundarios: secundarios.map((c: any) => c.codigo).filter(Boolean),
         endereco: form.endereco, numero: form.numero, complemento: form.complemento,
         bairro: form.bairro, cidade: form.cidade, uf: form.uf, cep: form.cep,
@@ -307,7 +330,30 @@ export function CadastroEmpresa() {
             </div>
             {cnpjErro && <p className="text-[11px] text-red-500 mt-1">{cnpjErro}</p>}
             {consultaMsg && <p className="text-[11px] text-amber-600 mt-1">{consultaMsg}</p>}
-            {origem && <p className="text-[11px] text-gray-400 mt-1">Origem do cadastro: <b>{origem}</b>{origem === "consultado" ? " (confirme antes de valer)" : ""}{origem === "consultado" && consultadoEm ? ` · consultado em ${new Date(consultadoEm).toLocaleString("pt-BR")}` : ""}.</p>}
+            {/* Item 1: a origem é POR CAMPO. A linha deixa de ser rótulo único e passa a dizer a
+                composição real — "consultado" num cadastro parcialmente digitado seria afirmação
+                falsa, e a memória de enquadramento cita a origem dos dados. */}
+            {(resumoOrigem?.consultado_em || origem) && (
+              <p className="text-[11px] text-gray-400 mt-1">
+                {resumoOrigem?.consultado_em
+                  ? <>Consultado em {fmt.dataHora(resumoOrigem.consultado_em)}</>
+                  : <>Origem do cadastro: <b>{origem}</b></>}
+                {resumoOrigem?.campos_alterados?.length > 0 && (
+                  <span className="text-amber-600" title={resumoOrigem.campos_alterados.join(", ")}>
+                    {" · "}{resumoOrigem.campos_alterados.length} campo
+                    {resumoOrigem.campos_alterados.length > 1 ? "s" : ""} alterado
+                    {resumoOrigem.campos_alterados.length > 1 ? "s" : ""} manualmente
+                  </span>
+                )}
+                {resumoOrigem?.campos_declarados?.length > 0 && (
+                  <span title={resumoOrigem.campos_declarados.join(", ")}>
+                    {" · "}{resumoOrigem.campos_declarados.length} preenchido
+                    {resumoOrigem.campos_declarados.length > 1 ? "s" : ""} à mão
+                  </span>
+                )}
+                {origem === "consultado" && !resumoOrigem?.consultado_em && " (confirme antes de valer)"}.
+              </p>
+            )}
           </div>
           <div>
             <label className={labelCls}>Período de apuração (competências)</label>
@@ -361,24 +407,96 @@ export function CadastroEmpresa() {
           <p className="text-xs text-gray-500">{espelho.motivo || "Enquadramento ainda não disponível."}</p>
         ) : (
           <>
-            <div className="grid grid-cols-4 gap-4">
-              <div><label className={labelCls}>CNAE preponderante</label><div className={roCls}>{espelho.enquadramento.cnae || "—"}</div></div>
-              <div><label className={labelCls}>Grau de risco</label><div className={roCls}>{espelho.enquadramento.grau_risco ? `${espelho.enquadramento.grau_risco} — ${espelho.enquadramento.grau_label}` : "—"}</div></div>
-              <div><label className={labelCls}>RAT devido (%)</label><div className={roCls}>{espelho.enquadramento.aliquota_rat != null ? espelho.enquadramento.aliquota_rat.toFixed(2) : "—"}</div></div>
-              <div><label className={labelCls}>RAT aplicado (%)</label><div className={roCls}>{espelho.enquadramento.aliquota_aplicada != null ? espelho.enquadramento.aliquota_aplicada.toFixed(2) : "não informado"}</div></div>
+            {/* Item 7: o espelho mostra UMA competência de sessenta. Essa frase vem antes dos
+                números, não em letra miúda embaixo — na mesma empresa um ano pode ser crédito
+                e outro, passivo. */}
+            <div className="flex flex-wrap items-baseline justify-between gap-2 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 mb-4">
+              <p className="text-xs text-gray-700">
+                {espelho.enquadramento.competencia ? (
+                  <>
+                    Competência <b>{fmt.competencia(espelho.enquadramento.competencia)}</b>
+                    {espelho.serie_resumo?.total ? <>, de {espelho.serie_resumo.total} analisadas</> : null}
+                    {espelho.serie_resumo ? (
+                      <> — {espelho.serie_resumo.conferidas} conferidas
+                        {espelho.serie_resumo.apuradas > 0 && <>, {espelho.serie_resumo.apuradas} sem o aplicado</>}
+                        {espelho.serie_resumo.em_conferencia > 0 && <>, {espelho.serie_resumo.em_conferencia} em conferência</>}
+                      </>
+                    ) : null}
+                  </>
+                ) : (
+                  <>Prévia — a série mensal ainda não foi apurada.</>
+                )}
+              </p>
+              <a href="/estabelecimentos" className="text-xs text-teal-700 hover:underline whitespace-nowrap">
+                Ver enquadramento completo →
+              </a>
             </div>
+
+            {/* Item 5: dado derivado é VALOR, não caixa de entrada. Sem moldura de input, para
+                ninguém tentar corrigir à mão o número que o sistema existe para calcular. */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4">
+              <div>
+                <span className={derivLabel}>CNAE preponderante</span>
+                <div className={derivVal}>{espelho.enquadramento.cnae || "—"}</div>
+              </div>
+              <div>
+                <span className={derivLabel}>Grau de risco</span>
+                <div className={derivVal}>
+                  {espelho.enquadramento.grau_risco
+                    ? <>{espelho.enquadramento.grau_risco}<span className="text-sm font-normal text-gray-500"> — {espelho.enquadramento.grau_label}</span></>
+                    : "—"}
+                </div>
+              </div>
+              <div>
+                <span className={derivLabel}>RAT devido</span>
+                <div className={derivVal}>{fmt.pct(espelho.enquadramento.aliquota_rat)}</div>
+              </div>
+              <div>
+                <span className={derivLabel}>RAT aplicado</span>
+                <div className={espelho.enquadramento.aliquota_aplicada != null ? derivVal : `${derivVal} text-gray-400`}>
+                  {espelho.enquadramento.aliquota_aplicada != null
+                    ? fmt.pct(espelho.enquadramento.aliquota_aplicada)
+                    : <span className="text-sm font-normal">não informado</span>}
+                </div>
+              </div>
+            </div>
+
             {espelho.enquadramento.confirmado && (
-              <div className="grid grid-cols-4 gap-4 mt-3">
-                <div><label className={labelCls}>FAP</label><div className={roCls}>{espelho.enquadramento.fap != null ? espelho.enquadramento.fap.toFixed(4) : "—"}</div></div>
-                <div><label className={labelCls}>Alíquota efetiva (%)</label><div className={roCls}>{espelho.enquadramento.aliquota_efetiva != null ? espelho.enquadramento.aliquota_efetiva.toFixed(4) : "—"}</div></div>
-                <div><label className={labelCls}>Divergência</label><div className={roCls}>{espelho.enquadramento.divergencia_pp != null ? `${espelho.enquadramento.divergencia_pp > 0 ? "+" : ""}${espelho.enquadramento.divergencia_pp.toFixed(2)} p.p.` : "—"}</div></div>
-                <div><label className={labelCls}>Situação</label><div className={roCls}>{ESP_SIT[espelho.enquadramento.situacao] || "—"}</div></div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4 mt-5 pt-4 border-t border-gray-100">
+                <div>
+                  <span className={derivLabel}>FAP</span>
+                  <div className={derivVal}>{fmt.num(espelho.enquadramento.fap, 4)}</div>
+                </div>
+                <div>
+                  <span className={derivLabel}>Alíquota efetiva</span>
+                  <div className={derivVal}>{fmt.pct(espelho.enquadramento.aliquota_efetiva, 4)}</div>
+                </div>
+                {/* Item 6: a divergência é o produto — é o número pelo qual o cliente paga.
+                    Peso maior, posição de resultado, e cor COM rótulo em texto: positiva é
+                    crédito a recuperar, negativa é passivo a regularizar. Confundir as duas num
+                    laudo é grave — quem compensa crédito inexistente responde com multa. */}
+                <div className="col-span-2">
+                  <span className={derivLabel}>Divergência</span>
+                  {espelho.enquadramento.divergencia_pp == null ? (
+                    <div className={`${derivVal} text-gray-400`}>—</div>
+                  ) : (
+                    <div className={`flex items-baseline gap-2 ${
+                      espelho.enquadramento.divergencia_pp > 0 ? "text-emerald-700"
+                      : espelho.enquadramento.divergencia_pp < 0 ? "text-red-700" : "text-gray-700"}`}>
+                      <span className="text-2xl font-bold tabular-nums">{fmt.pp(espelho.enquadramento.divergencia_pp)}</span>
+                      <span className="text-xs font-medium">
+                        {espelho.enquadramento.divergencia_pp > 0 ? "pagou a mais — crédito a recuperar"
+                         : espelho.enquadramento.divergencia_pp < 0 ? "pagou a menos — passivo a regularizar"
+                         : "sem divergência"}
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
-            <p className="text-[11px] text-gray-400 mt-2">
-              {espelho.enquadramento.competencia
-                ? `Competência ${espelho.enquadramento.competencia.slice(5, 7)}/${espelho.enquadramento.competencia.slice(0, 4)} — ${espelho.enquadramento.origem}.`
-                : espelho.enquadramento.origem}
+
+            <p className="text-[11px] text-gray-400 mt-4">
+              {espelho.enquadramento.origem}
               {espelho.motivo && ` ${espelho.motivo}`}
             </p>
           </>
@@ -437,8 +555,11 @@ export function CadastroEmpresa() {
         <h2 className="text-sm font-bold text-gray-800 mb-1">CPRB — desoneração da folha</h2>
         <p className="text-[11px] text-gray-400 mb-3">
           O estado precisa ser explícito: um bloco vazio não diz se a empresa <b>não optou</b> ou se
-          <b> ninguém verificou</b>. Opção anual e irretratável por ano-calendário (Lei 12.546/2011, art. 9º, §13);
-          extingue-se em 2028 (Lei 14.973/2024). Não confundir com o período de apuração.
+          <b> ninguém verificou</b>. Não confundir com o período de apuração.
+          {/* Item 3: a citação saiu daqui. Vem da tabela versionada — quando a lei mudar,
+              acrescenta-se linha na tabela e esta tela acompanha, em vez de exibir fundamento
+              revogado com aparência de vigente. */}
+          <Fundamentacao campo="cprb" />
         </p>
 
         {/* seletor dos três estados */}

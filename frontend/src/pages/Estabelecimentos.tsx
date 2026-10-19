@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "../api/client";
+import * as fmt from "../utils/formato";
 
 const NATUREZAS = ["CNPJ", "CNO", "CAEPF"];
 const POSICOES = ["matriz", "filial", "obra"];
@@ -178,11 +179,11 @@ function PainelModal({ estab, onFechar }: { estab: any; onFechar: () => void }) 
                     <td className="px-2 py-1.5">{r.cnae_preponderante || "—"}</td>
                     <td className="px-2 py-1.5 text-gray-500">{CRIT[r.criterio] || r.criterio || "—"}</td>
                     <td className="px-2 py-1.5">{r.grau_risco ?? "—"}</td>
-                    <td className="px-2 py-1.5">{r.aliquota_devida != null ? `${r.aliquota_devida.toFixed(2)}%` : "—"}</td>
-                    <td className="px-2 py-1.5">{r.fap != null ? r.fap.toFixed(4) : "—"}</td>
-                    <td className="px-2 py-1.5">{r.aliquota_efetiva != null ? `${r.aliquota_efetiva.toFixed(4)}%` : "—"}</td>
-                    <td className="px-2 py-1.5">{r.aliquota_aplicada != null ? `${r.aliquota_aplicada.toFixed(2)}%` : "—"}</td>
-                    <td className={`px-2 py-1.5 font-medium ${r.divergencia_pp ? "text-amber-700" : "text-gray-400"}`}>{r.divergencia_pp != null ? `${r.divergencia_pp > 0 ? "+" : ""}${r.divergencia_pp.toFixed(2)} p.p.` : "—"}</td>
+                    <td className="px-2 py-1.5">{fmt.pct(r.aliquota_devida)}</td>
+                    <td className="px-2 py-1.5">{fmt.num(r.fap, 4)}</td>
+                    <td className="px-2 py-1.5">{fmt.pct(r.aliquota_efetiva, 4)}</td>
+                    <td className="px-2 py-1.5">{fmt.pct(r.aliquota_aplicada)}</td>
+                    <td className={`px-2 py-1.5 font-medium tabular-nums ${r.divergencia_pp > 0 ? "text-emerald-700" : r.divergencia_pp < 0 ? "text-red-700" : "text-gray-400"}`} title={r.divergencia_pp > 0 ? "pagou a mais — crédito a recuperar" : r.divergencia_pp < 0 ? "pagou a menos — passivo a regularizar" : ""}>{fmt.pp(r.divergencia_pp)}</td>
                     <td className="px-2 py-1.5">
                       <span className={SIT[r.situacao]?.cls || "text-gray-400"}
                         title={r.motivo_fila || SIT[r.situacao]?.ajuda || ""}>
@@ -332,7 +333,7 @@ function FpasModal({ estab, onFechar }: { estab: any; onFechar: () => void }) {
             <select className={`${inp} col-span-6`} value={r.codigo_fpas || ""} onChange={(e) => upd(i, "codigo_fpas", e.target.value)}>
               <option value="">— selecione —</option>
               {opcoes.map((o) => (
-                <option key={o.codigo} value={o.codigo}>{o.codigo} — {o.descricao} ({o.aliquota_terceiros?.toFixed(2)}%)</option>
+                <option key={o.codigo} value={o.codigo}>{o.codigo} — {o.descricao} ({fmt.pct(o.aliquota_terceiros)})</option>
               ))}
             </select>
             <input type="month" className={`${inp} col-span-2`} value={r.inicio ? String(r.inicio).slice(0, 7) : ""}
@@ -426,7 +427,7 @@ function EstabModal({ form, setForm, onSalvar, onFechar, isPending, erro }: any)
                     ? `${form.enquadramento_atual.grau_risco} — ${form.enquadramento_atual.grau_label}` : "—"}</div></div>
                 <div><span className="text-[11px] text-gray-500">RAT devido</span>
                   <div className={ro}>{form.enquadramento_atual?.aliquota_devida != null
-                    ? `${form.enquadramento_atual.aliquota_devida.toFixed(2)}%` : "—"}</div></div>
+                    ? fmt.pct(form.enquadramento_atual.aliquota_devida) : "—"}</div></div>
                 <div><span className="text-[11px] text-gray-500">Situação</span>
                   <div className={`${ro} ${SIT[form.enquadramento_atual?.situacao]?.cls || ""}`}>
                     {SIT[form.enquadramento_atual?.situacao]?.txt || "—"}</div></div>
@@ -535,7 +536,7 @@ export function Estabelecimentos() {
                     </td>
                     <td className="px-4 py-3 text-gray-600" title={e.enquadramento_atual?.motivo_fila || SIT[e.enquadramento_atual?.situacao]?.ajuda || "série não apurada"}>
                       {e.enquadramento_atual?.aliquota_devida != null
-                        ? <span>{e.enquadramento_atual.aliquota_devida.toFixed(2)}% <span className={`text-xs ${SIT[e.enquadramento_atual.situacao]?.cls || ""}`}>{SIT[e.enquadramento_atual.situacao]?.txt}</span></span>
+                        ? <span>{fmt.pct(e.enquadramento_atual.aliquota_devida)} <span className={`text-xs ${SIT[e.enquadramento_atual.situacao]?.cls || ""}`}>{SIT[e.enquadramento_atual.situacao]?.txt}</span></span>
                         : "—"}
                     </td>
                     <td className="px-4 py-3 text-gray-600">{e.data_abertura || "—"}</td>

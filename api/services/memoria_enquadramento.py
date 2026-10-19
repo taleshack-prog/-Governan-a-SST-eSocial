@@ -19,6 +19,25 @@ GRAU_LABEL = {1: "leve (1%)", 2: "médio (2%)", 3: "grave (3%)"}
 CRIT = {"maior_quantitativo": "maior quantitativo", "desempate_grau": "empate → maior grau", "fila_conferencia": "conferência"}
 
 
+# Item 2 da revisao: virgula como separador decimal, ponto reservado para milhar. Este
+# documento vai para cliente e eventualmente para fiscal; ponto decimal, lido por um contador
+# brasileiro, parece defeito de sistema.
+def _n(v, casas: int = 2, sufixo: str = "") -> str:
+    if v is None:
+        return "—"
+    inteiro = f"{float(v):,.{casas}f}"
+    # troca simultanea: milhar '.' e decimal ','
+    return inteiro.replace(",", "\x00").replace(".", ",").replace("\x00", ".") + sufixo
+
+
+def _pp(v) -> str:
+    """Pontos percentuais com sinal. Menos tipografico, para nao ser lido como traco."""
+    if v is None:
+        return "—"
+    sinal = "+" if v > 0 else ("−" if v < 0 else "")
+    return f"{sinal}{_n(abs(float(v)), 2)}"
+
+
 def _p(txt, style):
     return Paragraph(txt, style)
 
@@ -81,11 +100,11 @@ def gerar_memoria_pdf(d: dict) -> bytes:
                 (r.get("competencia") or "")[:7], r.get("cnae_preponderante") or "—",
                 CRIT.get(r.get("criterio"), r.get("criterio") or "—"),
                 str(r.get("grau_risco") if r.get("grau_risco") is not None else "—"),
-                f"{r['aliquota_devida']:.0f}%" if r.get("aliquota_devida") is not None else "—",
-                f"{r['fap']:.4f}" if r.get("fap") is not None else "—",
-                f"{r['aliquota_efetiva']:.4f}%" if r.get("aliquota_efetiva") is not None else "—",
-                f"{r['aliquota_aplicada']:.2f}%" if r.get("aliquota_aplicada") is not None else "—",
-                f"{r['divergencia_pp']:+.2f}" if r.get("divergencia_pp") is not None else "—",
+                _n(r.get("aliquota_devida"), 0, "%"),
+                _n(r.get("fap"), 4),
+                _n(r.get("aliquota_efetiva"), 4, "%"),
+                _n(r.get("aliquota_aplicada"), 2, "%"),
+                _pp(r.get("divergencia_pp")),
                 ROTULO.get(r.get("situacao"), "—"),
             ])
         t = Table(data, repeatRows=1)
