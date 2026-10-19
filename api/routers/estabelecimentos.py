@@ -3,7 +3,7 @@
 # e DERIVADO da atividade preponderante (RN-20) — não é campo escolhido. A entrada do motor é a
 # lista de atividades com quantitativo por periodo (RF-0.173).
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -20,7 +20,7 @@ from api.models.estabelecimento_fpas_periodo import EstabelecimentoFpasPeriodo
 from api.models.cnae_enquadramento import CnaeEnquadramento
 from api.models.tabela_fpas import TabelaFPAS
 from api.models.usuario import Usuario
-from api.auth import get_current_user, require_perfil
+from api.auth import get_current_user, require_perfil, require_papel
 from api.services.enquadramento_situacao import (
     situacao_de, divergencia_de, origem_divergencia, divergencia_amparada, ROTULO_ORIGEM,
 )
@@ -31,6 +31,11 @@ TIPOS_ESTABELECIMENTO = ("CNPJ", "CNO", "CAEPF")   # RF-0.171
 POSICOES = ("matriz", "filial", "obra")
 STATUS_VALIDOS = ("ativa", "paralisada", "encerrada")
 GRAU_LABEL = {1: "leve", 2: "médio", 3: "grave"}
+
+
+def _autor(u: Usuario) -> str:
+    """Quem assina. Nunca "sistema": o estado conferido registra pessoa."""
+    return getattr(u, "email", None) or getattr(u, "nome", None) or str(getattr(u, "id", "?"))
 
 
 def _sem_sobreposicao(periodos: list, rotulo: str) -> None:
@@ -168,7 +173,9 @@ async def _enquadramento_corrente(estab_ids: list, db: AsyncSession) -> dict:
             "divergencia_pp": divergencia_de(efetiva, aplicada),
             "origem_divergencia": orig,
             "amparada": divergencia_amparada(orig, r.processo_rat, r.processo_fap),
-            "situacao": situacao_de(r.em_fila, devida, aplicada),
+            "situacao": situacao_de(r.em_fila, devida, r.conferido_por),
+            "conferido_por": r.conferido_por,
+            "conferido_em": r.conferido_em.isoformat() if r.conferido_em else None,
             "motivo_fila": r.motivo_fila,
         }
     return out
@@ -336,7 +343,7 @@ async def salvar_atividades(
         ))
     await db.commit()
     from api.services.motor_enquadramento import apurar_estabelecimento
-    await apurar_estabelecimento(estab_id, db)   # reapura a série ao mudar as atividades
+    await apurar_estabelecimento(estab_id, db, autor=_autor(current_user))   # reapura a série ao mudar as atividades
     return {"ok": True, "total": len(data)}
 
 
@@ -387,7 +394,7 @@ async def salvar_fap(
                                       origem="declarado", declarado_em=datetime.utcnow()))
     await db.commit()
     from api.services.motor_enquadramento import apurar_estabelecimento
-    await apurar_estabelecimento(estab_id, db)   # reapura a série ao mudar o FAP
+    await apurar_estabelecimento(estab_id, db, autor=_autor(current_user))   # reapura a série ao mudar o FAP
     return {"ok": True, "salvos": len(faps)}
 
 
@@ -504,7 +511,7 @@ async def salvar_rat_aplicado(
         ))
     await db.commit()
     from api.services.motor_enquadramento import apurar_estabelecimento
-    await apurar_estabelecimento(estab_id, db)
+    await apurar_estabelecimento(estab_id, db, autor=_autor(current_user))
     return {"ok": True, "periodos": len(data)}
 
 
@@ -615,7 +622,7 @@ async def apurar(
     """Recalcula a série mensal de enquadramento (preponderância → grau → RAT × FAP)."""
     await _tenant_estab(estab_id, current_user, db)
     from api.services.motor_enquadramento import apurar_estabelecimento
-    return await apurar_estabelecimento(estab_id, db)
+    return await apurar_estabelecimento(estab_id, db, autor=_autor(current_user))
 
 
 @router.get("/{estab_id}/enquadramento")
@@ -662,7 +669,11 @@ async def serie_enquadramento(
             "processo_rat": r.processo_rat,
             "processo_fap": r.processo_fap,
             "divergencia_pp": divergencia_de(efet, apl),
-            "situacao": situacao_de(r.em_fila, devida, apl),
+            "situacao": situacao_de(r.em_fila, devida, r.conferido_por),
+            "conferido_por": r.conferido_por,
+            "conferido_em": r.conferido_em.isoformat() if r.conferido_em else None,
+            "revogado_em": r.revogado_em.isoformat() if r.revogado_em else None,
+            "revogado_de": r.revogado_de,
             "em_fila": r.em_fila,
             "motivo_fila": r.motivo_fila,
             "fundamentacao": {
@@ -671,6 +682,88 @@ async def serie_enquadramento(
             },
         })
     return out
+
+
+# ---- Conferência: o ato humano (itens 1 e 2 da revisão de 19/10) ----
+# Este é o único lugar do sistema que grava "conferido". O motor não assina: conferir é ato
+# profissional, e é precisamente onde o cliente paga para alguém assinar embaixo. A competência
+# com pendência não pode ser conferida — não há o que validar.
+class ConferenciaIn(BaseModel):
+    competencias: list[date] | None = None   # None = todas as apuradas da janela
+    observacao: str | None = None
+
+
+@router.post("/{estab_id}/conferir")
+async def conferir_competencias(
+    estab_id: UUID,
+    data: ConferenciaIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(require_papel("operador")),
+):
+    """Registra que uma PESSOA examinou e validou as competências, com autor e data.
+
+    Recusa competência em conferência: validar o que o motor não conseguiu apurar seria assinar
+    sobre um número que não existe.
+    """
+    await _tenant_estab(estab_id, current_user, db)
+    E = EstabelecimentoEnquadramento
+    q = select(E).where(E.estabelecimento_id == estab_id)
+    if data.competencias:
+        q = q.where(E.competencia.in_(data.competencias))
+    rows = (await db.execute(q)).scalars().all()
+    if not rows:
+        raise HTTPException(status_code=404, detail="Nenhuma competência encontrada para conferir.")
+
+    pendentes = [r for r in rows if r.em_fila or r.aliquota_devida is None]
+    if pendentes and data.competencias:
+        comps = ", ".join(r.competencia.strftime("%m/%Y") for r in pendentes[:5])
+        raise HTTPException(
+            status_code=422,
+            detail=(f"Não é possível conferir competência em conferência: {comps}"
+                    f"{'…' if len(pendentes) > 5 else ''}. "
+                    f"Resolva a pendência (FAP, atividade, CNAE) antes de validar."),
+        )
+
+    autor = _autor(current_user)
+    agora = datetime.now(timezone.utc)
+    conferidas = 0
+    for r in rows:
+        if r.em_fila or r.aliquota_devida is None:
+            continue                       # pendente: fica de fora, sem erro, numa conferência em lote
+        r.conferido_por = autor
+        r.conferido_em = agora
+        r.revogado_em = r.revogado_por = r.revogado_de = None
+        conferidas += 1
+    await db.commit()
+    return {"ok": True, "conferidas": conferidas,
+            "ignoradas_por_pendencia": len(rows) - conferidas,
+            "conferido_por": autor, "conferido_em": agora.isoformat()}
+
+
+@router.post("/{estab_id}/desconferir")
+async def desconferir_competencias(
+    estab_id: UUID,
+    data: ConferenciaIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(require_papel("operador")),
+):
+    """Retira a validação humana, devolvendo as competências a apurado."""
+    await _tenant_estab(estab_id, current_user, db)
+    E = EstabelecimentoEnquadramento
+    q = select(E).where(E.estabelecimento_id == estab_id, E.conferido_por.isnot(None))
+    if data.competencias:
+        q = q.where(E.competencia.in_(data.competencias))
+    rows = (await db.execute(q)).scalars().all()
+    autor = _autor(current_user)
+    agora = datetime.now(timezone.utc)
+    for r in rows:
+        r.revogado_de = r.conferido_por
+        r.revogado_em = agora
+        r.revogado_por = autor
+        r.conferido_por = None
+        r.conferido_em = None
+    await db.commit()
+    return {"ok": True, "desconferidas": len(rows)}
 
 
 # ---- Memória de enquadramento em PDF (RF-0.183) ----
@@ -718,7 +811,9 @@ async def memoria_enquadramento(
             "amparada": divergencia_amparada(orig, r.processo_rat, r.processo_fap),
             "processo_rat": r.processo_rat, "processo_fap": r.processo_fap,
             "divergencia_pp": divergencia_de(efet, apl),
-            "situacao": situacao_de(r.em_fila, devida, apl),
+            "situacao": situacao_de(r.em_fila, devida, r.conferido_por),
+            "conferido_por": r.conferido_por,
+            "conferido_em": r.conferido_em.strftime("%d/%m/%Y") if r.conferido_em else None,
             "em_fila": r.em_fila, "motivo_fila": r.motivo_fila,
         })
     autoria = sorted({f"{a.declarado_por or 'n/d'} em {a.declarado_em.date().isoformat()}"

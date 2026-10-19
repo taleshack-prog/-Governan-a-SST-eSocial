@@ -62,6 +62,9 @@ class BrasilAPIProvider(CnpjProvider):
             "uf": d.get("uf"),
             "cep": f"{cep[:5]}-{cep[5:]}" if len(cep) == 8 else (cep or None),
             "situacao_cadastral": d.get("descricao_situacao_cadastral"),
+            # Item 8: a DATA da situacao vem junto. Sem ela, situacao diferente de ATIVA nao
+            # recorta a janela — vai a conferencia, nunca a uma data presumida.
+            "situacao_cadastral_data": d.get("data_situacao_cadastral"),
             "data_abertura": d.get("data_inicio_atividade"),   # excecao ano-calendario CPRB (RF-0.164)
         }
 

@@ -52,6 +52,16 @@ def _pp(v) -> str:
     return f"{sinal}{_n(abs(float(v)), 2)}"
 
 
+def _cnae(v) -> str:
+    """CNAE no formato oficial 4712-1/00 (item 6 da revisao de 19/10). E a grafia pela qual
+    contadores e fiscais reconhecem o codigo; sete digitos corridos, num laudo, sugerem
+    transcricao sem cuidado."""
+    if not v:
+        return "—"
+    d = "".join(c for c in str(v) if c.isdigit())
+    return f"{d[:4]}-{d[4:5]}/{d[5:]}" if len(d) == 7 else str(v)
+
+
 def _d(iso: str | None) -> str:
     """Data ISO para dia/mes/ano (item 7 da revisao: vale tambem nos documentos gerados)."""
     if not iso:
@@ -109,7 +119,7 @@ def gerar_memoria_pdf(d: dict) -> bytes:
         data = [["CNAE", "Descrição", "Nº trab.", "Vigência"]]
         for a in ativ:
             vig = _d(a.get("inicio")) + (f" a {_d(a['fim'])}" if a.get("fim") else " (aberto)")
-            data.append([a.get("cnae") or "", (a.get("descricao") or "")[:60], str(a.get("quantitativo") if a.get("quantitativo") is not None else "—"), vig])
+            data.append([_cnae(a.get("cnae")), (a.get("descricao") or "")[:60], str(a.get("quantitativo") if a.get("quantitativo") is not None else "—"), vig])
         t = Table(data, colWidths=[2.2 * cm, 8.2 * cm, 1.8 * cm, 4.5 * cm])
         t.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
@@ -132,7 +142,7 @@ def gerar_memoria_pdf(d: dict) -> bytes:
                  "RAT apl.", "FAP apl.", "Aplicado", "Diverg.", "Origem", "Sit."]]
         for r in serie:
             data.append([
-                _comp(r.get("competencia")), r.get("cnae_preponderante") or "—",
+                _comp(r.get("competencia")), _cnae(r.get("cnae_preponderante")),
                 CRIT.get(r.get("criterio"), r.get("criterio") or "—"),
                 str(r.get("grau_risco") if r.get("grau_risco") is not None else "—"),
                 _n(r.get("aliquota_devida"), 0, "%"),
@@ -163,16 +173,31 @@ def gerar_memoria_pdf(d: dict) -> bytes:
         n_conf = sum(1 for r in serie if r.get("situacao") == SITUACAO_CONFERENCIA)
         n_apur = sum(1 for r in serie if r.get("situacao") == SITUACAO_APURADO)
         el.append(Spacer(1, 0.2 * cm))
+        n_conferido = sum(1 for r in serie if r.get("situacao") == "conferido")
+        quem = sorted({r.get("conferido_por") for r in serie if r.get("conferido_por")})
         el.append(_p(
-            "<b>Situação por competência.</b> "
-            "<i>conferência</i> — falta dado para apurar o devido (FAP do ano, CNAE fora do "
-            "Anexo I, quantitativo não declarado); nada é afirmado. "
-            "<i>apurado</i> — o devido está calculado, mas a alíquota efetivamente aplicada pela "
-            "empresa não foi informada; não houve comparação. "
-            "<i>conferido</i> — devido e aplicado foram confrontados e a divergência consta na "
-            "coluna anterior. "
-            f"Neste período: {n_conf} em conferência, {n_apur} apuradas sem o aplicado informado.",
+            "<b>Situação por competência — quem afirma o quê.</b> "
+            "<i>Em conferência</i> — há pendência e o motor não concluiu (FAP do ano, CNAE fora "
+            "do Anexo I, quantitativo não declarado). Nada é afirmado. "
+            "<i>Apurado</i> — o motor calculou até o fim sem pendência. É <b>afirmação do "
+            "sistema</b>, não validação profissional. "
+            "<i>Conferido</i> — uma <b>pessoa</b> examinou e validou a competência, e o nome e a "
+            "data constam abaixo. Nenhuma competência chega a este estado por cálculo.",
             small))
+        el.append(_p(
+            f"Neste período: <b>{n_apur} apuradas</b> pelo sistema, <b>{n_conf} em conferência</b>, "
+            f"<b>{n_conferido} conferidas</b> por pessoa"
+            + (f" ({'; '.join(quem)})." if quem else
+               ". Nenhuma competência deste período foi validada por pessoa — o que consta aqui "
+               "é apuração do sistema, e não substitui a conferência profissional."),
+            small))
+        revogadas = [r for r in serie if r.get("revogado_em")]
+        if revogadas:
+            el.append(_p(
+                f"<b>{len(revogadas)} competência(s)</b> tinham sido conferidas e a validação foi "
+                "revogada porque um dado de cálculo mudou depois. Conferir é assinar sobre um "
+                "número determinado: se o número muda, a assinatura anterior não corresponde "
+                "mais ao que está apurado.", small))
         el.append(_p(
             "A divergência é a diferença entre a alíquota aplicada e a alíquota <b>efetiva</b> "
             "(RAT × FAP), que é a base do recolhimento do GILRAT — não o RAT devido isolado.",

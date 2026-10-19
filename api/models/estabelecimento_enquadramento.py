@@ -34,6 +34,15 @@ class EstabelecimentoEnquadramento(Base):
     fap_aplicado: Mapped[float | None] = mapped_column(Numeric(5, 4))
     processo_rat: Mapped[str | None] = mapped_column(String(120))
     processo_fap: Mapped[str | None] = mapped_column(String(120))
+    # ATO HUMANO (migration 040). O motor NUNCA preenche estas duas: conferir e ato profissional,
+    # nao resultado de calculo, e e aqui que fica registrada a assinatura de quem valida.
+    conferido_por: Mapped[str | None] = mapped_column(String(200))
+    conferido_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Rastro da revogacao: conferir e assinar sobre um numero determinado; se o numero mudou,
+    # a assinatura nao corresponde mais a nada, mas o historico de que existiu permanece.
+    revogado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revogado_por: Mapped[str | None] = mapped_column(String(200))
+    revogado_de: Mapped[str | None] = mapped_column(String(200))
     em_fila: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     motivo_fila: Mapped[str | None] = mapped_column(String(200))
     fund_dispositivo: Mapped[str | None] = mapped_column(String(200))

@@ -77,7 +77,15 @@ async def semear():
             "INSERT INTO usuarios (email, senha_hash, nome, perfil, empresa_id, escritorio_id, papel,"
             " ativo) VALUES ($1,$2,$3,'admin',$4,$5,'titular',true)",
             email, hash_password("senha-de-teste"), f"Usuario {rotulo}", emp, esc)
-        ids[rotulo] = {"escritorio": esc, "empresa": emp, "estab": est, "email": email}
+        # Um LEITOR no mesmo escritorio: serve para provar que a restricao do excluir ao titular
+        # esta aplicada no servidor, e nao apenas descrita no texto da interface.
+        await c.execute(
+            "INSERT INTO usuarios (email, senha_hash, nome, perfil, empresa_id, escritorio_id, papel,"
+            " ativo) VALUES ($1,$2,$3,'admin',$4,$5,'leitor',true)",
+            f"leitor-{rotulo.lower()}@teste.local", hash_password("senha-de-teste"),
+            f"Leitor {rotulo}", emp, esc)
+        ids[rotulo] = {"escritorio": esc, "empresa": emp, "estab": est, "email": email,
+                       "email_leitor": f"leitor-{rotulo.lower()}@teste.local"}
     await c.close()
     return ids
 
@@ -159,6 +167,68 @@ async def main():
                                  json={"razao_social": "nome errado"})
         ok(resp.status_code == 422,
            "a própria empresa não é excluída com a razão social errada", f"HTTP {resp.status_code}")
+
+        print("\n— Papel: o excluir é restrito ao TITULAR, no servidor —")
+        r = await asyncio.create_task(cli.post("/api/auth/token", data={
+            "username": A["email_leitor"], "password": "senha-de-teste"}))
+        ok(r.status_code == 200, "o leitor do escritório A entra", f"HTTP {r.status_code}")
+        if r.status_code == 200:
+            hL = {"Authorization": f"Bearer {r.json()['access_token']}"}
+            resp = await cli.get(f"/api/empresas/{A['empresa']}", headers=hL)
+            ok(resp.status_code == 200, "o leitor LÊ a empresa do próprio escritório", f"HTTP {resp.status_code}")
+            resp = await cli.request("DELETE", f"/api/empresas/{A['empresa']}", headers=hL,
+                                     json={"razao_social": "KRETA LTDA"})
+            ok(resp.status_code == 403,
+               "o leitor NÃO exclui, mesmo com a razão social correta", f"HTTP {resp.status_code}")
+            resp = await cli.post(f"/api/estabelecimentos/{A['estab']}/conferir", headers=hL, json={})
+            ok(resp.status_code == 403, "o leitor NÃO confere competência", f"HTTP {resp.status_code}")
+
+        print("\n— Regime tributário: lacuna não grava em silêncio —")
+        casos_regime = [
+            ([], "lista vazia"),
+            ([{"regime": "lucro_real", "inicio": "2024-01-01", "fim": "2024-05-01"},
+              {"regime": "simples", "anexo_simples": "IV", "inicio": "2024-08-01", "fim": None}],
+             "lacuna no meio (06/2024 a 07/2024)"),
+            ([{"regime": "lucro_real", "inicio": "2024-06-01", "fim": None}], "começa depois do início"),
+            ([{"regime": "lucro_real", "inicio": "2024-01-01", "fim": "2024-06-01"}], "termina antes do fim"),
+        ]
+        for corpo, nome in casos_regime:
+            resp = await cli.put(f"/api/empresas/{A['empresa']}/regime", headers=hA, json=corpo)
+            ok(resp.status_code == 422, f"recusa: {nome}", f"HTTP {resp.status_code}")
+        resp = await cli.put(f"/api/empresas/{A['empresa']}/regime", headers=hA,
+                             json=[{"regime": "lucro_real", "inicio": "2024-01-01", "fim": None}])
+        ok(resp.status_code == 200, "aceita o regime que cobre a janela inteira", f"HTTP {resp.status_code}")
+
+        print("\n— Conferência é ato humano, com autor e data —")
+        # Primeiro a serie precisa existir e estar APURADA: sem FAP informado toda competencia
+        # fica em conferencia, e competencia com pendencia nao pode ser validada.
+        resp = await cli.put(f"/api/estabelecimentos/{A['estab']}/fap", headers=hA,
+                             json=[{"ano": 2024, "fap": 1.0}])
+        ok(resp.status_code == 200, "informa o FAP de 2024 (o motor reapura)", f"HTTP {resp.status_code}")
+        resp = await cli.get(f"/api/estabelecimentos/{A['estab']}/enquadramento", headers=hA)
+        serie = resp.json() if resp.status_code == 200 else []
+        estados = {x["situacao"] for x in serie}
+        ok("conferido" not in estados,
+           "nenhuma competência nasce conferida — o sistema não se autodeclara", f"{sorted(estados)}")
+        resp = await cli.post(f"/api/estabelecimentos/{A['estab']}/conferir", headers=hA, json={})
+        ok(resp.status_code == 200 and (resp.json() or {}).get("conferidas", 0) > 0,
+           "o titular confere as apuradas",
+           f"HTTP {resp.status_code} · {(resp.json() or {}).get('conferidas') if resp.status_code==200 else ''}")
+        resp = await cli.get(f"/api/estabelecimentos/{A['estab']}/enquadramento", headers=hA)
+        serie = resp.json() if resp.status_code == 200 else []
+        com_autor = [x for x in serie if x.get("conferido_por")]
+        ok(len(com_autor) > 0 and all(x["situacao"] == "conferido" for x in com_autor),
+           "as conferidas gravam autor e data", f"{len(com_autor)} com autor")
+        # e agora o item 2: mudar dado de calculo revoga a conferencia
+        resp = await cli.put(f"/api/estabelecimentos/{A['estab']}/fap", headers=hA,
+                             json=[{"ano": 2024, "fap": 1.5}])
+        ok(resp.status_code == 200, "altera o FAP (dado de cálculo)", f"HTTP {resp.status_code}")
+        resp = await cli.get(f"/api/estabelecimentos/{A['estab']}/enquadramento", headers=hA)
+        serie = resp.json() if resp.status_code == 200 else []
+        ainda = [x for x in serie if x.get("conferido_por")]
+        revog = [x for x in serie if x.get("revogado_em")]
+        ok(not ainda, "a alteração REVOGOU a conferência anterior", f"{len(ainda)} ainda conferidas")
+        ok(len(revog) > 0, "e deixou rastro de quem havia conferido", f"{len(revog)} com revogação")
 
         print("\n— O dado de B continua intacto depois de tudo —")
         import asyncpg

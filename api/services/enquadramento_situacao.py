@@ -6,16 +6,22 @@
 # nada. A memoria de enquadramento e documento com peso juridico; ela nao pode afirmar
 # conformidade de uma competencia que nunca foi verificada.
 #
-# TRES ESTADOS:
-#   conferencia — falta dado para apurar o DEVIDO (FAP do ano ausente, CNAE fora do Anexo I,
-#                 sem quantitativo declarado, obra CNO). Nada a afirmar.
-#   apurado     — o devido esta completo, mas o APLICADO nao foi informado. Metade do trabalho:
-#                 sabemos o que era devido, nao sabemos o que a empresa usou na folha.
-#   conferido   — devido e aplicado existem e foram comparados. So aqui ha divergencia (ou a
-#                 afirmacao de que nao ha).
+# TRES ESTADOS, cada um com significado proprio (revisao da Carolina de 19/10, item 1):
+#   conferencia — tem PENDENCIA: falta dado, o motor nao concluiu (FAP do ano ausente, CNAE fora
+#                 do Anexo I, sem quantitativo declarado, obra CNO). Nada a afirmar. DERIVADO.
+#   apurado     — o motor calculou ate o fim sem pendencia. E afirmacao do SISTEMA. DERIVADO.
+#   conferido   — uma PESSOA examinou e validou, com autor e data gravados. E afirmacao de
+#                 PESSOA. ARMAZENADO (migration 040). Nada chega aqui sem acao explicita.
 #
-# Derivado, nao armazenado: os tres estados sao funcao do que ja esta gravado na serie. Guardar
-# uma coluna criaria uma segunda verdade, que envelhece quando a serie e reapurada.
+# O QUE ESTAVA ERRADO ATE 19/10. "conferido" era derivado de "o aplicado esta informado e a
+# comparacao fechou" — isto e, o sistema se autodeclarava conferido. A maquina tinha, de fato,
+# dois estados (com e sem pendencia) e o rotulo do terceiro estava aplicado ao segundo. Um laudo
+# afirmaria que N competencias foram conferidas por quem subscreve a peca; nao foram, e a peca
+# leva a assinatura da advogada, nao a do sistema. Conferir e ato profissional, nao resultado de
+# calculo — e e justamente onde o cliente paga para alguem assinar embaixo.
+#
+# Que o APLICADO esteja informado ou nao NAO e mais estado: e atributo, visivel nas colunas
+# Aplicado e Divergencia. Misturar as duas coisas foi o erro.
 #
 # Fonte unica: tela, API e PDF importam DESTE modulo. Se a regra mudar, muda em um lugar so.
 
@@ -29,14 +35,30 @@ ROTULO = {
     SITUACAO_CONFERIDO: "conferido",
 }
 
+# Quem afirma cada estado — o laudo precisa dizer isso com clareza.
+AUTORIA_ESTADO = {
+    SITUACAO_CONFERENCIA: "pendência: o sistema não concluiu",
+    SITUACAO_APURADO: "afirmação do sistema",
+    SITUACAO_CONFERIDO: "validado por pessoa",
+}
 
-def situacao_de(em_fila: bool, aliquota_devida, aliquota_aplicada) -> str:
-    """Situacao da competencia. Ver os tres estados no cabecalho do modulo."""
+
+def situacao_de(em_fila: bool, aliquota_devida, conferido_por=None) -> str:
+    """Situacao da competencia. Ver os tres estados no cabecalho do modulo.
+
+    'conferido_por' vem GRAVADO na linha: e o ato humano. O sistema nunca o preenche, e por isso
+    nunca se autodeclara conferido. Competencia com pendencia nao pode ser conferida — nao ha o
+    que validar —, por isso a pendencia e testada primeiro.
+
+    A assinatura mudou em 19/10: o terceiro parametro era 'aliquota_aplicada' e produzia
+    'conferido' sozinho. Quem chamar com o aplicado no lugar do autor recebe 'conferido' por
+    engano, entao o parametro foi renomeado de proposito — uma chamada antiga nao passa calada.
+    """
     if em_fila or aliquota_devida is None:
         return SITUACAO_CONFERENCIA
-    if aliquota_aplicada is None:
-        return SITUACAO_APURADO
-    return SITUACAO_CONFERIDO
+    if conferido_por:
+        return SITUACAO_CONFERIDO
+    return SITUACAO_APURADO
 
 
 ORIGEM_NENHUMA = "nenhuma"

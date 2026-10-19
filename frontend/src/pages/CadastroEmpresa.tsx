@@ -53,6 +53,31 @@ const mesesEntre = (a: string, b: string) => {
 interface Periodo { regime?: string; anexo_simples?: string; inicio: string; fim: string; fim_aberto?: boolean; }
 type CprbStatus = "nao_informado" | "nao_optante" | "optante";
 
+// Nomes legíveis dos campos rastreados, para a dica de procedência não mostrar nome de coluna.
+const ROTULO_CAMPO: Record<string, string> = {
+  razao_social: "razão social", nome_fantasia: "nome fantasia", cnae_principal: "CNAE principal",
+  data_abertura: "data de abertura", data_encerramento: "data de encerramento",
+  endereco: "logradouro", numero: "número", complemento: "complemento", bairro: "bairro",
+  cidade: "cidade", uf: "UF", cep: "CEP",
+};
+const rotuloCampo = (c: string) => ROTULO_CAMPO[c] || c;
+
+// Item 3: procedência POR CAMPO, em texto — não só por cor. O mesmo padrão que já existia no
+// rótulo da data de abertura, agora alimentado pelo mapa que o backend grava, campo a campo.
+// Cor sozinha não carrega a informação: num laudo, a origem precisa estar escrita.
+function Procedencia({ mapa, campo }: { mapa: any; campo: string }) {
+  const e = mapa?.[campo];
+  if (!e?.origem) return null;
+  const consultado = e.origem === "consultado";
+  const alterado = !consultado && e.valor_consultado;
+  return (
+    <span className={`ml-1 font-normal ${consultado ? "text-gray-400" : alterado ? "text-amber-700" : "text-gray-400"}`}
+      title={alterado ? `Veio da consulta como "${e.valor_consultado}" e foi alterado à mão.` : undefined}>
+      {consultado ? "(consultada)" : alterado ? "(alterado — consultado: " + e.valor_consultado + ")" : "(declarado)"}
+    </span>
+  );
+}
+
 // Situação da competência no espelho (espelha api/services/enquadramento_situacao.py)
 const ESP_SIT: Record<string, string> = {
   conferencia: "conferência", apurado: "apurado (falta o aplicado)", conferido: "conferido",
@@ -105,6 +130,7 @@ export function CadastroEmpresa() {
   const empresaId = useAuthStore((s) => s.user?.empresa_id);
   const [form, setForm] = useState<any>({
     razao_social: "", nome_fantasia: "", cnpj: "", cnae_principal: "",
+    situacao_cadastral: "", situacao_cadastral_data: "", situacao_cadastral_em: "",
     periodo_inicio: ymMinus(59), periodo_fim: ymToday(),
     data_abertura: "", data_encerramento: "",
     endereco: "", numero: "", complemento: "", bairro: "", cidade: "", uf: "", cep: "",
@@ -113,6 +139,7 @@ export function CadastroEmpresa() {
   const [origem, setOrigem] = useState<string>("");          // consultado | declarado
   const [consultaBruta, setConsultaBruta] = useState<Record<string, string | null> | null>(null);
   const [resumoOrigem, setResumoOrigem] = useState<any>(null);   // composição real, vinda do backend
+  const [camposOrigem, setCamposOrigem] = useState<any>({});     // procedência campo a campo
   const [arquivada, setArquivada] = useState(false);
   const [mostrarExclusao, setMostrarExclusao] = useState(false);
   const [confirmaExclusao, setConfirmaExclusao] = useState("");
@@ -140,6 +167,7 @@ export function CadastroEmpresa() {
       setForm((f: any) => ({
         ...f,
         razao_social: d.razao_social ?? "", nome_fantasia: d.nome_fantasia ?? "",
+        situacao_cadastral: d.situacao_cadastral ?? "", situacao_cadastral_data: d.situacao_cadastral_data ?? "", situacao_cadastral_em: d.situacao_cadastral_em ?? "",
         cnpj: d.cnpj ?? "", cnae_principal: d.cnae_principal ?? "",
         periodo_inicio: dateToYm(d.periodo_apuracao_inicio) || f.periodo_inicio,
         periodo_fim: dateToYm(d.periodo_apuracao_fim) || f.periodo_fim,
@@ -150,6 +178,7 @@ export function CadastroEmpresa() {
       }));
       setOrigem(d.origem_cadastro ?? "");
       setResumoOrigem(d.resumo_origem ?? null);
+      setCamposOrigem(d.campos_origem ?? {});
       setArquivada(!!d.arquivada);
       setConsultadoEm(d.consultado_em ?? "");
       setSecundarios(d.cnaes_secundarios ?? []);
@@ -197,6 +226,10 @@ export function CadastroEmpresa() {
         complemento: ou(x.complemento, f.complemento), bairro: ou(x.bairro, f.bairro),
         cidade: ou(x.municipio, f.cidade), uf: ou(x.uf, f.uf), cep: ou(x.cep, f.cep),
         data_abertura: ou(x.data_abertura, f.data_abertura),
+        // Item 8: a situação deixa de morrer na mensagem e vira campo do registro
+        situacao_cadastral: x.situacao_cadastral ?? f.situacao_cadastral,
+        situacao_cadastral_data: x.situacao_cadastral_data ?? f.situacao_cadastral_data,
+        situacao_cadastral_em: new Date().toISOString(),
       }));
       // Item 1: guarda EXATAMENTE o que a consulta devolveu, por campo. É enviado no salvamento
       // para o backend decidir a origem comparando com o valor gravado — a tela não afirma
@@ -257,6 +290,9 @@ export function CadastroEmpresa() {
         // Só vai quando houve consulta nesta sessão de edição; o backend preserva o mapa
         // anterior quando não vem, para salvar de novo não apagar a procedência.
         ...(consultaBruta ? { campos_consultados: consultaBruta } : {}),
+        situacao_cadastral: form.situacao_cadastral || null,
+        situacao_cadastral_data: form.situacao_cadastral_data || null,
+        situacao_cadastral_em: form.situacao_cadastral_em || null,
         cnaes_secundarios: secundarios.map((c: any) => c.codigo).filter(Boolean),
         endereco: form.endereco, numero: form.numero, complemento: form.complemento,
         bairro: form.bairro, cidade: form.cidade, uf: form.uf, cep: form.cep,
@@ -276,6 +312,7 @@ export function CadastroEmpresa() {
             }))
           : [],
       });
+      setConsultaMsg("");   // transitório: cumpriu a função, sai de cena
       setMsg("Dados salvos. A matriz foi criada/atualizada e o enquadramento espelhado abaixo.");
       carregarEspelho();
       apiClient.get(`/empresas/${empresaId}`).then((r) => setNumEstab(r.data.num_estabelecimentos ?? numEstab)).catch(() => {});
@@ -354,29 +391,52 @@ export function CadastroEmpresa() {
                 className="shrink-0 px-3 py-2 rounded-lg text-sm bg-teal-600 text-white hover:bg-teal-700">Consultar</button>
             </div>
             {cnpjErro && <p className="text-[11px] text-red-500 mt-1">{cnpjErro}</p>}
-            {consultaMsg && <p className="text-[11px] text-amber-600 mt-1">{consultaMsg}</p>}
-            {/* Item 1: a origem é POR CAMPO. A linha deixa de ser rótulo único e passa a dizer a
-                composição real — "consultado" num cadastro parcialmente digitado seria afirmação
-                falsa, e a memória de enquadramento cita a origem dos dados. */}
+            {/* AVISO TRANSITÓRIO da consulta recém-executada. Some ao salvar — é recado de
+                operação, não procedência. Antes, este aviso e o rótulo permanente ficavam
+                empilhados dizendo quase a mesma coisa, com funções distintas sobrepostas. */}
+            {consultaMsg && (
+              <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-1">
+                {consultaMsg}
+              </p>
+            )}
+            {/* RÓTULO PERMANENTE de procedência, com a composição real do registro. "consultado"
+                no singular, num cadastro com campo digitado, é afirmação falsa — e a memória de
+                enquadramento cita a procedência dos dados. */}
             {(resumoOrigem?.consultado_em || origem) && (
-              <p className="text-[11px] text-gray-400 mt-1">
+              <p className="text-[11px] text-gray-500 mt-1">
                 {resumoOrigem?.consultado_em
-                  ? <>Consultado em {fmt.dataHora(resumoOrigem.consultado_em)}</>
-                  : <>Origem do cadastro: <b>{origem}</b></>}
+                  ? <>Consultado em <b>{fmt.dataHora(resumoOrigem.consultado_em)}</b></>
+                  : <>Sem consulta registrada — cadastro <b>declarado</b></>}
                 {resumoOrigem?.campos_alterados?.length > 0 && (
-                  <span className="text-amber-600" title={resumoOrigem.campos_alterados.join(", ")}>
+                  <span className="text-amber-700" title={`Vieram da consulta e foram editados: ${resumoOrigem.campos_alterados.map(rotuloCampo).join(", ")}`}>
                     {" · "}{resumoOrigem.campos_alterados.length} campo
                     {resumoOrigem.campos_alterados.length > 1 ? "s" : ""} alterado
                     {resumoOrigem.campos_alterados.length > 1 ? "s" : ""} manualmente
                   </span>
                 )}
                 {resumoOrigem?.campos_declarados?.length > 0 && (
-                  <span title={resumoOrigem.campos_declarados.join(", ")}>
-                    {" · "}{resumoOrigem.campos_declarados.length} preenchido
-                    {resumoOrigem.campos_declarados.length > 1 ? "s" : ""} à mão
+                  <span title={`Nunca vieram da consulta: ${resumoOrigem.campos_declarados.map(rotuloCampo).join(", ")}`}>
+                    {" · "}{resumoOrigem.campos_declarados.length} declarado
+                    {resumoOrigem.campos_declarados.length > 1 ? "s" : ""}
                   </span>
                 )}
-                {origem === "consultado" && !resumoOrigem?.consultado_em && " (confirme antes de valer)"}.
+                .
+              </p>
+            )}
+            {/* Item 8: a situação cadastral era exibida dentro da mensagem transitória e se
+                perdia. Agora é campo do registro e delimita a janela de apuração. */}
+            {form.situacao_cadastral && (
+              <p className="text-[11px] mt-1">
+                <span className="text-gray-500">Situação cadastral: </span>
+                <b className={/ATIVA/i.test(form.situacao_cadastral) ? "text-gray-700" : "text-red-700"}>
+                  {form.situacao_cadastral}
+                </b>
+                {form.situacao_cadastral_data && <span className="text-gray-500"> desde {fmt.data(form.situacao_cadastral_data)}</span>}
+                {!/ATIVA/i.test(form.situacao_cadastral) && !form.situacao_cadastral_data && (
+                  <span className="text-amber-700"> — sem data da situação: a janela não pode ser delimitada e as competências vão à conferência.</span>
+                )}
+                {form.situacao_cadastral_em && <span className="text-gray-400"> · apurada em {fmt.dataHora(form.situacao_cadastral_em)}</span>}
+                <Fundamentacao campo="situacao_cadastral" />
               </p>
             )}
           </div>
@@ -390,15 +450,15 @@ export function CadastroEmpresa() {
             {periodoLongo && <p className="text-[11px] text-amber-600 mt-1">Intervalo acima de 5 anos — parte pode estar prescrita.</p>}
           </div>
           <div>
-            <label className={labelCls}>Razão social</label>
+            <label className={labelCls}>Razão social<Procedencia mapa={camposOrigem} campo="razao_social" /></label>
             <input className={inputCls} value={form.razao_social} onChange={(e) => set("razao_social", e.target.value)} />
           </div>
           <div>
-            <label className={labelCls}>Nome fantasia</label>
+            <label className={labelCls}>Nome fantasia<Procedencia mapa={camposOrigem} campo="nome_fantasia" /></label>
             <input className={inputCls} value={form.nome_fantasia} onChange={(e) => set("nome_fantasia", e.target.value)} />
           </div>
           <div>
-            <label className={labelCls}>Data de abertura {origem === "consultado" ? "(consultada)" : ""}</label>
+            <label className={labelCls}>Data de abertura<Procedencia mapa={camposOrigem} campo="data_abertura" /></label>
             <input type="date" className={inputCls} value={form.data_abertura || ""} onChange={(e) => set("data_abertura", e.target.value)} />
           </div>
           <div>
@@ -406,12 +466,14 @@ export function CadastroEmpresa() {
             <input type="date" className={inputCls} value={form.data_encerramento || ""} onChange={(e) => set("data_encerramento", e.target.value)} />
           </div>
           <div className="col-span-2">
-            <label className={labelCls}>CNAE principal</label>
-            <input className={inputCls} value={form.cnae_principal} onChange={(e) => set("cnae_principal", e.target.value.replace(/\D/g, "").slice(0, 7))} placeholder="0000000" />
+            <label className={labelCls}>CNAE principal<Procedencia mapa={camposOrigem} campo="cnae_principal" /></label>
+            <input className={inputCls} value={fmt.cnaeParcial(form.cnae_principal)} maxLength={10}
+              onChange={(e) => set("cnae_principal", e.target.value.replace(/\D/g, "").slice(0, 7))}
+              placeholder="0000-0/00" inputMode="numeric" />
           </div>
         </div>
         {secundarios.length > 0 && (
-          <p className="text-[11px] text-gray-400 mt-2">CNAEs secundários: {secundarios.map((c) => c.codigo).join(", ")}.</p>
+          <p className="text-[11px] text-gray-400 mt-2">CNAEs secundários: {secundarios.map((c) => fmt.cnae(c.codigo)).join(", ")}.</p>
         )}
       </section>
 
@@ -461,11 +523,11 @@ export function CadastroEmpresa() {
                 ninguém tentar corrigir à mão o número que o sistema existe para calcular. */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4">
               <div>
-                <span className={derivLabel}>CNAE preponderante</span>
-                <div className={derivVal}>{espelho.enquadramento.cnae || "—"}</div>
+                <span className={derivLabel}>CNAE preponderante<Fundamentacao campo="atividade_preponderante" /></span>
+                <div className={derivVal}>{fmt.cnae(espelho.enquadramento.cnae)}</div>
               </div>
               <div>
-                <span className={derivLabel}>Grau de risco</span>
+                <span className={derivLabel}>Grau de risco<Fundamentacao campo="rat_devido" /></span>
                 <div className={derivVal}>
                   {espelho.enquadramento.grau_risco
                     ? <>{espelho.enquadramento.grau_risco}<span className="text-sm font-normal text-gray-500"> — {espelho.enquadramento.grau_label}</span></>
@@ -473,11 +535,11 @@ export function CadastroEmpresa() {
                 </div>
               </div>
               <div>
-                <span className={derivLabel}>RAT devido</span>
+                <span className={derivLabel}>RAT devido<Fundamentacao campo="rat_devido" /></span>
                 <div className={derivVal}>{fmt.pct(espelho.enquadramento.aliquota_rat)}</div>
               </div>
               <div>
-                <span className={derivLabel}>RAT aplicado</span>
+                <span className={derivLabel}>RAT aplicado<Fundamentacao campo="rat_aplicado" /></span>
                 <div className={espelho.enquadramento.aliquota_aplicada != null ? derivVal : `${derivVal} text-gray-400`}>
                   {espelho.enquadramento.aliquota_aplicada != null
                     ? fmt.pct(espelho.enquadramento.aliquota_aplicada)
@@ -489,12 +551,12 @@ export function CadastroEmpresa() {
             {espelho.enquadramento.confirmado && (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4 mt-5 pt-4 border-t border-gray-100">
                 <div>
-                  <span className={derivLabel}>FAP</span>
+                  <span className={derivLabel}>FAP<Fundamentacao campo="fap_aplicado" /></span>
                   <div className={derivVal}>{fmt.num(espelho.enquadramento.fap, 4)}</div>
                 </div>
                 <div>
-                  <span className={derivLabel}>Alíquota efetiva</span>
-                  <div className={derivVal}>{fmt.pct(espelho.enquadramento.aliquota_efetiva, 4)}</div>
+                  <span className={derivLabel}>Alíquota efetiva<Fundamentacao campo="aliquota_efetiva" /></span>
+                  <div className={derivVal}>{fmt.pct(espelho.enquadramento.aliquota_efetiva)}</div>
                 </div>
                 {/* Item 6: a divergência é o produto — é o número pelo qual o cliente paga.
                     Peso maior, posição de resultado, e cor COM rótulo em texto: positiva é
@@ -506,7 +568,7 @@ export function CadastroEmpresa() {
                     <div className={`${derivVal} text-gray-400`}>—</div>
                   ) : (
                     <div className={`flex items-baseline gap-2 ${
-                      espelho.enquadramento.divergencia_pp > 0 ? "text-emerald-700"
+                      espelho.enquadramento.divergencia_pp > 0 ? "text-blue-700"
                       : espelho.enquadramento.divergencia_pp < 0 ? "text-red-700" : "text-gray-700"}`}>
                       <span className="text-2xl font-bold tabular-nums">{fmt.pp(espelho.enquadramento.divergencia_pp)}</span>
                       <span className="text-xs font-medium">

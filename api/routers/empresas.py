@@ -122,8 +122,14 @@ def _atualizar_campos_origem(empresa: Empresa, salvos: dict, consultados: dict |
     return mapa
 
 
-def _resumo_origem(mapa: dict) -> dict:
-    """Composição real do cadastro, para a linha de resumo da tela."""
+def _resumo_origem(mapa: dict, consultado_em_empresa=None) -> dict:
+    """Composição real do cadastro, para a linha de resumo da tela.
+
+    'consultado_em_empresa' é a data da última consulta gravada na própria empresa. Serve de
+    recurso quando o mapa por campo ainda não tem horário — caso dos cadastros salvos antes da
+    migration 034. Sem isso a linha cairia no rótulo único "consultado", que é exatamente a
+    afirmação imprecisa que o item 3 existe para eliminar.
+    """
     consultados = [c for c, v in (mapa or {}).items() if (v or {}).get("origem") == "consultado"]
     alterados = [c for c, v in (mapa or {}).items()
                  if (v or {}).get("origem") == "declarado" and (v or {}).get("valor_consultado")]
@@ -134,6 +140,9 @@ def _resumo_origem(mapa: dict) -> dict:
         q = (v or {}).get("consultado_em")
         if q and (quando is None or q > quando):
             quando = q
+    if quando is None and consultado_em_empresa is not None:
+        quando = (consultado_em_empresa.isoformat()
+                  if hasattr(consultado_em_empresa, "isoformat") else str(consultado_em_empresa))
     return {
         "consultado_em": quando,
         "campos_consultados": sorted(consultados),
@@ -260,6 +269,10 @@ class EmpresaUpdate(BaseModel):
     # bruta com que o backend DECIDE a origem comparando com o valor salvo (item 1 da revisão).
     # A tela não tem como afirmar "consultado" sobre um dado digitado.
     campos_consultados: dict[str, str | None] | None = None
+    # Item 8: a situação deixa de morrer na mensagem transitória da consulta
+    situacao_cadastral: str | None = None
+    situacao_cadastral_data: date | None = None
+    situacao_cadastral_em: datetime | None = None
     endereco: str | None = None
     numero: str | None = None
     complemento: str | None = None
@@ -430,8 +443,12 @@ async def obter_empresa(
         "consultado_em": empresa.consultado_em.isoformat() if empresa.consultado_em else None,
         # Origem por campo + composição real do cadastro (item 1 da revisão)
         "campos_origem": empresa.campos_origem or {},
-        "resumo_origem": _resumo_origem(empresa.campos_origem or {}),
+        "resumo_origem": _resumo_origem(empresa.campos_origem or {}, empresa.consultado_em),
         # RF-0.207: a tela precisa saber se está arquivada para oferecer Restaurar
+        # Item 8: situação cadastral é dado de cálculo, não recado de tela
+        "situacao_cadastral": empresa.situacao_cadastral,
+        "situacao_cadastral_data": empresa.situacao_cadastral_data.isoformat() if empresa.situacao_cadastral_data else None,
+        "situacao_cadastral_em": empresa.situacao_cadastral_em.isoformat() if empresa.situacao_cadastral_em else None,
         "arquivada": bool(empresa.arquivada),
         "arquivada_em": empresa.arquivada_em.isoformat() if empresa.arquivada_em else None,
         "endereco": empresa.endereco,
@@ -634,7 +651,7 @@ async def matriz_enquadramento(
         for r in todas:
             s = situacao_de(r.em_fila,
                             float(r.aliquota_devida) if r.aliquota_devida is not None else None,
-                            float(r.aliquota_aplicada) if r.aliquota_aplicada is not None else None)
+                            r.conferido_por)
             resumo["conferidas" if s == "conferido" else
                    "apuradas" if s == "apurado" else "em_conferencia"] += 1
         return {
@@ -650,7 +667,9 @@ async def matriz_enquadramento(
                 "aliquota_efetiva": efetiva,
                 "aliquota_aplicada": aplicada,
                 "divergencia_pp": divergencia_de(efetiva, aplicada),
-                "situacao": situacao_de(apurada.em_fila, devida, aplicada),
+                "situacao": situacao_de(apurada.em_fila, devida, apurada.conferido_por),
+                "conferido_por": apurada.conferido_por,
+                "conferido_em": apurada.conferido_em.isoformat() if apurada.conferido_em else None,
                 "codigo_fpas": None,
                 "competencia": apurada.competencia.isoformat(),
                 "origem": "apurado pelo motor (atividade preponderante)",

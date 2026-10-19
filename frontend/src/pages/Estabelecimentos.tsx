@@ -206,14 +206,14 @@ function PainelModal({ estab, onFechar }: { estab: any; onFechar: () => void }) 
                 {rows.map((r, i) => (
                   <tr key={i} className={r.situacao === "conferencia" ? "bg-amber-50" : r.situacao === "apurado" ? "bg-sky-50/40" : "hover:bg-gray-50"}>
                     <td className="px-2 py-1.5 font-mono">{r.competencia?.slice(0, 7)}</td>
-                    <td className="px-2 py-1.5">{r.cnae_preponderante || "—"}</td>
+                    <td className="px-2 py-1.5 font-mono">{fmt.cnae(r.cnae_preponderante)}</td>
                     <td className="px-2 py-1.5 text-gray-500">{CRIT[r.criterio] || r.criterio || "—"}</td>
                     <td className="px-2 py-1.5">{r.grau_risco ?? "—"}</td>
                     <td className="px-2 py-1.5">{fmt.pct(r.aliquota_devida)}</td>
                     <td className="px-2 py-1.5">{fmt.num(r.fap, 4)}</td>
-                    <td className="px-2 py-1.5">{fmt.pct(r.aliquota_efetiva, 4)}</td>
+                    <td className="px-2 py-1.5">{fmt.pct(r.aliquota_efetiva)}</td>
                     <td className="px-2 py-1.5">{fmt.pct(r.aliquota_aplicada)}</td>
-                    <td className={`px-2 py-1.5 font-medium tabular-nums ${r.divergencia_pp > 0 ? "text-emerald-700" : r.divergencia_pp < 0 ? "text-red-700" : "text-gray-400"}`} title={r.divergencia_pp > 0 ? "pagou a mais — crédito a recuperar" : r.divergencia_pp < 0 ? "pagou a menos — passivo a regularizar" : ""}>{fmt.pp(r.divergencia_pp)}</td>
+                    <td className={`px-2 py-1.5 font-medium tabular-nums ${r.divergencia_pp > 0 ? "text-blue-700" : r.divergencia_pp < 0 ? "text-red-700" : "text-gray-400"}`} title={r.divergencia_pp > 0 ? "pagou a mais — crédito a recuperar" : r.divergencia_pp < 0 ? "pagou a menos — passivo a regularizar" : ""}>{fmt.pp(r.divergencia_pp)}</td>
                     <td className="px-2 py-1.5">
                       <span className={SIT[r.situacao]?.cls || "text-gray-400"}
                         title={r.motivo_fila || SIT[r.situacao]?.ajuda || ""}>
@@ -333,7 +333,7 @@ function RatAplicadoModal({ estab, onFechar }: { estab: any; onFechar: () => voi
               <input type="number" step="0.0001" min="0.5" max="2" className={`${inp} col-span-2`}
                 value={r.fap_aplicado ?? ""} onChange={(e) => upd(i, "fap_aplicado", e.target.value)} placeholder="1,0000" />
               <div className={`${inp} col-span-2 bg-gray-50 border-gray-200 text-gray-600`}>
-                {efetivaDe(r) != null ? fmt.pct(efetivaDe(r), 4) : "—"}
+                {efetivaDe(r) != null ? fmt.pct(efetivaDe(r)) : "—"}
               </div>
               <input type="month" className={`${inp} col-span-2`} value={r.inicio ? String(r.inicio).slice(0, 7) : ""}
                 onChange={(e) => upd(i, "inicio", e.target.value ? `${e.target.value}-01` : "")} />
@@ -700,12 +700,12 @@ export function Estabelecimentos() {
                       {a?.grau_risco ? <span>{a.grau_risco} <span className="text-gray-400 text-xs">{a.grau_label}</span></span> : "—"}
                     </td>
                     <td className="px-3 py-3 text-gray-600 tabular-nums" title={comp}>{fmt.pct(a?.aliquota_devida)}</td>
-                    <td className="px-3 py-3 text-gray-600 tabular-nums" title={comp}>{fmt.pct(a?.aliquota_efetiva, 4)}</td>
+                    <td className="px-3 py-3 text-gray-600 tabular-nums" title={comp}>{fmt.pct(a?.aliquota_efetiva)}</td>
                     {/* Item 9: a divergência é o que diz QUAL estabelecimento tem problema.
                         Positiva = crédito; negativa = passivo. Cor acompanhada de rótulo. */}
                     <td className="px-3 py-3 tabular-nums whitespace-nowrap">
                       {a?.divergencia_pp == null ? <span className="text-gray-400">—</span> : (
-                        <span className={a.divergencia_pp > 0 ? "text-emerald-700" : a.divergencia_pp < 0 ? "text-red-700" : "text-gray-500"}
+                        <span className={a.divergencia_pp > 0 ? "text-blue-700" : a.divergencia_pp < 0 ? "text-red-700" : "text-gray-500"}
                           title={a.divergencia_pp > 0 ? "pagou a mais — crédito a recuperar" : a.divergencia_pp < 0 ? "pagou a menos — passivo a regularizar" : "sem divergência"}>
                           <b>{fmt.pp(a.divergencia_pp)}</b>
                           {a.origem_divergencia && a.origem_divergencia !== "nenhuma" && (

@@ -33,6 +33,11 @@ class Empresa(Base):
     # Origem POR CAMPO (migration 034): {campo: {origem, valor_consultado, consultado_em,
     # alterado_em}}. A coluna acima e resumo grosseiro e some na limpeza das depreciadas.
     campos_origem: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"), default=dict)
+    # Situacao cadastral (migration 041) — DADO DE CALCULO: empresa baixada, suspensa ou inapta
+    # tem a janela de apuracao limitada do mesmo modo que a encerrada.
+    situacao_cadastral: Mapped[str | None] = mapped_column(String(40))       # ATIVA|BAIXADA|...
+    situacao_cadastral_data: Mapped[date | None] = mapped_column(Date)       # data da situacao (fonte)
+    situacao_cadastral_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # quando apuramos
     consultado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # data/hora da consulta de CNPJ (RF-0.150)
     data_abertura: Mapped[date | None] = mapped_column(Date)       # excecao ano-calendario CPRB (RF-0.164)
     data_encerramento: Mapped[date | None] = mapped_column(Date)
