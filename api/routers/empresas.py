@@ -637,6 +637,14 @@ async def matriz_enquadramento(
             .order_by(E.competencia.asc()).limit(1)
         )).scalars().first()
 
+    async def _descricao_cnae(c):
+        """Descrição da subclasse, da tabela do Anexo I já carregada (migration 022)."""
+        if not c:
+            return None
+        return (await db.execute(
+            select(CnaeEnquadramento.descricao).where(CnaeEnquadramento.cnae == c)
+        )).scalar_one_or_none()
+
     if apurada is not None and apurada.aliquota_devida is not None:
         devida = float(apurada.aliquota_devida)
         aplicada = float(apurada.aliquota_aplicada) if apurada.aliquota_aplicada is not None else None
@@ -660,6 +668,7 @@ async def matriz_enquadramento(
             "serie_resumo": resumo,
             "enquadramento": {
                 "cnae": apurada.cnae_preponderante,
+                "cnae_descricao": await _descricao_cnae(apurada.cnae_preponderante),
                 "grau_risco": apurada.grau_risco,
                 "grau_label": GRAU_LABEL.get(apurada.grau_risco or 0, ""),
                 "aliquota_rat": devida,
@@ -712,6 +721,7 @@ async def matriz_enquadramento(
         "existe": True,
         "estabelecimento_id": str(matriz.id),
         "enquadramento": {
+            "cnae_descricao": await _descricao_cnae(cnae_base),
             "cnae": cnae_base,          # BUG CORRIGIDO: era ativ.cnae, que estourava quando a
                                         # matriz não tinha atividade — 500 engolido pelo front,
                                         # que então exibia o texto de "aparece aqui depois".

@@ -65,17 +65,41 @@ const rotuloCampo = (c: string) => ROTULO_CAMPO[c] || c;
 // Item 3: procedência POR CAMPO, em texto — não só por cor. O mesmo padrão que já existia no
 // rótulo da data de abertura, agora alimentado pelo mapa que o backend grava, campo a campo.
 // Cor sozinha não carrega a informação: num laudo, a origem precisa estar escrita.
-function Procedencia({ mapa, campo }: { mapa: any; campo: string }) {
+// Três procedências, com pesos visuais diferentes de propósito:
+//   consultado — o caso normal. Cinza, peso normal: não deve competir por atenção.
+//   declarado  — a EXCEÇÃO. Azul e mais forte, para o olho achar no meio de sete campos.
+//   alterado   — veio da Receita e foi editado. Âmbar: é o caso de maior peso jurídico,
+//                porque a divergência entre o consultado e o declarado é ela própria um achado.
+function procedenciaDe(mapa: any, campo: string) {
   const e = mapa?.[campo];
   if (!e?.origem) return null;
-  const consultado = e.origem === "consultado";
-  const alterado = !consultado && e.valor_consultado;
+  if (e.origem === "consultado") return { tipo: "consultado" as const, entrada: e };
+  const tipo: "alterado" | "declarado" = e.valor_consultado ? "alterado" : "declarado";
+  return { tipo, entrada: e };
+}
+
+function Procedencia({ mapa, campo, genero = "a" }: { mapa: any; campo: string; genero?: "a" | "o" }) {
+  const p = procedenciaDe(mapa, campo);
+  if (!p) return null;
+  const { tipo, entrada } = p;
   return (
-    <span className={`ml-1 font-normal ${consultado ? "text-gray-400" : alterado ? "text-amber-700" : "text-gray-400"}`}
-      title={alterado ? `Veio da consulta como "${e.valor_consultado}" e foi alterado à mão.` : undefined}>
-      {consultado ? "(consultada)" : alterado ? "(alterado — consultado: " + e.valor_consultado + ")" : "(declarado)"}
+    <span
+      className={`ml-1 ${tipo === "declarado" ? "text-blue-600 font-semibold"
+        : tipo === "alterado" ? "text-amber-700 font-semibold" : "text-gray-400 font-normal"}`}
+      title={tipo === "alterado" ? `Veio da consulta como "${entrada.valor_consultado}" e foi alterado à mão.` : undefined}>
+      {tipo === "consultado" ? `(consultad${genero})`
+        : tipo === "alterado" ? `(alterad${genero} — consultad${genero}: ${entrada.valor_consultado})`
+        : "(declarado)"}
     </span>
   );
+}
+
+// O fundo do campo acompanha a cor do marcador. Sozinha, a cor é um código sem legenda;
+// sozinho, o rótulo não se destaca no meio de sete campos. Os dois juntos é que resolvem.
+function fundoProcedencia(mapa: any, campo: string, base: string) {
+  const p = procedenciaDe(mapa, campo);
+  if (!p || p.tipo === "consultado") return base;
+  return `${base} ${p.tipo === "declarado" ? "bg-blue-50 border-blue-200" : "bg-amber-50 border-amber-200"}`;
 }
 
 // Situação da competência no espelho (espelha api/services/enquadramento_situacao.py)
@@ -243,7 +267,7 @@ export function CadastroEmpresa() {
       setSecundarios(x.cnaes_secundarios || []);
       setOrigem("consultado");
       setConsultadoEm(x.consultado_em || new Date().toISOString());
-      setConsultaMsg(`Consultado na Receita (${x.situacao_cadastral || "situação n/d"}). Revise e confirme — o dado vale após salvar.`);
+      setConsultaMsg("Consultado na Receita. Revise e confirme — o dado vale após salvar.");
     } catch (e: any) {
       setOrigem("declarado");
       setConsultaMsg(`${e?.response?.data?.detail || "Consulta indisponível"}. Preencha manualmente (origem: declarado).`);
@@ -416,27 +440,11 @@ export function CadastroEmpresa() {
                 )}
                 {resumoOrigem?.campos_declarados?.length > 0 && (
                   <span title={`Nunca vieram da consulta: ${resumoOrigem.campos_declarados.map(rotuloCampo).join(", ")}`}>
-                    {" · "}{resumoOrigem.campos_declarados.length} declarado
-                    {resumoOrigem.campos_declarados.length > 1 ? "s" : ""}
+                    {" · "}{resumoOrigem.campos_declarados.length} preenchido
+                    {resumoOrigem.campos_declarados.length > 1 ? "s" : ""} à mão
                   </span>
                 )}
                 .
-              </p>
-            )}
-            {/* Item 8: a situação cadastral era exibida dentro da mensagem transitória e se
-                perdia. Agora é campo do registro e delimita a janela de apuração. */}
-            {form.situacao_cadastral && (
-              <p className="text-[11px] mt-1">
-                <span className="text-gray-500">Situação cadastral: </span>
-                <b className={/ATIVA/i.test(form.situacao_cadastral) ? "text-gray-700" : "text-red-700"}>
-                  {form.situacao_cadastral}
-                </b>
-                {form.situacao_cadastral_data && <span className="text-gray-500"> desde {fmt.data(form.situacao_cadastral_data)}</span>}
-                {!/ATIVA/i.test(form.situacao_cadastral) && !form.situacao_cadastral_data && (
-                  <span className="text-amber-700"> — sem data da situação: a janela não pode ser delimitada e as competências vão à conferência.</span>
-                )}
-                {form.situacao_cadastral_em && <span className="text-gray-400"> · apurada em {fmt.dataHora(form.situacao_cadastral_em)}</span>}
-                <Fundamentacao campo="situacao_cadastral" />
               </p>
             )}
           </div>
@@ -451,23 +459,68 @@ export function CadastroEmpresa() {
           </div>
           <div>
             <label className={labelCls}>Razão social<Procedencia mapa={camposOrigem} campo="razao_social" /></label>
-            <input className={inputCls} value={form.razao_social} onChange={(e) => set("razao_social", e.target.value)} />
+            <input className={fundoProcedencia(camposOrigem, "razao_social", inputCls)}
+              value={form.razao_social} onChange={(e) => set("razao_social", e.target.value)} />
           </div>
           <div>
-            <label className={labelCls}>Nome fantasia<Procedencia mapa={camposOrigem} campo="nome_fantasia" /></label>
-            <input className={inputCls} value={form.nome_fantasia} onChange={(e) => set("nome_fantasia", e.target.value)} />
+            <label className={labelCls}>Nome fantasia<Procedencia mapa={camposOrigem} campo="nome_fantasia" genero="o" /></label>
+            <input className={fundoProcedencia(camposOrigem, "nome_fantasia", inputCls)}
+              value={form.nome_fantasia} onChange={(e) => set("nome_fantasia", e.target.value)} />
           </div>
-          <div>
-            <label className={labelCls}>Data de abertura<Procedencia mapa={camposOrigem} campo="data_abertura" /></label>
-            <input type="date" className={inputCls} value={form.data_abertura || ""} onChange={(e) => set("data_abertura", e.target.value)} />
-          </div>
-          <div>
-            <label className={labelCls}>Data de encerramento (se houver)</label>
-            <input type="date" className={inputCls} value={form.data_encerramento || ""} onChange={(e) => set("data_encerramento", e.target.value)} />
+          {/* As TRÊS datas que delimitam a janela de apuração ficam juntas de propósito:
+              abertura, encerramento e situação cadastral. Empresa baixada, suspensa ou inapta
+              limita a janela do mesmo modo que a encerrada. */}
+          <div className="col-span-2 grid grid-cols-3 gap-4">
+            <div>
+              <label className={labelCls}>Data de abertura<Procedencia mapa={camposOrigem} campo="data_abertura" /></label>
+              <input type="date" className={fundoProcedencia(camposOrigem, "data_abertura", inputCls)}
+                value={form.data_abertura || ""} onChange={(e) => set("data_abertura", e.target.value)} />
+            </div>
+            <div>
+              <label className={labelCls}>Data de encerramento (se houver)<Procedencia mapa={camposOrigem} campo="data_encerramento" /></label>
+              <input type="date" className={fundoProcedencia(camposOrigem, "data_encerramento", inputCls)}
+                value={form.data_encerramento || ""} onChange={(e) => set("data_encerramento", e.target.value)} />
+            </div>
+            <div>
+              <label className={labelCls}>
+                Situação cadastral
+                {form.situacao_cadastral && <span className="ml-1 text-gray-400 font-normal">(consultada)</span>}
+                <Fundamentacao campo="situacao_cadastral" />
+              </label>
+              {form.situacao_cadastral ? (
+                <>
+                  {/* VALOR, não caixa de digitação: vem da Receita e ninguém deve poder digitar.
+                      ATIVA recebe tratamento NEUTRO — é o estado normal e não deve gritar. Quem
+                      precisa de destaque é BAIXADA, SUSPENSA ou INAPTA: são essas que mudam a
+                      janela, e pintar a ATIVA tiraria o valor do alerta justamente nos casos
+                      em que ele importa. */}
+                  <div className="mt-1">
+                    <span className={`inline-block px-2.5 py-1 rounded text-sm font-semibold tracking-wide ${
+                      /ATIVA/i.test(form.situacao_cadastral)
+                        ? "bg-gray-100 text-gray-700"
+                        : "bg-red-50 text-red-700 border border-red-200"}`}>
+                      {form.situacao_cadastral}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    {form.situacao_cadastral_data && <>Desde {fmt.data(form.situacao_cadastral_data)} · </>}
+                    {form.situacao_cadastral_em ? <>Apurada em {fmt.dataHora(form.situacao_cadastral_em)}</> : "—"}
+                  </p>
+                  {!/ATIVA/i.test(form.situacao_cadastral) && !form.situacao_cadastral_data && (
+                    <p className="text-[11px] text-amber-700 mt-1">
+                      Sem data da situação: a janela não pode ser delimitada e as competências vão à conferência.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <div className="mt-1 text-sm text-gray-400 py-1">Consulte o CNPJ para obter.</div>
+              )}
+            </div>
           </div>
           <div className="col-span-2">
-            <label className={labelCls}>CNAE principal<Procedencia mapa={camposOrigem} campo="cnae_principal" /></label>
-            <input className={inputCls} value={fmt.cnaeParcial(form.cnae_principal)} maxLength={10}
+            <label className={labelCls}>CNAE principal<Procedencia mapa={camposOrigem} campo="cnae_principal" genero="o" /></label>
+            <input className={`${fundoProcedencia(camposOrigem, "cnae_principal", inputCls)} font-mono`}
+              value={fmt.cnaeParcial(form.cnae_principal)} maxLength={10}
               onChange={(e) => set("cnae_principal", e.target.value.replace(/\D/g, "").slice(0, 7))}
               placeholder="0000-0/00" inputMode="numeric" />
           </div>
@@ -524,7 +577,10 @@ export function CadastroEmpresa() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4">
               <div>
                 <span className={derivLabel}>CNAE preponderante<Fundamentacao campo="atividade_preponderante" /></span>
-                <div className={derivVal}>{fmt.cnae(espelho.enquadramento.cnae)}</div>
+                <div className={`${derivVal} font-mono`}>{fmt.cnae(espelho.enquadramento.cnae)}</div>
+                {espelho.enquadramento.cnae_descricao && (
+                  <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">{espelho.enquadramento.cnae_descricao}</p>
+                )}
               </div>
               <div>
                 <span className={derivLabel}>Grau de risco<Fundamentacao campo="rat_devido" /></span>
