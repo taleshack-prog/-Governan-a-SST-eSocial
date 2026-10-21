@@ -2,6 +2,7 @@
 # Enquadramento CNAE -> grau de risco -> aliquota RAT (Modulo 4, Frente 1 do roteiro).
 # Fonte determinística: Anexo V do Decreto 3.048/99 (red. Decreto 10.410/2020), CNAE 2.3.
 import re
+from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -9,9 +10,9 @@ from sqlalchemy import select
 from api.database import get_db
 from api.models.cnae_enquadramento import CnaeEnquadramento
 from api.models.cnae_fpas_sugestao import CnaeFpasSugestao
-from api.models.tabela_fpas import TabelaFPAS
 from api.models.usuario import Usuario
 from api.auth import get_current_user
+from api.services.terceiros import aliquota_em
 
 router = APIRouter()
 
@@ -79,13 +80,19 @@ async def enquadrar_cnae(
     fpas_sugerido = sug.fpas_sugerido if sug else None
     fpas_descricao = None
     fpas_terceiros = None
+    fpas_vigencia = None
     if fpas_sugerido:
-        fp = (await db.execute(
-            select(TabelaFPAS).where(TabelaFPAS.codigo_fpas == fpas_sugerido)
-        )).scalar_one_or_none()
-        if fp:
-            fpas_descricao = fp.descricao
-            fpas_terceiros = float(fp.aliquota_terceiros)
+        # A migration 038 deu DIMENSAO DE TEMPO a tabela de FPAS: a chave passou a ser
+        # (codigo_fpas, vigencia_inicio). Buscar por codigo e pedir scalar_one_or_none()
+        # levantava MultipleResultsFound — 500 — no instante em que o codigo ganhasse a segunda
+        # vigencia, ou seja, assim que a carga da IN RFB 2.321/2026 entrasse. E, mesmo com uma
+        # vigencia so, devolver "a" aliquota sem dizer de QUANDO ela e exatamente o defeito que
+        # a 038 existe para fechar. Agora vem pelo servico, que escolhe a vigencia que cobre a
+        # competencia e diz qual e.
+        t = await aliquota_em(fpas_sugerido, date.today(), db)
+        fpas_descricao = t.get("descricao")
+        fpas_terceiros = t.get("aliquota_terceiros")
+        fpas_vigencia = t.get("vigencia_inicio")
 
     return {
         "cnae": row.cnae,
@@ -100,6 +107,9 @@ async def enquadrar_cnae(
         "fpas_setor": sug.setor if sug else None,
         "fpas_descricao": fpas_descricao,
         "fpas_terceiros": fpas_terceiros,
+        # De QUAL vigência é essa alíquota. Sem isso o número não é auditável: Terceiros mudou
+        # com a IN RFB 2.321/2026 (01/04/2026) e muda de novo no futuro.
+        "fpas_terceiros_vigencia": fpas_vigencia,
         "fpas_observacao": (sug.observacao if sug and sug.observacao else None),
         "fpas_fonte": "Sugestão por seção do CNAE — confirme o código conforme a atividade.",
     }

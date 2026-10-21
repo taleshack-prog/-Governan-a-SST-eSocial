@@ -583,9 +583,14 @@ async def salvar_fpas_estab(
     """Substitui a lista de períodos de FPAS. Recusa código fora do Anexo III (RF-0.182)."""
     await _tenant_estab(estab_id, current_user, db)
     for it in data:
+        # Existência do CÓDIGO, em qualquer vigência — não da alíquota de uma competência.
+        # Desde a migration 038 a chave é (codigo_fpas, vigencia_inicio), então scalar_one_or_none()
+        # levantaria MultipleResultsFound (500) no código que tivesse mais de uma vigência, que é
+        # o caso assim que a carga da IN RFB 2.321/2026 entrar. first() é o que esta checagem
+        # sempre quis dizer.
         existe = (await db.execute(
-            select(TabelaFPAS.codigo_fpas).where(TabelaFPAS.codigo_fpas == it.codigo_fpas)
-        )).scalar_one_or_none()
+            select(TabelaFPAS.codigo_fpas).where(TabelaFPAS.codigo_fpas == it.codigo_fpas).limit(1)
+        )).scalars().first()
         if not existe:
             raise HTTPException(
                 status_code=422,
