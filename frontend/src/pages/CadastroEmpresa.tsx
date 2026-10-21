@@ -21,6 +21,9 @@ const REGIMES = [
   { v: "lucro_presumido", label: "Lucro Presumido" },
   { v: "simples", label: "Simples Nacional" },
 ];
+// Lista fechada em vez de texto livre: "IV", "Anexo IV", "anexo 4" e "4" gravavam quatro coisas
+// diferentes para a mesma realidade, e o anexo vai decidir se há RAT a apurar no período.
+const ANEXOS_SIMPLES = ["I", "II", "III", "IV", "V"];
 const UFS = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
 
 const maskCnpj = (v: string) => (v || "").replace(/\D/g, "").slice(0, 14)
@@ -161,6 +164,20 @@ const validaRegime = (regimes: Periodo[], pIni: string, pFim: string): string =>
     if (r.regime && !r.inicio) return "Há regime sem data de início.";
     if (r.regime === "simples" && !r.anexo_simples) return "Simples Nacional exige o anexo.";
     if (r.inicio && r.fim && r.fim < r.inicio) return "Período de regime com fim anterior ao início.";
+  }
+  // SOBREPOSIÇÃO. A cobertura mês a mês abaixo acha lacuna, não excesso: duas linhas cobrindo a
+  // mesma competência passavam, e nenhuma regra dizia qual prevalece — a leitura do regime fica
+  // ambígua justamente onde ela decide se há RAT a apurar. Comparado par a par: a lista tem
+  // poucas linhas, e ordenar para varrer custaria mais do que compara.
+  const comDatas = regimes.filter((r) => r.regime && r.inicio);
+  for (let a = 0; a < comDatas.length; a++) {
+    for (let b = a + 1; b < comDatas.length; b++) {
+      const x = comDatas[a], y = comDatas[b];
+      const xFim = x.fim || "9999-12", yFim = y.fim || "9999-12";
+      if (x.inicio <= yFim && y.inicio <= xFim) {
+        return `Dois períodos de regime se sobrepõem (${x.inicio} e ${y.inicio}). Cada competência precisa de um regime só.`;
+      }
+    }
   }
   const validos = regimes.filter((r) => r.regime && r.inicio);
   if (validos.length === 0) return `Declare o regime tributário para o período de apuração (${pIni} a ${pFim}).`;
@@ -829,6 +846,11 @@ export function CadastroEmpresa() {
                 regra. Estado e método são perguntas diferentes, e num laudo a que importa é
                 quem assina embaixo: conferir é ato de pessoa, e o sistema nunca se autodeclara
                 conferido (migration 040). */}
+            {/* SÓ com competência apurada. Na prévia o retorno não traz situação — e a frase
+                saía como "Esta competência está . Nenhuma pessoa a conferiu.", afirmando um
+                estado vazio sobre uma competência que ainda não existe. A prévia já se explica
+                pela linha de cima e pelo motivo logo abaixo. */}
+            {espelho.enquadramento.confirmado && (
             <div className="flex flex-wrap items-baseline justify-between gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 mt-4">
               <p className="text-xs text-gray-700">
                 Esta competência está <b>{ESP_SIT[espelho.enquadramento.situacao] || espelho.enquadramento.situacao}</b>.{" "}
@@ -843,6 +865,7 @@ export function CadastroEmpresa() {
                 Conferir no relatório de enquadramento →
               </a>
             </div>
+            )}
 
             {espelho.motivo && <p className="text-[11px] text-gray-400 mt-2">{espelho.motivo}</p>}
           </>
@@ -916,19 +939,51 @@ export function CadastroEmpresa() {
             className="text-[11px] text-teal-700 hover:underline">+ período</button>
         </div>
         {regimes.length === 0 && <p className="text-xs text-gray-500">Nenhum período. A empresa pode mudar de regime dentro da janela.</p>}
+        {/* A linha tinha quatro campos e nenhum rótulo: "De" e "Até" só se distinguiam pela
+            ordem em que aparecem. Os nomes vêm uma vez, no alto, e não se repetem por linha. */}
+        {regimes.length > 0 && (
+          <div className="grid grid-cols-12 gap-2 mb-1">
+            <span className={`${labelCls} col-span-3`}>Regime</span>
+            <span className={`${labelCls} col-span-2`}>Anexo do Simples</span>
+            <span className={`${labelCls} col-span-3`}>De</span>
+            <span className={`${labelCls} col-span-3`}>Até</span>
+            <span className="col-span-1" />
+          </div>
+        )}
         {regimes.map((p, i) => (
           <div key={i} className="grid grid-cols-12 gap-2 mb-2 items-center">
-            <select className={`${inputCls} col-span-4`} value={p.regime || ""} onChange={(e) => setRegimes((l) => l.map((x, j) => j === i ? { ...x, regime: e.target.value } : x))}>
+            <select className={`${inputCls} col-span-3`} value={p.regime || ""} onChange={(e) => setRegimes((l) => l.map((x, j) => j === i ? { ...x, regime: e.target.value } : x))}>
               <option value="">Regime…</option>{REGIMES.map((r) => <option key={r.v} value={r.v}>{r.label}</option>)}
             </select>
-            {p.regime === "simples"
-              ? <input className={`${inputCls} col-span-2`} placeholder="Anexo" value={p.anexo_simples || ""} onChange={(e) => setRegimes((l) => l.map((x, j) => j === i ? { ...x, anexo_simples: e.target.value } : x))} />
-              : <div className="col-span-2" />}
-            <input type="month" className={`${inputCls} col-span-2`} value={p.inicio || ""} onChange={(e) => setRegimes((l) => l.map((x, j) => j === i ? { ...x, inicio: e.target.value } : x))} />
-            <input type="month" className={`${inputCls} col-span-3`} value={p.fim || ""} onChange={(e) => setRegimes((l) => l.map((x, j) => j === i ? { ...x, fim: e.target.value } : x))} placeholder="fim (aberto)" />
+            {/* Lista fechada no lugar de texto livre. Fora do Simples o campo fica desabilitado e
+                legendado, em vez de um vão em branco: espaço vazio não diz se o campo não existe
+                ali ou se ninguém preencheu. */}
+            {p.regime === "simples" ? (
+              <select className={`${inputCls} col-span-2`} value={p.anexo_simples || ""}
+                onChange={(e) => setRegimes((l) => l.map((x, j) => j === i ? { ...x, anexo_simples: e.target.value } : x))}>
+                <option value="">Anexo…</option>
+                {ANEXOS_SIMPLES.map((a) => <option key={a} value={a}>Anexo {a}</option>)}
+                {/* Valor gravado antes da lista fechada: entra como opção para não sumir calado
+                    da tela nem do registro quando alguém abrir e salvar. */}
+                {p.anexo_simples && !ANEXOS_SIMPLES.includes(p.anexo_simples) && (
+                  <option value={p.anexo_simples}>{p.anexo_simples} — valor antigo</option>
+                )}
+              </select>
+            ) : (
+              <select className={`${inputCls} col-span-2 text-gray-400`} value="" disabled>
+                <option>— não se aplica</option>
+              </select>
+            )}
+            {/* Três colunas, não duas: em duas o campo de mês cortava o ano, e é ele que delimita
+                a base de cálculo — não dá para ler onde o período começa. */}
+            <input type="month" className={`${inputCls} col-span-3`} value={p.inicio || ""} onChange={(e) => setRegimes((l) => l.map((x, j) => j === i ? { ...x, inicio: e.target.value } : x))} />
+            <input type="month" className={`${inputCls} col-span-3`} value={p.fim || ""} onChange={(e) => setRegimes((l) => l.map((x, j) => j === i ? { ...x, fim: e.target.value } : x))} />
             <button type="button" className="col-span-1 text-red-400 text-sm" onClick={() => setRegimes((l) => l.filter((_, j) => j !== i))}>✕</button>
           </div>
         ))}
+        {regimes.length > 0 && (
+          <p className="text-[11px] text-gray-500 mt-1">“Até” vazio significa período em aberto.</p>
+        )}
       </section>
 
       {/* CPRB — estado explícito de verificação (RF-0.163..0.166) */}
