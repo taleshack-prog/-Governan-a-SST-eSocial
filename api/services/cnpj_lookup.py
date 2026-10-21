@@ -54,6 +54,10 @@ class BrasilAPIProvider(CnpjProvider):
             "cnae_principal": cnae_principal,
             "cnae_principal_descricao": d.get("cnae_fiscal_descricao"),
             "cnaes_secundarios": secundarios,
+            # O tipo vem como campo proprio na resposta, separado do logradouro, e era descartado
+            # ate 21/10. Nao e prefixo: no registro do Banco do Brasil o tipo e "QUADRA" e o
+            # logradouro e "SAUN QUADRA 5 BLOCO B TORRE I, II, III". Concatenar duplicaria.
+            "tipo_logradouro": d.get("descricao_tipo_de_logradouro"),
             "logradouro": d.get("logradouro"),
             "numero": d.get("numero"),
             "complemento": d.get("complemento"),

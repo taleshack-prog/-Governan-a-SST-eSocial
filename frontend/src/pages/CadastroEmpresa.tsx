@@ -57,6 +57,7 @@ type CprbStatus = "nao_informado" | "nao_optante" | "optante";
 const ROTULO_CAMPO: Record<string, string> = {
   razao_social: "razão social", nome_fantasia: "nome fantasia", cnae_principal: "CNAE principal",
   data_abertura: "data de abertura", data_encerramento: "data de encerramento",
+  tipo_logradouro: "tipo do logradouro",
   endereco: "logradouro", numero: "número", complemento: "complemento", bairro: "bairro",
   cidade: "cidade", uf: "UF", cep: "CEP",
 };
@@ -160,7 +161,7 @@ export function CadastroEmpresa() {
     situacao_cadastral: "", situacao_cadastral_data: "", situacao_cadastral_em: "",
     periodo_inicio: ymMinus(59), periodo_fim: ymToday(),
     data_abertura: "", data_encerramento: "",
-    endereco: "", numero: "", complemento: "", bairro: "", cidade: "", uf: "", cep: "",
+    tipo_logradouro: "", endereco: "", numero: "", complemento: "", bairro: "", cidade: "", uf: "", cep: "",
     contato_nome: "", contato_email: "", contato_telefone: "",
   });
   const [origem, setOrigem] = useState<string>("");          // consultado | declarado
@@ -207,6 +208,7 @@ export function CadastroEmpresa() {
         periodo_inicio: dateToYm(d.periodo_apuracao_inicio) || f.periodo_inicio,
         periodo_fim: dateToYm(d.periodo_apuracao_fim) || f.periodo_fim,
         data_abertura: d.data_abertura ?? "", data_encerramento: d.data_encerramento ?? "",
+        tipo_logradouro: d.tipo_logradouro ?? "",
         endereco: d.endereco ?? "", numero: d.numero ?? "", complemento: d.complemento ?? "",
         bairro: d.bairro ?? "", cidade: d.cidade ?? "", uf: d.uf ?? "", cep: d.cep ?? "",
         contato_nome: d.contato_nome ?? "", contato_email: d.contato_email ?? "", contato_telefone: d.contato_telefone ?? "",
@@ -264,6 +266,7 @@ export function CadastroEmpresa() {
         razao_social: ou(x.razao_social, f.razao_social),
         nome_fantasia: ou(x.nome_fantasia, f.nome_fantasia),
         cnae_principal: ou(x.cnae_principal, f.cnae_principal),
+        tipo_logradouro: ou(x.tipo_logradouro, f.tipo_logradouro),
         endereco: ou(x.logradouro, f.endereco), numero: ou(x.numero, f.numero),
         complemento: ou(x.complemento, f.complemento), bairro: ou(x.bairro, f.bairro),
         cidade: ou(x.municipio, f.cidade), uf: ou(x.uf, f.uf), cep: ou(x.cep, f.cep),
@@ -282,6 +285,7 @@ export function CadastroEmpresa() {
       setConsultaBruta({
         razao_social: x.razao_social ?? null, nome_fantasia: x.nome_fantasia ?? null,
         cnae_principal: x.cnae_principal ?? null, data_abertura: x.data_abertura ?? null,
+        tipo_logradouro: x.tipo_logradouro ?? null,
         endereco: x.logradouro ?? null, numero: x.numero ?? null, complemento: x.complemento ?? null,
         bairro: x.bairro ?? null, cidade: x.municipio ?? null, uf: x.uf ?? null, cep: x.cep ?? null,
       });
@@ -316,8 +320,31 @@ export function CadastroEmpresa() {
       const resp = await fetch(`https://viacep.com.br/ws/${d}/json/`);
       const data = await resp.json();
       if (data.erro) { setCepMsg("CEP não encontrado."); return; }
-      setForm((f: any) => ({ ...f, endereco: data.logradouro || f.endereco, bairro: data.bairro || f.bairro, cidade: data.localidade || f.cidade, uf: data.uf || f.uf }));
-      setCepMsg("");
+      // SÓ PREENCHE CAMPO VAZIO. Antes esta busca sobrescrevia logradouro, bairro, cidade e UF
+      // com o que o ViaCEP devolvesse, e isso falseava a procedência: numa empresa consultada na
+      // Receita, a âncora gravada é o valor da Receita; o ViaCEP trocava o valor por outro — às
+      // vezes só na grafia, "ALMIRANTE TAMANDARE" contra "Rua Almirante Tamandaré" — e, ao
+      // salvar, o backend via valor diferente da âncora e marcava o campo como ALTERADO À MÃO.
+      // Ninguém havia alterado nada: achado falso dentro do mecanismo que existe para impedir
+      // achado falso. São ainda fontes que discordam na estrutura, porque o ViaCEP devolve o
+      // tipo embutido no logradouro e a Receita devolve os dois separados.
+      //
+      // Preenchendo só o vazio, a busca segue útil no cadastro manual e nunca contradiz a
+      // Receita. O que ela preencher, o usuário revisa e salva, e aí vale como declarado — o
+      // rótulo honesto, porque não veio do cadastro oficial.
+      const vazio = (v: any) => !String(v ?? "").trim();
+      const sugestao: Record<string, string | undefined> = {
+        endereco: data.logradouro, bairro: data.bairro, cidade: data.localidade, uf: data.uf,
+      };
+      const preencher: Record<string, string> = {};
+      let mantidos = 0;
+      for (const [campo, valor] of Object.entries(sugestao)) {
+        if (!valor) continue;
+        if (vazio(form[campo])) preencher[campo] = valor;
+        else if (String(form[campo]).trim().toUpperCase() !== valor.trim().toUpperCase()) mantidos += 1;
+      }
+      if (Object.keys(preencher).length) setForm((f: any) => ({ ...f, ...preencher }));
+      setCepMsg(mantidos ? "CEP encontrado. Os campos já preenchidos foram mantidos." : "");
     } catch { setCepMsg("Não foi possível buscar o CEP."); }
   };
 
@@ -805,21 +832,56 @@ export function CadastroEmpresa() {
       {/* Endereço (matriz) */}
       <section className="bg-white rounded-xl border border-gray-100 p-5 mb-4">
         <h2 className="text-sm font-bold text-gray-800 mb-3">Endereço (matriz)</h2>
+        {/* Os sete campos deste bloco vinham da consulta e nenhum dizia isso. A maquinaria de
+            procedência já os rastreava no backend — o bloco é que nunca a chamava. Importa
+            porque o endereço é editável: a Receita pode estar desatualizada e o cliente
+            corrigir, e o laudo precisa saber se descreve o estabelecimento conforme o cadastro
+            oficial ou conforme alguém digitou. */}
         <div className="grid grid-cols-6 gap-4">
           <div className="col-span-2">
-            <label className={labelCls}>CEP</label>
-            <input className={inputCls} value={form.cep}
+            <label className={labelCls}>CEP<Procedencia mapa={camposOrigem} campo="cep" genero="o" /></label>
+            <input className={fundoProcedencia(camposOrigem, "cep", inputCls)} value={form.cep}
               onChange={(e) => { const v = maskCep(e.target.value); set("cep", v); if (v.replace(/\D/g, "").length === 8) buscarCep(v); }}
               onBlur={(e) => buscarCep(e.target.value)} maxLength={9} placeholder="00000-000" inputMode="numeric" />
             {cepMsg && <p className="text-[11px] text-amber-600 mt-1">{cepMsg}</p>}
           </div>
-          <div className="col-span-4"><label className={labelCls}>Logradouro</label><input className={inputCls} value={form.endereco} onChange={(e) => set("endereco", e.target.value)} /></div>
-          <div className="col-span-2"><label className={labelCls}>Número</label><input className={inputCls} value={form.numero} onChange={(e) => set("numero", e.target.value)} /></div>
-          <div className="col-span-2"><label className={labelCls}>Complemento</label><input className={inputCls} value={form.complemento} onChange={(e) => set("complemento", e.target.value)} /></div>
-          <div className="col-span-2"><label className={labelCls}>Bairro</label><input className={inputCls} value={form.bairro} onChange={(e) => set("bairro", e.target.value)} /></div>
-          <div className="col-span-4"><label className={labelCls}>Cidade</label><input className={inputCls} value={form.cidade} onChange={(e) => set("cidade", e.target.value)} /></div>
-          <div className="col-span-2"><label className={labelCls}>UF</label>
-            <select className={inputCls} value={form.uf} onChange={(e) => set("uf", e.target.value)}>
+          {/* Campo PRÓPRIO, não prefixo concatenado no logradouro: a fonte separa os dois, e o
+              tipo nem sempre abre o logradouro. Assim o laudo compõe o endereço na ordem que
+              quiser e a busca por logradouro não precisa limpar prefixo. */}
+          <div className="col-span-1">
+            <label className={labelCls}>Tipo<Procedencia mapa={camposOrigem} campo="tipo_logradouro" genero="o" /></label>
+            <input className={fundoProcedencia(camposOrigem, "tipo_logradouro", inputCls)} value={form.tipo_logradouro}
+              onChange={(e) => set("tipo_logradouro", e.target.value)} placeholder="RUA" />
+          </div>
+          <div className="col-span-3">
+            <label className={labelCls}>Logradouro<Procedencia mapa={camposOrigem} campo="endereco" genero="o" /></label>
+            <input className={fundoProcedencia(camposOrigem, "endereco", inputCls)} value={form.endereco}
+              onChange={(e) => set("endereco", e.target.value)} />
+          </div>
+          <div className="col-span-2">
+            <label className={labelCls}>Número<Procedencia mapa={camposOrigem} campo="numero" genero="o" /></label>
+            <input className={fundoProcedencia(camposOrigem, "numero", inputCls)} value={form.numero}
+              onChange={(e) => set("numero", e.target.value)} />
+          </div>
+          <div className="col-span-2">
+            <label className={labelCls}>Complemento<Procedencia mapa={camposOrigem} campo="complemento" genero="o" /></label>
+            <input className={fundoProcedencia(camposOrigem, "complemento", inputCls)} value={form.complemento}
+              onChange={(e) => set("complemento", e.target.value)} />
+          </div>
+          <div className="col-span-2">
+            <label className={labelCls}>Bairro<Procedencia mapa={camposOrigem} campo="bairro" genero="o" /></label>
+            <input className={fundoProcedencia(camposOrigem, "bairro", inputCls)} value={form.bairro}
+              onChange={(e) => set("bairro", e.target.value)} />
+          </div>
+          <div className="col-span-4">
+            <label className={labelCls}>Cidade<Procedencia mapa={camposOrigem} campo="cidade" /></label>
+            <input className={fundoProcedencia(camposOrigem, "cidade", inputCls)} value={form.cidade}
+              onChange={(e) => set("cidade", e.target.value)} />
+          </div>
+          <div className="col-span-2">
+            <label className={labelCls}>UF<Procedencia mapa={camposOrigem} campo="uf" /></label>
+            <select className={fundoProcedencia(camposOrigem, "uf", inputCls)} value={form.uf}
+              onChange={(e) => set("uf", e.target.value)}>
               <option value="">—</option>{UFS.map((u) => <option key={u} value={u}>{u}</option>)}
             </select>
           </div>

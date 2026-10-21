@@ -65,7 +65,7 @@ def _sem_sobreposicao(periodos: list[tuple[date, Optional[date]]]) -> bool:
 CAMPOS_RASTREADOS = (
     "cnae_principal", "data_abertura",          # entram em cálculo
     "razao_social", "nome_fantasia", "data_encerramento",
-    "endereco", "numero", "complemento", "bairro", "cidade", "uf", "cep",
+    "tipo_logradouro", "endereco", "numero", "complemento", "bairro", "cidade", "uf", "cep",
 )
 
 
@@ -296,6 +296,7 @@ class EmpresaUpdate(BaseModel):
     situacao_cadastral: str | None = None
     situacao_cadastral_data: date | None = None
     situacao_cadastral_em: datetime | None = None
+    tipo_logradouro: str | None = None                # RUA | AVENIDA | QUADRA... (migration 044)
     endereco: str | None = None
     numero: str | None = None
     complemento: str | None = None
@@ -479,6 +480,7 @@ async def obter_empresa(
         "situacao_cadastral_em": empresa.situacao_cadastral_em.isoformat() if empresa.situacao_cadastral_em else None,
         "arquivada": bool(empresa.arquivada),
         "arquivada_em": empresa.arquivada_em.isoformat() if empresa.arquivada_em else None,
+        "tipo_logradouro": empresa.tipo_logradouro,
         "endereco": empresa.endereco,
         "numero": empresa.numero,
         "complemento": empresa.complemento,

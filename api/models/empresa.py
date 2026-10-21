@@ -50,6 +50,9 @@ class Empresa(Base):
     cprb_verificado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # ---- Endereco da matriz (migration 023/025) — espelha o estabelecimento ----
+    # Tipo e logradouro sao campos SEPARADOS na fonte (migration 044) e assim ficam: o tipo nem
+    # sempre e prefixo do logradouro, entao concatenar perderia informacao que nao volta.
+    tipo_logradouro: Mapped[str | None] = mapped_column(String(40))   # RUA | AVENIDA | QUADRA...
     endereco: Mapped[str | None] = mapped_column(String(500))   # logradouro
     numero: Mapped[str | None] = mapped_column(String(20))
     complemento: Mapped[str | None] = mapped_column(String(120))
