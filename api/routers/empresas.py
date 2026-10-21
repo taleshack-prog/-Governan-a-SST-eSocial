@@ -151,6 +151,29 @@ def _resumo_origem(mapa: dict, consultado_em_empresa=None) -> dict:
     }
 
 
+async def _descricoes_cnae(codigos, db: AsyncSession) -> dict:
+    """Descrição oficial da subclasse, por código, a partir do Anexo I (migration 022).
+
+    Carolina, 20/10, item 3: a descrição transforma um código, que só especialista confere, numa
+    frase que qualquer um confere — inclusive o cliente, que conhece o próprio negócio e percebe
+    na hora "Construção de edifícios" dentro de um comércio de alimentos.
+
+    Vem do Anexo I, a MESMA tabela de onde sai o grau de risco, e não da consulta pública: a
+    descrição fica disponível em toda leitura do cadastro, não só logo depois de consultar, e o
+    laudo nunca passa a depender da API externa como fonte. CNAE sem linha no Anexo I devolve
+    None — e essa ausência é a mesma que manda a competência à conferência, então não se inventa
+    texto para ela.
+    """
+    cods = sorted({re.sub(r"\D", "", str(c or ""))[:7] for c in (codigos or []) if c})
+    cods = [c for c in cods if len(c) == 7]
+    if not cods:
+        return {}
+    linhas = (await db.execute(
+        select(CnaeEnquadramento.cnae, CnaeEnquadramento.descricao).where(CnaeEnquadramento.cnae.in_(cods))
+    )).all()
+    return {c: d for c, d in linhas}
+
+
 def _exigir_cobertura_regime(periodos: list, empresa: Empresa) -> None:
     """Recusa salvar regime que não cobre a janela de apuração inteira (item 4 da revisão).
 
@@ -428,13 +451,18 @@ async def obter_empresa(
     secundarios = (await db.execute(
         select(EmpresaCnaeSecundario.cnae).where(EmpresaCnaeSecundario.empresa_id == empresa_id)
     )).scalars().all()
+    # Item 3 da revisão de 20/10: código sozinho ninguém audita; a descrição é o que permite
+    # conferir. Principal ganha linha de apoio na tela; secundários levam a descrição no hover,
+    # porque cinco descrições viram um parágrafo.
+    descr = await _descricoes_cnae([empresa.cnae_principal, *secundarios], db)
     return {
         "id": str(empresa.id),
         "razao_social": empresa.razao_social,
         "nome_fantasia": empresa.nome_fantasia,
         "cnpj": empresa.cnpj,
         "cnae_principal": empresa.cnae_principal,   # semente do enquadramento da matriz
-        "cnaes_secundarios": [{"codigo": c} for c in secundarios],
+        "cnae_principal_descricao": descr.get(empresa.cnae_principal),
+        "cnaes_secundarios": [{"codigo": c, "descricao": descr.get(c)} for c in secundarios],
         "periodo_apuracao_inicio": empresa.periodo_apuracao_inicio.isoformat() if empresa.periodo_apuracao_inicio else None,
         "periodo_apuracao_fim": empresa.periodo_apuracao_fim.isoformat() if empresa.periodo_apuracao_fim else None,
         "data_abertura": empresa.data_abertura.isoformat() if empresa.data_abertura else None,

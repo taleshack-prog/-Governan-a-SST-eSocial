@@ -168,6 +168,7 @@ export function CadastroEmpresa() {
   const [mostrarExclusao, setMostrarExclusao] = useState(false);
   const [confirmaExclusao, setConfirmaExclusao] = useState("");
   const [consultadoEm, setConsultadoEm] = useState<string>("");
+  const [cnaeDescricao, setCnaeDescricao] = useState<string>("");   // descrição da subclasse (Anexo I)
   const [secundarios, setSecundarios] = useState<any[]>([]);
   const [regimes, setRegimes] = useState<Periodo[]>([]);
   const [cprb, setCprb] = useState<Periodo[]>([]);
@@ -183,10 +184,17 @@ export function CadastroEmpresa() {
 
   const set = (k: string, v: any) => setForm((f: any) => ({ ...f, [k]: v }));
 
-  // carrega empresa + regime + cprb + espelho
-  useEffect(() => {
-    if (!empresaId) return;
-    apiClient.get(`/empresas/${empresaId}`).then((r) => {
+  // Item 1 da revisão de 20/10: a linha de procedência não atualizava depois de salvar.
+  // CAUSA: o carregamento da empresa só acontecia na montagem da tela. Ao salvar, o código relia
+  // a empresa mas aproveitava APENAS num_estabelecimentos e jogava fora resumo_origem — então a
+  // linha continuava exibindo o estado de quando a página foi aberta, enquanto a situação
+  // cadastral logo ao lado, que vive no formulário, já mostrava a consulta nova. Duas
+  // informações da mesma consulta divergindo na mesma tela.
+  // CORREÇÃO: o carregamento vira função e é chamado também depois de salvar. A tela passa a
+  // exibir o que FOI GRAVADO, não o que o navegador supõe — que é o que o laudo cita.
+  const carregarEmpresa = () => {
+    if (!empresaId) return Promise.resolve();
+    return apiClient.get(`/empresas/${empresaId}`).then((r) => {
       const d = r.data;
       setForm((f: any) => ({
         ...f,
@@ -205,9 +213,16 @@ export function CadastroEmpresa() {
       setCamposOrigem(d.campos_origem ?? {});
       setArquivada(!!d.arquivada);
       setConsultadoEm(d.consultado_em ?? "");
+      setCnaeDescricao(d.cnae_principal_descricao ?? "");
       setSecundarios(d.cnaes_secundarios ?? []);
       setNumEstab(d.num_estabelecimentos ?? 0);
     }).catch(() => {});
+  };
+
+  // carrega empresa + regime + cprb + espelho
+  useEffect(() => {
+    if (!empresaId) return;
+    carregarEmpresa();
     apiClient.get(`/empresas/${empresaId}/regime`).then((r) => setRegimes(
       (r.data || []).map((p: any) => ({ regime: p.regime, anexo_simples: p.anexo_simples, inicio: dateToYm(p.inicio), fim: dateToYm(p.fim) }))
     )).catch(() => {});
@@ -253,7 +268,10 @@ export function CadastroEmpresa() {
         // Item 8: a situação deixa de morrer na mensagem e vira campo do registro
         situacao_cadastral: x.situacao_cadastral ?? f.situacao_cadastral,
         situacao_cadastral_data: x.situacao_cadastral_data ?? f.situacao_cadastral_data,
-        situacao_cadastral_em: new Date().toISOString(),
+        // UMA consulta, UM horário. Antes este campo carimbava o relógio do NAVEGADOR enquanto a
+        // procedência carimbava o do SERVIDOR — duas horas diferentes para o mesmo ato, e a do
+        // navegador pode estar errada. O laudo cita as duas; elas não podem divergir.
+        situacao_cadastral_em: x.consultado_em || new Date().toISOString(),
       }));
       // Item 1: guarda EXATAMENTE o que a consulta devolveu, por campo. É enviado no salvamento
       // para o backend decidir a origem comparando com o valor gravado — a tela não afirma
@@ -265,6 +283,7 @@ export function CadastroEmpresa() {
         bairro: x.bairro ?? null, cidade: x.municipio ?? null, uf: x.uf ?? null, cep: x.cep ?? null,
       });
       setSecundarios(x.cnaes_secundarios || []);
+      setCnaeDescricao(x.cnae_principal_descricao || "");
       setOrigem("consultado");
       setConsultadoEm(x.consultado_em || new Date().toISOString());
       setConsultaMsg("Consultado na Receita. Revise e confirme — o dado vale após salvar.");
@@ -272,6 +291,18 @@ export function CadastroEmpresa() {
       setOrigem("declarado");
       setConsultaMsg(`${e?.response?.data?.detail || "Consulta indisponível"}. Preencha manualmente (origem: declarado).`);
     }
+  };
+
+  // CNAE digitado à mão: a descrição anterior passa a ser MENTIRA no instante da edição — ficaria
+  // "Comércio varejista" ao lado de um código de construção. Então ela sai da tela na hora e só
+  // volta resolvida pelo Anexo I, a mesma tabela de onde sai o grau de risco. Código fora do
+  // Anexo I fica sem descrição: é a mesma ausência que manda a competência à conferência.
+  const resolverDescricaoCnae = async (codigo: string) => {
+    if ((codigo || "").length !== 7) { setCnaeDescricao(""); return; }
+    try {
+      const r = await apiClient.get(`/cnae/${codigo}`);
+      setCnaeDescricao(r.data?.descricao || "");
+    } catch { setCnaeDescricao(""); }
   };
 
   const buscarCep = async (cepRaw: string) => {
@@ -310,10 +341,11 @@ export function CadastroEmpresa() {
         periodo_apuracao_inicio: ymToDate(form.periodo_inicio), periodo_apuracao_fim: ymToDate(form.periodo_fim),
         data_abertura: form.data_abertura || null, data_encerramento: form.data_encerramento || null,
         origem_cadastro: origem || "declarado",
-        consultado_em: origem === "consultado" ? (consultadoEm || null) : null,
-        // Só vai quando houve consulta nesta sessão de edição; o backend preserva o mapa
-        // anterior quando não vem, para salvar de novo não apagar a procedência.
-        ...(consultaBruta ? { campos_consultados: consultaBruta } : {}),
+        // consultado_em e campos_consultados viajam JUNTOS, e só quando houve consulta nesta
+        // sessão de edição. Antes, salvar sem consultar mandava consultado_em: null e APAGAVA a
+        // data da consulta anterior — perdendo o registro de um ato que de fato ocorreu. Omitir a
+        // chave (exclude_unset no backend) preserva o que está gravado.
+        ...(consultaBruta ? { campos_consultados: consultaBruta, consultado_em: consultadoEm || null } : {}),
         situacao_cadastral: form.situacao_cadastral || null,
         situacao_cadastral_data: form.situacao_cadastral_data || null,
         situacao_cadastral_em: form.situacao_cadastral_em || null,
@@ -339,7 +371,13 @@ export function CadastroEmpresa() {
       setConsultaMsg("");   // transitório: cumpriu a função, sai de cena
       setMsg("Dados salvos. A matriz foi criada/atualizada e o enquadramento espelhado abaixo.");
       carregarEspelho();
-      apiClient.get(`/empresas/${empresaId}`).then((r) => setNumEstab(r.data.num_estabelecimentos ?? numEstab)).catch(() => {});
+      // Relê a empresa INTEIRA: procedência por campo, resumo, consultado_em e descrição do CNAE
+      // passam a refletir o que foi gravado. Antes esta chamada existia e aproveitava só a
+      // contagem de estabelecimentos — a linha de procedência ficava congelada até recarregar a
+      // página, que é o defeito do item 1.
+      carregarEmpresa();
+      // A consulta desta sessão já foi gravada; zerar evita reenviá-la como se fosse nova.
+      setConsultaBruta(null);
       apiClient.get(`/empresas/${empresaId}/cprb`).then((r) => setCprbVerif({ por: r.data?.verificado_por, em: r.data?.verificado_em })).catch(() => {});
     } catch {
       setMsg("Não foi possível salvar. Verifique os campos (períodos não podem se sobrepor).");
@@ -484,8 +522,12 @@ export function CadastroEmpresa() {
             <div>
               <label className={labelCls}>
                 Situação cadastral
+                {/* SEM (§), de propósito. Situação cadastral é FATO do cadastro da Receita, não
+                    número que decorra de norma — o marcador certo é "(consultada)", que é o que
+                    ela é. O § precisa significar uma coisa só, "este valor vem de uma norma,
+                    clique para ver qual", senão perde o valor nos campos do enquadramento, onde
+                    ele é a prova de que o número veio de norma vigente. */}
                 {form.situacao_cadastral && <span className="ml-1 text-gray-400 font-normal">(consultada)</span>}
-                <Fundamentacao campo="situacao_cadastral" />
               </label>
               {form.situacao_cadastral ? (
                 <>
@@ -521,12 +563,32 @@ export function CadastroEmpresa() {
             <label className={labelCls}>CNAE principal<Procedencia mapa={camposOrigem} campo="cnae_principal" genero="o" /></label>
             <input className={`${fundoProcedencia(camposOrigem, "cnae_principal", inputCls)} font-mono`}
               value={fmt.cnaeParcial(form.cnae_principal)} maxLength={10}
-              onChange={(e) => set("cnae_principal", e.target.value.replace(/\D/g, "").slice(0, 7))}
+              onChange={(e) => {
+                const d = e.target.value.replace(/\D/g, "").slice(0, 7);
+                set("cnae_principal", d);
+                resolverDescricaoCnae(d);
+              }}
               placeholder="0000-0/00" inputMode="numeric" />
+            {/* Item 3: a descrição transforma um código, que só especialista confere, numa frase
+                que qualquer um confere — inclusive o cliente, que conhece o próprio negócio. */}
+            {cnaeDescricao && (
+              <p className="text-[11px] text-gray-500 mt-1">{fmt.cnae(form.cnae_principal)} — {cnaeDescricao}</p>
+            )}
           </div>
         </div>
+        {/* Nos secundários vai só o código: cinco descrições viram um parágrafo. A descrição fica
+            no hover de cada um. */}
         {secundarios.length > 0 && (
-          <p className="text-[11px] text-gray-400 mt-2">CNAEs secundários: {secundarios.map((c) => fmt.cnae(c.codigo)).join(", ")}.</p>
+          <p className="text-[11px] text-gray-400 mt-2">
+            CNAEs secundários:{" "}
+            {secundarios.map((c: any, i: number) => (
+              <span key={c.codigo}>
+                {i > 0 && ", "}
+                <span className={c.descricao ? "underline decoration-dotted cursor-help" : undefined}
+                  title={c.descricao || undefined}>{fmt.cnae(c.codigo)}</span>
+              </span>
+            ))}.
+          </p>
         )}
       </section>
 
