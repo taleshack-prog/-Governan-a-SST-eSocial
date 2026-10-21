@@ -299,7 +299,7 @@ function RatAplicadoModal({ estab, onFechar }: { estab: any; onFechar: () => voi
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl p-6 w-full max-w-4xl shadow-xl max-h-[90vh] overflow-y-auto">
-        <h2 className="text-lg font-bold text-gray-900">RAT aplicado pela empresa — {estab.nome}<Fundamentacao campo="rat_aplicado" /></h2>
+        <h2 className="text-lg font-bold text-gray-900">RAT aplicado pela empresa — {estab.nome}</h2>
         <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-800 my-3">
           Informe o que a empresa <b>efetivamente declarou</b>, como está no eSocial (evento S-1005):
           a <b>alíquota RAT</b> (<code>aliqRat</code>) e o <b>FAP</b> (<code>fap</code>). A alíquota efetiva
@@ -768,7 +768,7 @@ export function Estabelecimentos() {
       {fapEstab && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-full max-w-md">
-            <h2 className="text-lg font-bold text-gray-900">FAP por ano — {fapEstab.nome}<Fundamentacao campo="fap_aplicado" /></h2>
+            <h2 className="text-lg font-bold text-gray-900">FAP por ano — {fapEstab.nome}<Fundamentacao campo="fap_publicado" /></h2>
             <p className="text-xs text-gray-500 mt-1 mb-4">O cálculo usa o FAP de cada ano. Campo vazio não é 1,0 — fica em branco e vai à conferência.</p>
             <div className="space-y-2">
               {ANOS_FAP.map((ano) => (

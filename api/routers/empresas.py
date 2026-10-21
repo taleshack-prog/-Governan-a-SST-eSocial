@@ -683,13 +683,26 @@ async def matriz_enquadramento(
         todas = (await db.execute(
             select(E).where(E.estabelecimento_id == matriz.id)
         )).scalars().all()
-        resumo = {"total": len(todas), "conferidas": 0, "apuradas": 0, "em_conferencia": 0}
+        # QUATRO numeros, TRES estados. 'sem_aplicado' nao e um quarto estado: e o recorte do
+        # balde 'apurado' por um ATRIBUTO — a empresa informou, ou nao, a aliquota que aplicou.
+        # A separacao e a da refatoracao de 19/10 (ver enquadramento_situacao, cabecalho): ter o
+        # aplicado deixou de ser estado porque misturar as duas coisas foi o que fazia o sistema
+        # se autodeclarar conferido. O contador exibe os dois numeros porque a diferenca e
+        # operacional — 'apurada' ja da para comparar, 'sem o aplicado' espera a folha —, mas
+        # situacao_de() continua com tres valores e nao muda aqui. Quem for tentado a criar o
+        # quarto estado esta refazendo o erro que a 040 desfez.
+        resumo = {"total": len(todas), "conferidas": 0, "apuradas": 0,
+                  "sem_aplicado": 0, "em_conferencia": 0}
         for r in todas:
             s = situacao_de(r.em_fila,
                             float(r.aliquota_devida) if r.aliquota_devida is not None else None,
                             r.conferido_por)
-            resumo["conferidas" if s == "conferido" else
-                   "apuradas" if s == "apurado" else "em_conferencia"] += 1
+            if s == "conferido":
+                resumo["conferidas"] += 1
+            elif s == "apurado":
+                resumo["apuradas" if r.aliquota_aplicada is not None else "sem_aplicado"] += 1
+            else:
+                resumo["em_conferencia"] += 1
         return {
             "existe": True,
             "estabelecimento_id": str(matriz.id),
@@ -703,6 +716,14 @@ async def matriz_enquadramento(
                 "fap": float(apurada.fap) if apurada.fap is not None else None,
                 "aliquota_efetiva": efetiva,
                 "aliquota_aplicada": aplicada,
+                # AS DUAS ORIGENS DO APLICADO (colunas da migration 036, ate aqui nao
+                # serializadas). Sem elas a tela mostra so a efetiva aplicada e nao da para
+                # dizer QUEM errou: quem usou grau errado, quem ignorou o FAP publicado, ou os
+                # dois. Sao defesas diferentes — reenquadramento contra portaria do FAPWeb — e o
+                # S-1005 separa os campos (aliqRat, fap, aliqRatAjust). Nulas nas linhas antigas,
+                # que guardam so a efetiva: nesse caso a tela diz que nao sabe, e nao presume.
+                "rat_base_aplicado": float(apurada.rat_aplicado) if apurada.rat_aplicado is not None else None,
+                "fap_aplicado": float(apurada.fap_aplicado) if apurada.fap_aplicado is not None else None,
                 "divergencia_pp": divergencia_de(efetiva, aplicada),
                 "situacao": situacao_de(apurada.em_fila, devida, apurada.conferido_por),
                 "conferido_por": apurada.conferido_por,

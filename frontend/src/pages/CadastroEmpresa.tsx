@@ -103,8 +103,11 @@ function fundoProcedencia(mapa: any, campo: string, base: string) {
 }
 
 // Situação da competência no espelho (espelha api/services/enquadramento_situacao.py)
+// Concordam com ROTULO do backend, no feminino, porque entram na frase "Esta competência
+// está ___". "apurado (falta o aplicado)" era o rótulo anterior a 19/10 e dizia o contrário do
+// que o estado significa hoje: apurada é a que o motor fechou, tenha o aplicado ou não.
 const ESP_SIT: Record<string, string> = {
-  conferencia: "conferência", apurado: "apurado (falta o aplicado)", conferido: "conferido",
+  conferencia: "em conferência", apurado: "apurada", conferido: "conferida",
 };
 
 // RF-0.164/0.165/0.166: valida um período de CPRB no front (espelho do backend). Devolve "" se ok.
@@ -618,10 +621,18 @@ export function CadastroEmpresa() {
                   <>
                     Competência <b>{fmt.competencia(espelho.enquadramento.competencia)}</b>
                     {espelho.serie_resumo?.total ? <>, de {espelho.serie_resumo.total} analisadas</> : null}
+                    {/* QUATRO baldes. O rótulo "sem o aplicado" estava colado em `apuradas`, e
+                        desde a refatoração de 19/10 isso ficou errado: `apurado` passou a
+                        significar "o motor concluiu sem pendência", e ter ou não o aplicado
+                        virou atributo. A tela carimbava como "sem o aplicado" competências que
+                        tinham o aplicado — inclusive a que ela própria exibia logo abaixo, com
+                        divergência calculada. Os dois números agora são distintos; os estados
+                        continuam três. */}
                     {espelho.serie_resumo ? (
-                      <> — {espelho.serie_resumo.conferidas} conferidas
-                        {espelho.serie_resumo.apuradas > 0 && <>, {espelho.serie_resumo.apuradas} sem o aplicado</>}
-                        {espelho.serie_resumo.em_conferencia > 0 && <>, {espelho.serie_resumo.em_conferencia} em conferência</>}
+                      <> — <b>{espelho.serie_resumo.apuradas} apurada{espelho.serie_resumo.apuradas === 1 ? "" : "s"}</b>
+                        , {espelho.serie_resumo.sem_aplicado} sem o RAT aplicado
+                        , {espelho.serie_resumo.em_conferencia} em conferência
+                        , {espelho.serie_resumo.conferidas} conferida{espelho.serie_resumo.conferidas === 1 ? "" : "s"}
                       </>
                     ) : null}
                   </>
@@ -636,9 +647,16 @@ export function CadastroEmpresa() {
 
             {/* Item 5: dado derivado é VALOR, não caixa de entrada. Sem moldura de input, para
                 ninguém tentar corrigir à mão o número que o sistema existe para calcular. */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4">
+            {/* A premissa vem antes dos números: CNAE e grau respondem POR QUE a alíquota é
+                aquela; as três caixas abaixo respondem QUANTO. Misturados na mesma régua de
+                quatro colunas, o devido e o aplicado ficavam lado a lado sem dizer que são
+                afirmações de autores diferentes — a lei e a empresa. */}
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-2">
+              Atividade preponderante da competência
+            </p>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-4">
               <div>
-                <span className={derivLabel}>CNAE preponderante<Fundamentacao campo="atividade_preponderante" /></span>
+                <span className={derivLabel}>CNAE<Fundamentacao campo="atividade_preponderante" /></span>
                 <div className={`${derivVal} font-mono`}>{fmt.cnae(espelho.enquadramento.cnae)}</div>
                 {espelho.enquadramento.cnae_descricao && (
                   <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">{espelho.enquadramento.cnae_descricao}</p>
@@ -652,58 +670,134 @@ export function CadastroEmpresa() {
                     : "—"}
                 </div>
               </div>
-              <div>
-                <span className={derivLabel}>RAT devido<Fundamentacao campo="rat_devido" /></span>
-                <div className={derivVal}>{fmt.pct(espelho.enquadramento.aliquota_rat)}</div>
-              </div>
-              <div>
-                <span className={derivLabel}>RAT aplicado<Fundamentacao campo="rat_aplicado" /></span>
-                <div className={espelho.enquadramento.aliquota_aplicada != null ? derivVal : `${derivVal} text-gray-400`}>
-                  {espelho.enquadramento.aliquota_aplicada != null
-                    ? fmt.pct(espelho.enquadramento.aliquota_aplicada)
-                    : <span className="text-sm font-normal">não informado</span>}
-                </div>
-              </div>
             </div>
 
             {espelho.enquadramento.confirmado && (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4 mt-5 pt-4 border-t border-gray-100">
-                <div>
-                  <span className={derivLabel}>FAP<Fundamentacao campo="fap_aplicado" /></span>
-                  <div className={derivVal}>{fmt.num(espelho.enquadramento.fap, 4)}</div>
+              <div className="grid md:grid-cols-3 gap-3 mt-5 pt-4 border-t border-gray-100">
+                {/* DEVIDO: cada linha decorre de norma e carrega o seu §. É a conta que a lei
+                    manda fazer — RAT do Anexo I multiplicado pelo FAP publicado. */}
+                <div className="rounded-lg bg-gray-50 border border-gray-200 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-2">Devido pela lei</p>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-[11px] text-gray-600">RAT<Fundamentacao campo="rat_devido" /></span>
+                    <span className="text-sm font-semibold text-gray-900 tabular-nums">{fmt.pct(espelho.enquadramento.aliquota_rat)}</span>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-2 mt-1">
+                    <span className="text-[11px] text-gray-600">× FAP publicado<Fundamentacao campo="fap_publicado" /></span>
+                    <span className="text-sm font-semibold text-gray-900 tabular-nums">
+                      {espelho.enquadramento.fap != null ? fmt.num(espelho.enquadramento.fap, 4) : "—"}
+                    </span>
+                  </div>
+                  <div className="mt-2 pt-2 border-t border-gray-200">
+                    <span className={derivLabel}>Alíquota efetiva devida<Fundamentacao campo="aliquota_efetiva" /></span>
+                    <div className={derivVal}>{fmt.pct(espelho.enquadramento.aliquota_efetiva)}</div>
+                  </div>
                 </div>
-                <div>
-                  <span className={derivLabel}>Alíquota efetiva<Fundamentacao campo="aliquota_efetiva" /></span>
-                  <div className={derivVal}>{fmt.pct(espelho.enquadramento.aliquota_efetiva)}</div>
+
+                {/* APLICADO: nenhum § aqui. Este bloco não é o que a norma manda — é o que a
+                    empresa declarou no S-1005, certo ou errado. Marcar com § faria a tela
+                    afirmar que a alíquota errada tem fundamento legal. O marcador correto é a
+                    procedência, no rodapé da caixa. */}
+                <div className="rounded-lg bg-white border-2 border-amber-300 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-2">Aplicado pela empresa</p>
+                  {espelho.enquadramento.aliquota_aplicada == null ? (
+                    <p className="text-sm text-gray-400 mt-2">não informado</p>
+                  ) : espelho.enquadramento.rat_base_aplicado == null && espelho.enquadramento.fap_aplicado == null ? (
+                    /* Linha anterior à migration 036: guarda só a efetiva. O sistema sabe que
+                       divergiu e NÃO sabe de onde — e não presume rat=3/fap=1,0 para fechar. */
+                    <>
+                      <span className={derivLabel}>Alíquota efetiva aplicada</span>
+                      <div className={derivVal}>{fmt.pct(espelho.enquadramento.aliquota_aplicada)}</div>
+                      <p className="text-[10px] text-gray-500 mt-2 leading-snug">
+                        RAT e FAP não desdobrados nesta competência — a origem da divergência não pode ser afirmada.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="text-[11px] text-gray-600">RAT base</span>
+                        <span className="text-sm font-semibold text-gray-900 tabular-nums">
+                          {espelho.enquadramento.rat_base_aplicado != null
+                            ? fmt.pct(espelho.enquadramento.rat_base_aplicado)
+                            : <span className="font-normal text-red-600">não informado</span>}
+                        </span>
+                      </div>
+                      <div className="flex items-baseline justify-between gap-2 mt-1">
+                        <span className="text-[11px] text-gray-600">× FAP</span>
+                        <span className="text-sm font-semibold text-gray-900 tabular-nums">
+                          {espelho.enquadramento.fap_aplicado != null
+                            ? fmt.num(espelho.enquadramento.fap_aplicado, 4)
+                            : <span className="font-normal text-red-600">não informado</span>}
+                        </span>
+                      </div>
+                      <div className="mt-2 pt-2 border-t border-gray-200">
+                        <span className={derivLabel}>Alíquota efetiva aplicada</span>
+                        <div className={derivVal}>{fmt.pct(espelho.enquadramento.aliquota_aplicada)}</div>
+                      </div>
+                    </>
+                  )}
+                  <p className="text-[10px] text-gray-500 mt-2">Origem: declarado no estabelecimento</p>
                 </div>
+
                 {/* Item 6: a divergência é o produto — é o número pelo qual o cliente paga.
                     Peso maior, posição de resultado, e cor COM rótulo em texto: positiva é
                     crédito a recuperar, negativa é passivo a regularizar. Confundir as duas num
                     laudo é grave — quem compensa crédito inexistente responde com multa. */}
-                <div className="col-span-2">
-                  <span className={derivLabel}>Divergência</span>
+                <div className={`rounded-lg border p-3 ${
+                  espelho.enquadramento.divergencia_pp == null ? "bg-gray-50 border-gray-200"
+                  : espelho.enquadramento.divergencia_pp > 0 ? "bg-blue-50 border-blue-200"
+                  : espelho.enquadramento.divergencia_pp < 0 ? "bg-red-50 border-red-200"
+                  : "bg-gray-50 border-gray-200"}`}>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-2">
+                    Divergência
+                    {espelho.enquadramento.divergencia_pp != null && espelho.enquadramento.divergencia_pp > 0 && " — crédito"}
+                    {espelho.enquadramento.divergencia_pp != null && espelho.enquadramento.divergencia_pp < 0 && " — passivo"}
+                  </p>
                   {espelho.enquadramento.divergencia_pp == null ? (
-                    <div className={`${derivVal} text-gray-400`}>—</div>
+                    <>
+                      <div className={`${derivVal} text-gray-400`}>—</div>
+                      <p className="text-[10px] text-gray-500 mt-2 leading-snug">
+                        Sem o aplicado informado não há comparação a fazer.
+                      </p>
+                    </>
                   ) : (
-                    <div className={`flex items-baseline gap-2 ${
+                    <div className={
                       espelho.enquadramento.divergencia_pp > 0 ? "text-blue-700"
-                      : espelho.enquadramento.divergencia_pp < 0 ? "text-red-700" : "text-gray-700"}`}>
-                      <span className="text-2xl font-bold tabular-nums">{fmt.pp(espelho.enquadramento.divergencia_pp)}</span>
-                      <span className="text-xs font-medium">
-                        {espelho.enquadramento.divergencia_pp > 0 ? "pagou a mais — crédito a recuperar"
-                         : espelho.enquadramento.divergencia_pp < 0 ? "pagou a menos — passivo a regularizar"
-                         : "sem divergência"}
-                      </span>
+                      : espelho.enquadramento.divergencia_pp < 0 ? "text-red-700" : "text-gray-700"}>
+                      <div className="text-2xl font-bold tabular-nums leading-tight">{fmt.pp(espelho.enquadramento.divergencia_pp)}</div>
+                      <p className="text-[11px] font-medium mt-1 leading-snug">
+                        {espelho.enquadramento.divergencia_pp > 0 ? "A empresa recolheu acima do devido. Há valor a recuperar."
+                         : espelho.enquadramento.divergencia_pp < 0 ? "A empresa recolheu abaixo do devido. Há passivo a regularizar."
+                         : "Sem divergência."}
+                      </p>
                     </div>
                   )}
                 </div>
               </div>
             )}
 
-            <p className="text-[11px] text-gray-400 mt-4">
-              {espelho.enquadramento.origem}
-              {espelho.motivo && ` ${espelho.motivo}`}
-            </p>
+            {/* O rodapé diz em que ESTADO a competência está e se alguém a conferiu — não como
+                ela foi calculada. O método ("apurado pelo motor, pela atividade preponderante")
+                é fundamentação de campo e vive no § do CNAE, que cita o dispositivo e explica a
+                regra. Estado e método são perguntas diferentes, e num laudo a que importa é
+                quem assina embaixo: conferir é ato de pessoa, e o sistema nunca se autodeclara
+                conferido (migration 040). */}
+            <div className="flex flex-wrap items-baseline justify-between gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 mt-4">
+              <p className="text-xs text-gray-700">
+                Esta competência está <b>{ESP_SIT[espelho.enquadramento.situacao] || espelho.enquadramento.situacao}</b>.{" "}
+                {espelho.enquadramento.conferido_por ? (
+                  <>Conferida por {espelho.enquadramento.conferido_por}
+                    {espelho.enquadramento.conferido_em && <> em {fmt.dataHora(espelho.enquadramento.conferido_em)}</>}.</>
+                ) : (
+                  <>Nenhuma pessoa a conferiu.</>
+                )}
+              </p>
+              <a href="/estabelecimentos" className="text-xs text-teal-700 hover:underline whitespace-nowrap">
+                Conferir no relatório de enquadramento →
+              </a>
+            </div>
+
+            {espelho.motivo && <p className="text-[11px] text-gray-400 mt-2">{espelho.motivo}</p>}
           </>
         )}
       </section>
