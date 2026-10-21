@@ -103,6 +103,26 @@ function fundoProcedencia(mapa: any, campo: string, base: string) {
   return `${base} ${p.tipo === "declarado" ? "bg-blue-50 border-blue-200" : "bg-amber-50 border-amber-200"}`;
 }
 
+// A ausência é ESTRUTURADA, não narrada. A linha fica onde está e o valor dá lugar a um
+// marcador, em vez de sumir e virar frase embaixo do bloco. Duas razões: as colunas devido e
+// aplicado continuam paralelas linha a linha, que é o que deixa o olho comparar; e a lacuna
+// aparece no lugar exato onde o dado vai entrar quando a captura do RAT base e do FAP chegar
+// pela tela Estabelecimentos — aí o desenho não muda, só os valores aparecem.
+const NaoInformado = () => (
+  <span className="inline-block rounded border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+    não informado
+  </span>
+);
+
+// Qual parte do desdobramento falta, para a frase dizer exatamente essa e não uma genérica.
+// Devolve null quando os dois estão informados — e aí não há nada a explicar.
+function faltaDesdobramento(rat: number | null | undefined, fap: number | null | undefined) {
+  if (rat == null && fap == null) return "o RAT base e o FAP não forem informados";
+  if (rat == null) return "o RAT base não for informado";
+  if (fap == null) return "o FAP não for informado";
+  return null;
+}
+
 // Situação da competência no espelho (espelha api/services/enquadramento_situacao.py)
 // Concordam com ROTULO do backend, no feminino, porque entram na frase "Esta competência
 // está ___". "apurado (falta o aplicado)" era o rótulo anterior a 19/10 e dizia o contrário do
@@ -642,32 +662,33 @@ export function CadastroEmpresa() {
             {/* Item 7: o espelho mostra UMA competência de sessenta. Essa frase vem antes dos
                 números, não em letra miúda embaixo — na mesma empresa um ano pode ser crédito
                 e outro, passivo. */}
-            <div className="flex flex-wrap items-baseline justify-between gap-2 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 mb-4">
+            {/* O link vai para a linha de baixo de propósito. Em flex com justify-between ele
+                quebrava sozinho quando a frase crescia, e quebra não intencional parece defeito. */}
+            <div className="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 mb-4">
               <p className="text-xs text-gray-700">
                 {espelho.enquadramento.competencia ? (
                   <>
                     Competência <b>{fmt.competencia(espelho.enquadramento.competencia)}</b>
                     {espelho.serie_resumo?.total ? <>, de {espelho.serie_resumo.total} analisadas</> : null}
-                    {/* QUATRO baldes. O rótulo "sem o aplicado" estava colado em `apuradas`, e
-                        desde a refatoração de 19/10 isso ficou errado: `apurado` passou a
-                        significar "o motor concluiu sem pendência", e ter ou não o aplicado
-                        virou atributo. A tela carimbava como "sem o aplicado" competências que
-                        tinham o aplicado — inclusive a que ela própria exibia logo abaixo, com
-                        divergência calculada. Os dois números agora são distintos; os estados
-                        continuam três. */}
+                    {/* TRÊS estados somam o total; "sem o RAT aplicado" é RECORTE das apuradas e
+                        vai entre parênteses, dentro do mesmo número. Antes o recorte saía como
+                        balde irmão e a linha passava a afirmar que todas as apuradas estavam sem
+                        o aplicado — inclusive a competência exibida logo abaixo, com divergência
+                        calculada a partir dele. Atributo não desloca contagem de estado.
+                        As vírgulas ficam coladas ao texto anterior de propósito: quebrar a linha
+                        antes delas fazia o JSX inserir um espaço e sair "aplicado , 2". */}
                     {espelho.serie_resumo ? (
-                      <> — <b>{espelho.serie_resumo.apuradas} apurada{espelho.serie_resumo.apuradas === 1 ? "" : "s"}</b>
-                        , {espelho.serie_resumo.sem_aplicado} sem o RAT aplicado
-                        , {espelho.serie_resumo.em_conferencia} em conferência
-                        , {espelho.serie_resumo.conferidas} conferida{espelho.serie_resumo.conferidas === 1 ? "" : "s"}
-                      </>
+                      <> — <b>
+                        {espelho.serie_resumo.apuradas} apurada{espelho.serie_resumo.apuradas === 1 ? "" : "s"}
+                        {espelho.serie_resumo.sem_aplicado > 0 && ` (${espelho.serie_resumo.sem_aplicado} sem o RAT aplicado)`}
+                      </b>{`, ${espelho.serie_resumo.em_conferencia} em conferência, ${espelho.serie_resumo.conferidas} conferida${espelho.serie_resumo.conferidas === 1 ? "" : "s"}`}</>
                     ) : null}
                   </>
                 ) : (
                   <>Prévia — a série mensal ainda não foi apurada.</>
                 )}
               </p>
-              <a href="/estabelecimentos" className="text-xs text-teal-700 hover:underline whitespace-nowrap">
+              <a href="/estabelecimentos" className="text-xs text-teal-700 hover:underline inline-block mt-0.5">
                 Ver enquadramento completo →
               </a>
             </div>
@@ -705,11 +726,13 @@ export function CadastroEmpresa() {
                     manda fazer — RAT do Anexo I multiplicado pelo FAP publicado. */}
                 <div className="rounded-lg bg-gray-50 border border-gray-200 p-3">
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-2">Devido pela lei</p>
-                  <div className="flex items-baseline justify-between gap-2">
+                  {/* Mesma altura de linha da coluna ao lado: é o paralelismo que deixa comparar
+                      linha a linha, e o marcador de ausência é mais alto que um número solto. */}
+                  <div className="flex items-baseline justify-between gap-2 min-h-[1.75rem]">
                     <span className="text-[11px] text-gray-600">RAT<Fundamentacao campo="rat_devido" /></span>
                     <span className="text-sm font-semibold text-gray-900 tabular-nums">{fmt.pct(espelho.enquadramento.aliquota_rat)}</span>
                   </div>
-                  <div className="flex items-baseline justify-between gap-2 mt-1">
+                  <div className="flex items-baseline justify-between gap-2 min-h-[1.75rem]">
                     <span className="text-[11px] text-gray-600">× FAP publicado<Fundamentacao campo="fap_publicado" /></span>
                     <span className="text-sm font-semibold text-gray-900 tabular-nums">
                       {espelho.enquadramento.fap != null ? fmt.num(espelho.enquadramento.fap, 4) : "—"}
@@ -729,41 +752,38 @@ export function CadastroEmpresa() {
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-2">Aplicado pela empresa</p>
                   {espelho.enquadramento.aliquota_aplicada == null ? (
                     <p className="text-sm text-gray-400 mt-2">não informado</p>
-                  ) : espelho.enquadramento.rat_base_aplicado == null && espelho.enquadramento.fap_aplicado == null ? (
-                    /* Linha anterior à migration 036: guarda só a efetiva. O sistema sabe que
-                       divergiu e NÃO sabe de onde — e não presume rat=3/fap=1,0 para fechar. */
-                    <>
-                      <span className={derivLabel}>Alíquota efetiva aplicada</span>
-                      <div className={derivVal}>{fmt.pct(espelho.enquadramento.aliquota_aplicada)}</div>
-                      <p className="text-[10px] text-gray-500 mt-2 leading-snug">
-                        RAT e FAP não desdobrados nesta competência — a origem da divergência não pode ser afirmada.
-                      </p>
-                    </>
                   ) : (
                     <>
-                      <div className="flex items-baseline justify-between gap-2">
+                      {/* As duas linhas existem SEMPRE, informadas ou não. Nas competências
+                          anteriores à migration 036 a linha guarda só a efetiva, e é aqui que
+                          isso fica visível — o sistema sabe que divergiu e não sabe de onde.
+                          Nunca presume rat=3/fap=1,0 para fechar a conta: seria inventar a
+                          origem da divergência, que é o que decide a defesa. */}
+                      <div className="flex items-baseline justify-between gap-2 min-h-[1.75rem]">
                         <span className="text-[11px] text-gray-600">RAT base</span>
-                        <span className="text-sm font-semibold text-gray-900 tabular-nums">
-                          {espelho.enquadramento.rat_base_aplicado != null
-                            ? fmt.pct(espelho.enquadramento.rat_base_aplicado)
-                            : <span className="font-normal text-red-600">não informado</span>}
-                        </span>
+                        {espelho.enquadramento.rat_base_aplicado != null
+                          ? <span className="text-sm font-semibold text-gray-900 tabular-nums">{fmt.pct(espelho.enquadramento.rat_base_aplicado)}</span>
+                          : <NaoInformado />}
                       </div>
-                      <div className="flex items-baseline justify-between gap-2 mt-1">
+                      <div className="flex items-baseline justify-between gap-2 min-h-[1.75rem]">
                         <span className="text-[11px] text-gray-600">× FAP</span>
-                        <span className="text-sm font-semibold text-gray-900 tabular-nums">
-                          {espelho.enquadramento.fap_aplicado != null
-                            ? fmt.num(espelho.enquadramento.fap_aplicado, 4)
-                            : <span className="font-normal text-red-600">não informado</span>}
-                        </span>
+                        {espelho.enquadramento.fap_aplicado != null
+                          ? <span className="text-sm font-semibold text-gray-900 tabular-nums">{fmt.num(espelho.enquadramento.fap_aplicado, 4)}</span>
+                          : <NaoInformado />}
                       </div>
                       <div className="mt-2 pt-2 border-t border-gray-200">
                         <span className={derivLabel}>Alíquota efetiva aplicada</span>
                         <div className={derivVal}>{fmt.pct(espelho.enquadramento.aliquota_aplicada)}</div>
                       </div>
+                      {faltaDesdobramento(espelho.enquadramento.rat_base_aplicado, espelho.enquadramento.fap_aplicado) && (
+                        <p className="text-[10px] text-gray-500 mt-2 leading-snug">
+                          A origem da divergência não pode ser afirmada enquanto{" "}
+                          {faltaDesdobramento(espelho.enquadramento.rat_base_aplicado, espelho.enquadramento.fap_aplicado)}.
+                        </p>
+                      )}
                     </>
                   )}
-                  <p className="text-[10px] text-gray-500 mt-2">Origem: declarado no estabelecimento</p>
+                  <p className="text-[10px] text-gray-500 mt-1">Origem: declarado no estabelecimento</p>
                 </div>
 
                 {/* Item 6: a divergência é o produto — é o número pelo qual o cliente paga.

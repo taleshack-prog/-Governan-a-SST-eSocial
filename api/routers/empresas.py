@@ -685,14 +685,17 @@ async def matriz_enquadramento(
         todas = (await db.execute(
             select(E).where(E.estabelecimento_id == matriz.id)
         )).scalars().all()
-        # QUATRO numeros, TRES estados. 'sem_aplicado' nao e um quarto estado: e o recorte do
-        # balde 'apurado' por um ATRIBUTO — a empresa informou, ou nao, a aliquota que aplicou.
-        # A separacao e a da refatoracao de 19/10 (ver enquadramento_situacao, cabecalho): ter o
-        # aplicado deixou de ser estado porque misturar as duas coisas foi o que fazia o sistema
-        # se autodeclarar conferido. O contador exibe os dois numeros porque a diferenca e
-        # operacional — 'apurada' ja da para comparar, 'sem o aplicado' espera a folha —, mas
-        # situacao_de() continua com tres valores e nao muda aqui. Quem for tentado a criar o
-        # quarto estado esta refazendo o erro que a 040 desfez.
+        # TRES estados e UM recorte. 'sem_aplicado' nao e um quarto balde ao lado dos tres: e
+        # SUBCONJUNTO de 'apuradas' — as apuradas em que a empresa ainda nao informou a aliquota
+        # que aplicou. Por isso os tres estados somam o total e sem_aplicado nao entra na soma.
+        #
+        # A primeira versao disto (21/10) fatiava 'apuradas' em dois baldes disjuntos, e o
+        # contador passou a afirmar que 58 competencias estavam sem o RAT aplicado quando uma
+        # delas tinha — justamente a que a tela exibia logo abaixo, com divergencia calculada.
+        # Era o mesmo erro de 19/10 em outra roupa: deixar o atributo deslocar a contagem dos
+        # estados. O estado conta inteiro; o atributo aparece entre parenteses.
+        #
+        # situacao_de() continua com tres valores e nao muda aqui.
         resumo = {"total": len(todas), "conferidas": 0, "apuradas": 0,
                   "sem_aplicado": 0, "em_conferencia": 0}
         for r in todas:
@@ -702,7 +705,9 @@ async def matriz_enquadramento(
             if s == "conferido":
                 resumo["conferidas"] += 1
             elif s == "apurado":
-                resumo["apuradas" if r.aliquota_aplicada is not None else "sem_aplicado"] += 1
+                resumo["apuradas"] += 1
+                if r.aliquota_aplicada is None:
+                    resumo["sem_aplicado"] += 1
             else:
                 resumo["em_conferencia"] += 1
         return {
