@@ -695,14 +695,19 @@ async def matriz_enquadramento(
         # Era o mesmo erro de 19/10 em outra roupa: deixar o atributo deslocar a contagem dos
         # estados. O estado conta inteiro; o atributo aparece entre parenteses.
         #
-        # situacao_de() continua com tres valores e nao muda aqui.
+        # situacao_de() passou a QUATRO valores em 22/10: entrou 'nao_auditada', para a
+        # competencia em que o regime afasta a apuracao. Continua sendo estado, e os quatro
+        # somam o total; 'sem_aplicado' segue sendo recorte de 'apuradas' e fora da soma.
         resumo = {"total": len(todas), "conferidas": 0, "apuradas": 0,
-                  "sem_aplicado": 0, "em_conferencia": 0}
+                  "sem_aplicado": 0, "em_conferencia": 0, "nao_auditadas": 0}
         for r in todas:
-            s = situacao_de(r.em_fila,
-                            float(r.aliquota_devida) if r.aliquota_devida is not None else None,
-                            r.conferido_por)
-            if s == "conferido":
+            s = situacao_de(
+                rat_aplicavel=r.rat_aplicavel, em_fila=r.em_fila,
+                aliquota_devida=float(r.aliquota_devida) if r.aliquota_devida is not None else None,
+                conferido_por=r.conferido_por)
+            if s == "nao_auditada":
+                resumo["nao_auditadas"] += 1
+            elif s == "conferido":
                 resumo["conferidas"] += 1
             elif s == "apurado":
                 resumo["apuradas"] += 1
@@ -732,7 +737,15 @@ async def matriz_enquadramento(
                 "rat_base_aplicado": float(apurada.rat_aplicado) if apurada.rat_aplicado is not None else None,
                 "fap_aplicado": float(apurada.fap_aplicado) if apurada.fap_aplicado is not None else None,
                 "divergencia_pp": divergencia_de(efetiva, aplicada),
-                "situacao": situacao_de(apurada.em_fila, devida, apurada.conferido_por),
+                "situacao": situacao_de(rat_aplicavel=apurada.rat_aplicavel,
+                                        em_fila=apurada.em_fila, aliquota_devida=devida,
+                                        conferido_por=apurada.conferido_por),
+                # O regime que decidiu a aplicabilidade viaja junto: a peca precisa dizer o
+                # fato e a fonte, nao so que a competencia nao foi auditada.
+                "rat_aplicavel": bool(apurada.rat_aplicavel),
+                "motivo_inaplicavel": apurada.motivo_inaplicavel,
+                "regime_competencia": apurada.regime_competencia,
+                "anexo_competencia": apurada.anexo_competencia,
                 "conferido_por": apurada.conferido_por,
                 "conferido_em": apurada.conferido_em.isoformat() if apurada.conferido_em else None,
                 "codigo_fpas": None,
@@ -845,7 +858,32 @@ async def salvar_regime(
         db.add(EmpresaRegime(empresa_id=empresa_id, regime=it.regime, anexo_simples=it.anexo_simples,
                              inicio=it.inicio, fim=it.fim))
     await db.commit()
-    return {"ok": True, "total": len(data)}
+
+    # REAPURA A SERIE (22/10). Desde que o motor passou a ler o regime, mudar o regime mudou a
+    # base de calculo — e ate aqui nada reapurava: a tela gravava Simples/Anexo III e seguia
+    # exibindo o credito calculado sob a regra antiga, como se o salvamento nao tivesse efeito.
+    # As demais mutacoes que mexem em base de calculo (atividade, FAP, estabelecimento) ja
+    # reapuram; o regime ficou de fora porque, quando elas foram escritas, ninguem o lia.
+    #
+    # A reapuracao REVOGA conferencias das competencias afetadas, com o rastro de quem havia
+    # conferido — e isso e intencional: assinatura sobre numero que mudou nao corresponde mais
+    # a nada. O aviso volta para a tela dizer quantas foram.
+    from api.services.motor_enquadramento import apurar_estabelecimento
+    estabs = (await db.execute(
+        select(Estabelecimento.id).where(Estabelecimento.empresa_id == empresa_id)
+    )).scalars().all()
+    autor = getattr(current_user, "email", None) or getattr(current_user, "nome", None)
+    revogadas = competencias = 0
+    for eid in estabs:
+        r = await apurar_estabelecimento(eid, db, autor=autor)
+        if r.get("ok"):
+            competencias += r.get("competencias") or 0
+            revogadas += r.get("conferencias_revogadas") or 0
+    return {"ok": True, "total": len(data), "estabelecimentos_reapurados": len(estabs),
+            "competencias": competencias, "conferencias_revogadas": revogadas,
+            "aviso": (f"{revogadas} competência(s) conferidas voltaram a pender de conferência: "
+                      f"o regime mudou, então a validação anterior não vale mais.")
+                     if revogadas else None}
 
 
 # ---- CPRB: estado + períodos (RF-0.157/0.163..0.166) ----

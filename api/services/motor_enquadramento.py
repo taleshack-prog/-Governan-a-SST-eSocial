@@ -17,6 +17,7 @@ from api.models.estabelecimento_fap import EstabelecimentoFAP
 from api.models.estabelecimento_rat_aplicado import EstabelecimentoRatAplicado
 from api.models.estabelecimento_enquadramento import EstabelecimentoEnquadramento
 from api.models.cnae_enquadramento import CnaeEnquadramento
+from api.services.regime_competencia import regime_da_competencia, rat_se_aplica, CERTO
 
 FUND = {
     "dispositivo": "Lei 8.212/91, art. 22, II; Decreto 3.048/99, art. 202, §§ 3º e 4º",
@@ -118,6 +119,9 @@ async def apurar_estabelecimento(estab_id, db: AsyncSession, autor: str | None =
         motivo = None
         cnae_prep = criterio = None
         grau = aliq_dev = aliq_ef = None
+        rat_aplicavel = True
+        motivo_inaplicavel = None
+        reg = {"certeza": CERTO, "regime": None, "anexo": None, "motivo": None}
 
         # RAT aplicado vigente na competencia. Desdobrado em GRAU e FATOR (migration 036): a
         # efetiva aplicada e o produto dos dois, como o eSocial valida no S-1005. Quando a linha
@@ -138,7 +142,34 @@ async def apurar_estabelecimento(estab_id, db: AsyncSession, autor: str | None =
         # atividades vigentes com quantitativo declarado
         vigentes = [a for a in atividades if _vigente(comp, a.vigencia_inicio, a.vigencia_fim) and a.quantitativo is not None]
 
-        if situacao_sem_data:
+        # O REGIME VEM ANTES DE TUDO (22/10). Se o regime afasta a apuracao, nao importa se a
+        # obra e CNO, se ha quantitativo declarado ou se o FAP do ano foi informado: nao ha RAT
+        # a apurar, e perguntar o resto seria apurar o que nao existe. Era a ausencia deste
+        # bloco que fazia o sistema afirmar credito em 58 competencias de uma empresa do
+        # Simples, Anexo III.
+        if empresa is not None:
+            reg = await regime_da_competencia(empresa.id, comp, db)
+            if reg["certeza"] != CERTO:
+                # Incerteza vai para conferencia, NUNCA para premissa — regra da Carolina.
+                # Sem saber o regime nao da para dizer nem que ha RAT, nem que nao ha.
+                em_fila_flag, motivo = True, reg["motivo"]
+            else:
+                aplica, porque = rat_se_aplica(reg["regime"], reg["anexo"])
+                if not aplica:
+                    rat_aplicavel, motivo_inaplicavel = False, porque
+
+        if not rat_aplicavel:
+            # Nada a calcular: devida, efetiva e grau ficam nulos, e por consequencia a
+            # divergencia tambem — nao ha o que comparar com o aplicado. O APLICADO continua
+            # gravado de proposito: empresa do Anexo III que declarou RAT no S-1005 e achado
+            # por si so, porque pode estar recolhendo o que nao deve.
+            pass
+        elif em_fila_flag:
+            # Regime incerto, ja resolvido acima com o seu proprio motivo. Vem antes dos demais
+            # ramos para que nenhum deles sobrescreva a explicacao — sem saber o regime, dizer
+            # "sem quantitativo declarado" seria apontar a pendencia errada.
+            pass
+        elif situacao_sem_data:
             em_fila_flag, motivo = True, (
                 f"Empresa com situação cadastral '{situacao}' e sem data da situação: não é "
                 f"possível delimitar a janela. Informe a data para apurar.")
@@ -188,6 +219,11 @@ async def apurar_estabelecimento(estab_id, db: AsyncSession, autor: str | None =
             revogado_por=autor if comp in conferidas_antes else None,
             revogado_de=conferidas_antes[comp][0] if comp in conferidas_antes else None,
             em_fila=em_fila_flag, motivo_fila=motivo,
+            # Aplicabilidade e o regime que a decidiu, congelados na linha (migration 046): a
+            # peca precisa dizer o fato E a fonte. 'regime_origem' fica nulo ate a rodada da
+            # procedencia; hoje toda declaracao de regime e do contribuinte.
+            rat_aplicavel=rat_aplicavel, motivo_inaplicavel=motivo_inaplicavel,
+            regime_competencia=reg.get("regime"), anexo_competencia=reg.get("anexo"),
             fund_dispositivo=FUND["dispositivo"], fund_ato_normativo=FUND["ato"],
             fund_anexo=FUND["anexo"], fund_vigencia=versao,
             data_apuracao=datetime.utcnow(), versao_tabelas=versao,

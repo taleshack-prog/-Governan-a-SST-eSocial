@@ -6,7 +6,11 @@
 # nada. A memoria de enquadramento e documento com peso juridico; ela nao pode afirmar
 # conformidade de uma competencia que nunca foi verificada.
 #
-# TRES ESTADOS, cada um com significado proprio (revisao da Carolina de 19/10, item 1):
+# QUATRO ESTADOS, cada um com significado proprio (tres da revisao de 19/10, item 1; o quarto
+# do teste da Carolina em 22/10):
+#   nao_auditada — o REGIME afasta a apuracao: Simples fora do Anexo IV, em que a patronal e o
+#                 RAT estao no documento unico de arrecadacao. Nao ha aliquota devida, logo nao
+#                 ha divergencia nem credito. Nao e pendencia: e ausencia de objeto. DERIVADO.
 #   conferencia — tem PENDENCIA: falta dado, o motor nao concluiu (FAP do ano ausente, CNAE fora
 #                 do Anexo I, sem quantitativo declarado, obra CNO). Nada a afirmar. DERIVADO.
 #   apurado     — o motor calculou ate o fim sem pendencia. E afirmacao do SISTEMA. DERIVADO.
@@ -28,11 +32,17 @@
 SITUACAO_CONFERENCIA = "conferencia"
 SITUACAO_APURADO = "apurado"
 SITUACAO_CONFERIDO = "conferido"
+# QUARTO ESTADO (22/10): o modulo nao se aplica aquela competencia. Nao e pendencia nem
+# resultado — e ausencia de objeto. No Simples fora do Anexo IV a patronal, e o RAT com ela,
+# esta dentro do documento unico de arrecadacao: nao ha aliquota devida a comparar com a
+# aplicada, logo nao ha divergencia nem credito. DERIVADO do regime declarado.
+SITUACAO_NAO_AUDITADA = "nao_auditada"
 
 ROTULO = {
     SITUACAO_CONFERENCIA: "conferência",
     SITUACAO_APURADO: "apurado",
     SITUACAO_CONFERIDO: "conferido",
+    SITUACAO_NAO_AUDITADA: "não auditada",
 }
 
 # Quem afirma cada estado — o laudo precisa dizer isso com clareza.
@@ -40,20 +50,29 @@ AUTORIA_ESTADO = {
     SITUACAO_CONFERENCIA: "pendência: o sistema não concluiu",
     SITUACAO_APURADO: "afirmação do sistema",
     SITUACAO_CONFERIDO: "validado por pessoa",
+    SITUACAO_NAO_AUDITADA: "o regime afasta a apuração",
 }
 
 
-def situacao_de(em_fila: bool, aliquota_devida, conferido_por=None) -> str:
-    """Situacao da competencia. Ver os tres estados no cabecalho do modulo.
+def situacao_de(*, rat_aplicavel: bool, em_fila: bool, aliquota_devida, conferido_por=None) -> str:
+    """Situacao da competencia. Ver os quatro estados no cabecalho do modulo.
 
     'conferido_por' vem GRAVADO na linha: e o ato humano. O sistema nunca o preenche, e por isso
     nunca se autodeclara conferido. Competencia com pendencia nao pode ser conferida — nao ha o
-    que validar —, por isso a pendencia e testada primeiro.
+    que validar —, por isso a pendencia e testada antes.
 
-    A assinatura mudou em 19/10: o terceiro parametro era 'aliquota_aplicada' e produzia
-    'conferido' sozinho. Quem chamar com o aplicado no lugar do autor recebe 'conferido' por
-    engano, entao o parametro foi renomeado de proposito — uma chamada antiga nao passa calada.
+    'rat_aplicavel' e testado PRIMEIRO porque e de outra ordem: pendencia e falta de dado,
+    inaplicabilidade e falta de objeto. Uma competencia que nao tem RAT a apurar nao fica
+    "pendente" de nada — nao ha o que esperar.
+
+    A ASSINATURA E SO POR NOME, de proposito, e mudou duas vezes pelo mesmo motivo. Em 19/10 o
+    terceiro parametro era 'aliquota_aplicada' e produzia 'conferido' sozinho. Em 22/10 entrou
+    'rat_aplicavel', e sem ele uma competencia inaplicavel — que tem aliquota devida NULL —
+    voltaria 'conferencia', afirmando pendencia onde nao ha nada a apurar. Chamada antiga,
+    posicional, levanta TypeError em vez de devolver um estado errado em silencio.
     """
+    if not rat_aplicavel:
+        return SITUACAO_NAO_AUDITADA
     if em_fila or aliquota_devida is None:
         return SITUACAO_CONFERENCIA
     if conferido_por:

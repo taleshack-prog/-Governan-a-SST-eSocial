@@ -45,6 +45,19 @@ class EstabelecimentoEnquadramento(Base):
     revogado_de: Mapped[str | None] = mapped_column(String(200))
     em_fila: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     motivo_fila: Mapped[str | None] = mapped_column(String(200))
+    # APLICABILIDADE DO MODULO (migration 046). No Simples fora do Anexo IV a patronal — e o RAT
+    # com ela — esta dentro do documento unico de arrecadacao, entao NAO HA RAT a apurar. Isso
+    # nao e divergencia zero: e ausencia de aliquota devida a comparar com a aplicada.
+    # em_fila e PENDENCIA (falta dado); rat_aplicavel=False e AUSENCIA DE OBJETO. Nao confundir.
+    rat_aplicavel: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Regime e anexo congelados na linha: a peca precisa dizer o fato E a fonte, e nao teria o
+    # que afirmar se a competencia so soubesse que nao foi auditada.
+    regime_competencia: Mapped[str | None] = mapped_column(String(30))
+    anexo_competencia: Mapped[str | None] = mapped_column(String(10))
+    # consultado | declarado — decide o tempo verbal da peca. Preenchida quando a procedencia
+    # do regime existir; ate la, toda declaracao de regime e do contribuinte.
+    regime_origem: Mapped[str | None] = mapped_column(String(16))
+    motivo_inaplicavel: Mapped[str | None] = mapped_column(String(300))
     fund_dispositivo: Mapped[str | None] = mapped_column(String(200))
     fund_ato_normativo: Mapped[str | None] = mapped_column(String(200))
     fund_anexo: Mapped[str | None] = mapped_column(String(80))

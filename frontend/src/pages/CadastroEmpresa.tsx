@@ -132,6 +132,7 @@ function faltaDesdobramento(rat: number | null | undefined, fap: number | null |
 // que o estado significa hoje: apurada é a que o motor fechou, tenha o aplicado ou não.
 const ESP_SIT: Record<string, string> = {
   conferencia: "em conferência", apurado: "apurada", conferido: "conferida",
+  nao_auditada: "não auditada quanto ao RAT",
 };
 
 // RF-0.164/0.165/0.166: valida um período de CPRB no front (espelho do backend). Devolve "" se ok.
@@ -757,7 +758,10 @@ export function CadastroEmpresa() {
                       <> — <b>
                         {espelho.serie_resumo.apuradas} apurada{espelho.serie_resumo.apuradas === 1 ? "" : "s"}
                         {espelho.serie_resumo.sem_aplicado > 0 && ` (${espelho.serie_resumo.sem_aplicado} sem o RAT aplicado)`}
-                      </b>{`, ${espelho.serie_resumo.em_conferencia} em conferência, ${espelho.serie_resumo.conferidas} conferida${espelho.serie_resumo.conferidas === 1 ? "" : "s"}`}</>
+                      </b>{`, ${espelho.serie_resumo.em_conferencia} em conferência, ${espelho.serie_resumo.conferidas} conferida${espelho.serie_resumo.conferidas === 1 ? "" : "s"}`}
+                        {espelho.serie_resumo.nao_auditadas > 0 && (
+                          <>{`, `}<b>{`${espelho.serie_resumo.nao_auditadas} não auditada${espelho.serie_resumo.nao_auditadas === 1 ? "" : "s"} quanto ao RAT`}</b></>
+                        )}</>
                     ) : null}
                   </>
                 ) : (
@@ -775,6 +779,34 @@ export function CadastroEmpresa() {
                 aquela; as três caixas abaixo respondem QUANTO. Misturados na mesma régua de
                 quatro colunas, o devido e o aplicado ficavam lado a lado sem dizer que são
                 afirmações de autores diferentes — a lei e a empresa. */}
+            {/* REGIME AFASTOU A APURAÇÃO. Não é divergência zero nem pendência: não há alíquota
+                devida a comparar com a aplicada. Desenhar as três caixas aqui mostraria colunas
+                vazias e um "—" na divergência, que o olho lê como "ainda não calculado" — e o
+                que houve foi o contrário: está resolvido, e a resposta é que não há o que
+                apurar. Por isso o bloco inteiro dá lugar ao aviso. */}
+            {espelho.enquadramento.rat_aplicavel === false ? (
+              <div className="rounded-lg bg-amber-50 border border-amber-300 px-4 py-3">
+                <p className="text-sm font-semibold text-amber-900">
+                  Neste período não há RAT nem contribuições a Terceiros a apurar.
+                </p>
+                {espelho.enquadramento.motivo_inaplicavel && (
+                  <p className="text-xs text-amber-900 mt-1 leading-snug">{espelho.enquadramento.motivo_inaplicavel}</p>
+                )}
+                {espelho.enquadramento.regime_competencia && (
+                  <p className="text-[11px] text-gray-600 mt-2">
+                    Regime na competência: <b>
+                      {espelho.enquadramento.regime_competencia === "simples" ? "Simples Nacional"
+                        : espelho.enquadramento.regime_competencia === "lucro_real" ? "Lucro Real"
+                        : espelho.enquadramento.regime_competencia === "lucro_presumido" ? "Lucro Presumido"
+                        : espelho.enquadramento.regime_competencia}
+                      {espelho.enquadramento.anexo_competencia && `, Anexo ${espelho.enquadramento.anexo_competencia}`}
+                    </b>
+                    {" "}— conforme declarado no cadastro da empresa.
+                  </p>
+                )}
+              </div>
+            ) : (
+            <>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-2">
               Atividade preponderante da competência
             </p>
@@ -898,6 +930,8 @@ export function CadastroEmpresa() {
                 </div>
               </div>
             )}
+            </>
+            )}
 
             {/* O rodapé diz em que ESTADO a competência está e se alguém a conferiu — não como
                 ela foi calculada. O método ("apurado pelo motor, pela atividade preponderante")
@@ -916,6 +950,8 @@ export function CadastroEmpresa() {
                 {espelho.enquadramento.conferido_por ? (
                   <>Conferida por {espelho.enquadramento.conferido_por}
                     {espelho.enquadramento.conferido_em && <> em {fmt.dataHora(espelho.enquadramento.conferido_em)}</>}.</>
+                ) : espelho.enquadramento.rat_aplicavel === false ? (
+                  <>Não havia RAT a apurar, então não há o que conferir.</>
                 ) : (
                   <>Nenhuma pessoa a conferiu.</>
                 )}
