@@ -23,16 +23,23 @@ type Fund = {
 
 const ymd = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
 
-export function Fundamentacao({ campo, em }: { campo: string; em?: string }) {
+// Data de hoje em ISO, para os pontos de CADASTRO — campos que o usuário preenche agora e que
+// não pertencem a uma competência. Onde existe competência, passa-se a competência: era o
+// "default: hoje" escondido no backend que fazia uma peça sobre 2021 citar a redação de 2026.
+export const hojeISO = () => new Date().toISOString().slice(0, 10);
+
+// `em` é OBRIGATÓRIO de propósito. O build roda `tsc` antes do `vite`, então esquecer a data em
+// qualquer chamada quebra a compilação em vez de voltar silenciosamente a citar a norma de hoje.
+export function Fundamentacao({ campo, em }: { campo: string; em: string }) {
   const [f, setF] = useState<Fund | null>(null);
   const [aberto, setAberto] = useState(false);
   const caixa = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     apiClient
-      .get(`/fundamentacao/${campo}`, { params: em ? { em } : undefined })
+      .get(`/fundamentacao/${campo}`, { params: { em } })
       .then((r) => setF(r.data))
-      .catch(() => setF(null));   // 404 = sem fundamentação cadastrada: não exibe nada
+      .catch(() => setF(null));   // 404 = sem citação para aquela data: não exibe nada
   }, [campo, em]);
 
   useEffect(() => {

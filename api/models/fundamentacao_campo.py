@@ -8,8 +8,16 @@
 #
 # Tabela de REFERENCIA (RN-26): global, sem escritorio_id e sem RLS. Nao contem dado de cliente.
 #
-# Grau de risco e RAT devido nao estao aqui: a fundamentacao deles ja e gravada na linha apurada
-# (estabelecimento_enquadramento.fund_*), que e a tabela que produziu o valor.
+# FONTE UNICA (decisao da Carolina, 21/10). Esta tabela e a unica fonte do sistema: tela,
+# apuracao e calculo leem so dela, pela data da competencia. O comentario anterior aqui dizia o
+# oposto — que grau de risco e RAT devido viviam congelados na linha apurada — e isso produziu
+# DUAS fontes para a mesma citacao, que divergiam com o tempo. A citacao congelada deixa de ser
+# campo da competencia; quando houver emissao de documento, a peca levara a propria copia do que
+# citou, dentro dela. Enquanto nao houver, ela simplesmente sai.
+#
+# 'dispositivo' e LEGADO desde a migration 045: a citacao estruturada vive em
+# fundamentacao_dispositivo, uma linha por dispositivo, em campos separados. A leitura usa o
+# estruturado quando existe e cai no legado enquanto nao existe.
 import uuid
 from datetime import datetime, date
 from sqlalchemy import String, Date, DateTime
@@ -23,7 +31,7 @@ class FundamentacaoCampo(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     campo: Mapped[str] = mapped_column(String(40), nullable=False)
-    dispositivo: Mapped[str] = mapped_column(String(300), nullable=False)
+    dispositivo: Mapped[str | None] = mapped_column(String(300))   # LEGADO (045): ver cabeçalho
     ato_normativo: Mapped[str | None] = mapped_column(String(300))
     anexo: Mapped[str | None] = mapped_column(String(120))
     observacao: Mapped[str | None] = mapped_column(String(500))

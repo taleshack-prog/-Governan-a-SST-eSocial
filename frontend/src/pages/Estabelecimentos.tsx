@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "../api/client";
 import * as fmt from "../utils/formato";
-import { Fundamentacao } from "../components/Fundamentacao";
+import { Fundamentacao, hojeISO } from "../components/Fundamentacao";
 
 const NATUREZAS = ["CNPJ", "CNO", "CAEPF"];
 const POSICOES = ["matriz", "filial", "obra"];
@@ -417,7 +417,7 @@ function FpasModal({ estab, onFechar }: { estab: any; onFechar: () => void }) {
           dentro da janela de apuração, o código é informado <b>por período</b>. Opções:
           <b> Anexo II</b> (códigos) c/c <b>Anexo III</b> (alíquotas) da IN RFB 2.110/2022 — o
           dropdown exibe os dois dados.
-          <Fundamentacao campo="fpas" />
+          <Fundamentacao campo="fpas" em={hojeISO()} />
         </p>
         <div className="grid grid-cols-12 gap-2 text-[11px] text-gray-500 font-medium px-1">
           <div className="col-span-6">Código FPAS</div><div className="col-span-2">Início</div>
@@ -495,7 +495,7 @@ function EstabModal({ form, setForm, onSalvar, onFechar, isPending, erro }: any)
             </div>
           ) : (
             <div><label className={lbl}>{form.tipo_estabelecimento === "CNO" ? "Matrícula CNO *" : "Identificador (CAEPF)"}
-              {form.tipo_estabelecimento === "CNO" && <Fundamentacao campo="obra_cno" />}</label>
+              {form.tipo_estabelecimento === "CNO" && <Fundamentacao campo="obra_cno" em={hojeISO()} />}</label>
               <input className={inp} value={form.identificador} onChange={(e) => setForm({ ...form, identificador: e.target.value })} /></div>
           )}
           <div className="grid grid-cols-3 gap-3">
@@ -533,7 +533,7 @@ function EstabModal({ form, setForm, onSalvar, onFechar, isPending, erro }: any)
           {editando && (
             <div className="border-t border-gray-100 pt-3">
               <div className="flex items-baseline justify-between">
-                <label className={lbl}>Enquadramento apurado<Fundamentacao campo="rat_devido" /></label>
+                <label className={lbl}>Enquadramento apurado<Fundamentacao campo="rat_devido" em={hojeISO()} /></label>
                 <span className="text-[11px] text-gray-400">
                   {form.enquadramento_atual?.competencia ? `competência ${mesBR(form.enquadramento_atual.competencia)}` : "sem série apurada"}
                 </span>
@@ -768,7 +768,7 @@ export function Estabelecimentos() {
       {fapEstab && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-full max-w-md">
-            <h2 className="text-lg font-bold text-gray-900">FAP por ano — {fapEstab.nome}<Fundamentacao campo="fap_publicado" /></h2>
+            <h2 className="text-lg font-bold text-gray-900">FAP por ano — {fapEstab.nome}<Fundamentacao campo="fap_publicado" em={hojeISO()} /></h2>
             <p className="text-xs text-gray-500 mt-1 mb-4">O cálculo usa o FAP de cada ano. Campo vazio não é 1,0 — fica em branco e vai à conferência.</p>
             <div className="space-y-2">
               {ANOS_FAP.map((ano) => (

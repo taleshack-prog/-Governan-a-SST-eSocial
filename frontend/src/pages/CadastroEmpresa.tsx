@@ -7,7 +7,7 @@
 import { useEffect, useState } from "react";
 import { apiClient } from "../api/client";
 import { useAuthStore } from "../store/authStore";
-import { Fundamentacao } from "../components/Fundamentacao";
+import { Fundamentacao, hojeISO } from "../components/Fundamentacao";
 import * as fmt from "../utils/formato";
 
 // Item 5: dado derivado se apresenta como VALOR, não como caixa de entrada. Sem borda e sem
@@ -721,14 +721,14 @@ export function CadastroEmpresa() {
             </p>
             <div className="grid grid-cols-2 gap-x-6 gap-y-4">
               <div>
-                <span className={derivLabel}>CNAE<Fundamentacao campo="atividade_preponderante" /></span>
+                <span className={derivLabel}>CNAE<Fundamentacao campo="atividade_preponderante" em={espelho.enquadramento.competencia || hojeISO()} /></span>
                 <div className={`${derivVal} font-mono`}>{fmt.cnae(espelho.enquadramento.cnae)}</div>
                 {espelho.enquadramento.cnae_descricao && (
                   <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">{espelho.enquadramento.cnae_descricao}</p>
                 )}
               </div>
               <div>
-                <span className={derivLabel}>Grau de risco<Fundamentacao campo="rat_devido" /></span>
+                <span className={derivLabel}>Grau de risco<Fundamentacao campo="rat_devido" em={espelho.enquadramento.competencia || hojeISO()} /></span>
                 <div className={derivVal}>
                   {espelho.enquadramento.grau_risco
                     ? <>{espelho.enquadramento.grau_risco}<span className="text-sm font-normal text-gray-500"> — {espelho.enquadramento.grau_label}</span></>
@@ -746,17 +746,17 @@ export function CadastroEmpresa() {
                   {/* Mesma altura de linha da coluna ao lado: é o paralelismo que deixa comparar
                       linha a linha, e o marcador de ausência é mais alto que um número solto. */}
                   <div className="flex items-baseline justify-between gap-2 min-h-[1.75rem]">
-                    <span className="text-[11px] text-gray-600">RAT<Fundamentacao campo="rat_devido" /></span>
+                    <span className="text-[11px] text-gray-600">RAT<Fundamentacao campo="rat_devido" em={espelho.enquadramento.competencia || hojeISO()} /></span>
                     <span className="text-sm font-semibold text-gray-900 tabular-nums">{fmt.pct(espelho.enquadramento.aliquota_rat)}</span>
                   </div>
                   <div className="flex items-baseline justify-between gap-2 min-h-[1.75rem]">
-                    <span className="text-[11px] text-gray-600">× FAP publicado<Fundamentacao campo="fap_publicado" /></span>
+                    <span className="text-[11px] text-gray-600">× FAP publicado<Fundamentacao campo="fap_publicado" em={espelho.enquadramento.competencia || hojeISO()} /></span>
                     <span className="text-sm font-semibold text-gray-900 tabular-nums">
                       {espelho.enquadramento.fap != null ? fmt.num(espelho.enquadramento.fap, 4) : "—"}
                     </span>
                   </div>
                   <div className="mt-2 pt-2 border-t border-gray-200">
-                    <span className={derivLabel}>Alíquota efetiva devida<Fundamentacao campo="aliquota_efetiva" /></span>
+                    <span className={derivLabel}>Alíquota efetiva devida<Fundamentacao campo="aliquota_efetiva" em={espelho.enquadramento.competencia || hojeISO()} /></span>
                     <div className={derivVal}>{fmt.pct(espelho.enquadramento.aliquota_efetiva)}</div>
                   </div>
                 </div>
@@ -995,7 +995,7 @@ export function CadastroEmpresa() {
           {/* Item 3: a citação saiu daqui. Vem da tabela versionada — quando a lei mudar,
               acrescenta-se linha na tabela e esta tela acompanha, em vez de exibir fundamento
               revogado com aparência de vigente. */}
-          <Fundamentacao campo="cprb" />
+          <Fundamentacao campo="cprb" em={ymToDate(form.periodo_fim) || hojeISO()} />
         </p>
 
         {/* seletor dos três estados */}
