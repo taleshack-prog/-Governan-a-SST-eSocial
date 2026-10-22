@@ -57,10 +57,15 @@ const derivVal = "text-lg font-semibold text-gray-900 tabular-nums leading-tight
 
 // Situação da competência (espelha api/services/enquadramento_situacao.py).
 // "apurado" não é "ok": o devido está calculado, mas ninguém informou o que a empresa aplicou.
+// Os QUATRO estados da competência. Cada rótulo diz de quem é a afirmação, porque é isso que
+// muda a leitura: 'apurado' é o sistema dizendo; 'conferido' é uma pessoa assinando; 'conferência'
+// é pendência (falta dado); 'não auditada' é AUSÊNCIA DE OBJETO — o regime afasta a apuração do
+// RAT, então não há alíquota devida a comparar. Não confundir com divergência zero.
 const SIT: Record<string, { txt: string; cls: string; ajuda: string }> = {
   conferencia: { txt: "conferência", cls: "text-amber-700", ajuda: "Falta dado para apurar o devido." },
-  apurado: { txt: "apurado", cls: "text-sky-700", ajuda: "Devido calculado. Falta informar o RAT aplicado pela empresa — nada foi comparado ainda." },
-  conferido: { txt: "conferido", cls: "text-emerald-600", ajuda: "Devido e aplicado comparados." },
+  apurado: { txt: "apurado", cls: "text-sky-700", ajuda: "Devido calculado pelo sistema. Nenhuma pessoa conferiu ainda." },
+  conferido: { txt: "conferido", cls: "text-emerald-600", ajuda: "Devido e aplicado comparados e validados por uma pessoa." },
+  nao_auditada: { txt: "não auditada", cls: "text-gray-500", ajuda: "O regime tributário afasta a apuração do RAT nesta competência." },
 };
 
 const mesBR = (iso?: string | null) => (iso ? `${iso.slice(5, 7)}/${iso.slice(0, 4)}` : "—");
@@ -170,9 +175,14 @@ function PainelModal({ estab, onFechar }: { estab: any; onFechar: () => void }) 
   const load = () => { setLoading(true); apiClient.get(`/estabelecimentos/${estab.id}/enquadramento`).then((r) => setRows(r.data || [])).catch(() => setRows([])).finally(() => setLoading(false)); };
   useEffect(load, [estab.id]);
   const apurar = async () => { setApurando(true); try { await apiClient.post(`/estabelecimentos/${estab.id}/apurar`); load(); } catch { /* */ } finally { setApurando(false); } };
+  // Os quatro estados (conferência, apurado, conferido, não auditada) particionam a série; esta
+  // linha de resumo só destaca dois deles. 'semAplicado' NÃO é um quinto grupo: é subconjunto das
+  // apuradas — as que o motor fechou e ainda não têm o RAT aplicado informado. Era contado como
+  // "todas as apuradas", e foi assim que a tela afirmou que as 58 estavam sem o aplicado quando
+  // uma tinha. Contador não presume: quem não tem o dado é quem tem o campo vazio.
   const emFila = rows.filter((r) => r.situacao === "conferencia").length;
-  const semAplicado = rows.filter((r) => r.situacao === "apurado").length;
-  const fund = rows.find((r) => r.fundamentacao)?.fundamentacao;
+  const naoAuditadas = rows.filter((r) => r.situacao === "nao_auditada").length;
+  const semAplicado = rows.filter((r) => r.situacao === "apurado" && r.aliquota_aplicada == null).length;
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl p-6 w-full max-w-5xl shadow-xl max-h-[90vh] overflow-y-auto">
@@ -184,7 +194,19 @@ function PainelModal({ estab, onFechar }: { estab: any; onFechar: () => void }) 
                 const r = await apiClient.get(`/estabelecimentos/${estab.id}/memoria`, { responseType: "blob" });
                 const url = URL.createObjectURL(new Blob([r.data], { type: "application/pdf" }));
                 window.open(url, "_blank");
-              } catch { alert("Não foi possível gerar a memória."); }
+              } catch (e: any) {
+                // A recusa de emissão NOMEIA o que falta e em quais competências. Como a resposta
+                // vem como blob, o corpo do erro também vem — e era descartado aqui, virando um
+                // "não foi possível" genérico. Mensagem que não diz o que fazer não é mensagem.
+                let msg = "Não foi possível gerar a memória.";
+                try {
+                  const corpo = e?.response?.data;
+                  const txt = corpo instanceof Blob ? await corpo.text() : null;
+                  const det = txt ? JSON.parse(txt)?.detail : e?.response?.data?.detail;
+                  if (det) msg = det;
+                } catch { /* corpo ilegível: fica a mensagem genérica */ }
+                alert(msg);
+              }
             }} className="text-xs border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-50">Memória (PDF)</button>
             <button onClick={apurar} disabled={apurando} className="text-xs bg-teal-600 text-white px-3 py-1.5 rounded-lg hover:bg-teal-700 disabled:opacity-50">{apurando ? "Apurando…" : "Reapurar"}</button>
           </div>
@@ -193,8 +215,15 @@ function PainelModal({ estab, onFechar }: { estab: any; onFechar: () => void }) 
           Série mensal. Grau e RAT devido derivados da atividade preponderante (Anexo I).
           Divergência = aplicado − alíquota efetiva (RAT × FAP).{" "}
           {emFila > 0 && <span className="text-amber-600">{emFila} em conferência. </span>}
+          {naoAuditadas > 0 && <span className="text-gray-500">{naoAuditadas} não auditada(s) quanto ao RAT. </span>}
           {semAplicado > 0 && <span className="text-sky-700">{semAplicado} apurada(s) sem o RAT aplicado informado.</span>}
         </p>
+        {naoAuditadas > 0 && (
+          <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+            {rows.find((r) => r.motivo_inaplicavel)?.motivo_inaplicavel ||
+              "O regime tributário afasta a apuração do RAT em parte do período."}
+          </div>
+        )}
         {loading ? <div className="p-6 text-center text-gray-400 text-sm">Carregando…</div>
           : rows.length === 0 ? <div className="p-6 text-center text-gray-400 text-sm">Nada apurado. Cadastre atividades (com quantitativo) e FAP; a série aparece aqui.</div>
           : (
@@ -204,7 +233,7 @@ function PainelModal({ estab, onFechar }: { estab: any; onFechar: () => void }) 
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {rows.map((r, i) => (
-                  <tr key={i} className={r.situacao === "conferencia" ? "bg-amber-50" : r.situacao === "apurado" ? "bg-sky-50/40" : "hover:bg-gray-50"}>
+                  <tr key={i} className={r.situacao === "conferencia" ? "bg-amber-50" : r.situacao === "nao_auditada" ? "bg-gray-100/70 text-gray-500" : r.situacao === "apurado" ? "bg-sky-50/40" : "hover:bg-gray-50"}>
                     <td className="px-2 py-1.5 font-mono">{r.competencia?.slice(0, 7)}</td>
                     <td className="px-2 py-1.5 font-mono">{fmt.cnae(r.cnae_preponderante)}</td>
                     <td className="px-2 py-1.5 text-gray-500">{CRIT[r.criterio] || r.criterio || "—"}</td>
@@ -216,7 +245,7 @@ function PainelModal({ estab, onFechar }: { estab: any; onFechar: () => void }) 
                     <td className={`px-2 py-1.5 font-medium tabular-nums ${r.divergencia_pp > 0 ? "text-blue-700" : r.divergencia_pp < 0 ? "text-red-700" : "text-gray-400"}`} title={r.divergencia_pp > 0 ? "pagou a mais — crédito a recuperar" : r.divergencia_pp < 0 ? "pagou a menos — passivo a regularizar" : ""}>{fmt.pp(r.divergencia_pp)}</td>
                     <td className="px-2 py-1.5">
                       <span className={SIT[r.situacao]?.cls || "text-gray-400"}
-                        title={r.motivo_fila || SIT[r.situacao]?.ajuda || ""}>
+                        title={r.motivo_inaplicavel || r.motivo_fila || SIT[r.situacao]?.ajuda || ""}>
                         {r.situacao === "conferencia" ? "⚠ " : ""}{SIT[r.situacao]?.txt || "—"}
                       </span>
                     </td>
@@ -225,7 +254,17 @@ function PainelModal({ estab, onFechar }: { estab: any; onFechar: () => void }) 
               </tbody>
             </table>
           )}
-        {fund && <p className="text-[11px] text-gray-400 mt-3">Fundamentação: {fund.dispositivo}; {fund.ato_normativo}; {fund.anexo}.</p>}
+        {/* A citação NÃO vem mais congelada na linha apurada. Vinha: a tela pegava a primeira
+            linha que tivesse fundamentação e imprimia aquele texto como rodapé de uma série de
+            vários anos — sem data, sem dizer de quando era. Agora pergunta à tabela versionada
+            pela PRIMEIRA competência da série, e o rodapé diz em que data resolveu. Se a norma
+            mudou dentro do período, quem mostra competência por competência é a memória. */}
+        {rows.length > 0 && rows[0].competencia && (
+          <p className="text-[11px] text-gray-400 mt-3">
+            Fundamentação vigente em {mesBR(rows[0].competencia)}, início da série
+            <Fundamentacao campo="rat_devido" em={rows[0].competencia} />
+          </p>
+        )}
         <div className="flex justify-end mt-4"><button onClick={onFechar} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Fechar</button></div>
       </div>
     </div>

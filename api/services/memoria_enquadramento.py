@@ -78,6 +78,19 @@ def _comp(iso: str | None) -> str:
     return f"{s[5:7]}/{s[0:4]}" if len(s) >= 7 else s
 
 
+def _esc(v) -> str:
+    """Escapa texto que veio do BANCO antes de entrar num Paragraph.
+
+    O reportlab interpreta o conteudo do Paragraph como marcacao: um '&' ou um '<' solto num
+    texto cadastrado pelo usuario levanta excecao e o PDF nao sai. A citacao normativa agora vem
+    da tabela versionada, digitada por pessoa — "art. 22 & 23", "<ate 2022>" sao plausiveis. Nos
+    textos que o proprio codigo escreve, as tags <b> continuam valendo; so o que vem de fora
+    passa por aqui.
+    """
+    return (str(v).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            if v is not None else "")
+
+
 def _p(txt, style):
     return Paragraph(txt, style)
 
@@ -246,18 +259,39 @@ def gerar_memoria_pdf(d: dict) -> bytes:
         el.append(_p("Nenhuma competência apurada no período.", small))
 
     # Fundamentação + autoria
-    f = d.get("fundamentacao", {})
+    #
+    # A CITACAO NAO E ESCRITA AQUI, e nao e mais uma so. Vem da tabela versionada, resolvida pela
+    # DATA DE CADA COMPETENCIA, em blocos de redacao igual: se a norma mudou no meio do periodo
+    # analisado, o documento mostra as duas redacoes e o intervalo de competencias que cada uma
+    # governa. Antes imprimia um unico texto, copiado da primeira linha apurada, para a serie
+    # inteira — afirmacao sobre meses que aquela redacao nao alcancava.
+    #
+    # Lista vazia nao chega aqui: a emissao e recusada antes, no router, quando falta citacao em
+    # qualquer competencia. Nao ha texto de reserva em nenhum ponto deste caminho.
+    blocos = d.get("fundamentacao_blocos") or []
     el.append(_p("Fundamentação normativa", h2))
-    # Linha a linha, omitindo o que nao existe. A versao anterior interpolava vazio e imprimia
-    # pontuacao orfa — ".<br/>.<br/>Grau de risco:  — ." —, que e a mesma classe de defeito:
-    # valor ausente virando texto no documento. O que nao existe nao se escreve.
-    _grau = " — ".join(x for x in [f.get("anexo"), f.get("vigencia")] if x)
-    _linhas = [x for x in [
-        f.get("dispositivo"),
-        f.get("ato"),
-        (f"Grau de risco: {_grau}" if _grau else None),
-    ] if x]
-    el.append(_p(".<br/>".join(_linhas) + ".", body))
+    _varias = len(blocos) > 1
+    for b in blocos:
+        if _varias:
+            faixa = _comp(b.get("de")) + (f" a {_comp(b.get('ate'))}" if b.get("ate") != b.get("de") else "")
+            el.append(_p(f"<b>Competências {faixa}</b>", body))
+        # Linha a linha, omitindo o que nao existe. A versao anterior interpolava vazio e imprimia
+        # pontuacao orfa — ".<br/>.<br/>Grau de risco:  — ." —, que e a mesma classe de defeito:
+        # valor ausente virando texto no documento. O que nao existe nao se escreve.
+        _linhas = [x for x in [
+            _esc(b.get("dispositivo")) or None,
+            _esc(b.get("ato")) or None,
+            (f"Grau de risco: {_esc(b['anexo'])}" if b.get("anexo") else None),
+        ] if x]
+        if _linhas:
+            el.append(_p(".<br/>".join(_linhas) + ".", body))
+        if b.get("observacao"):
+            el.append(_p(_esc(b["observacao"]), small))
+        # A vigencia da REDACAO citada, e o rotulo diz que e isso. No lugar dela vinha impressa a
+        # versao das tabelas de calculo da apuracao, rotulada como se fosse vigencia de norma.
+        _vig = ("Redação vigente desde " + _d(b.get("vigencia_inicio"))
+                + (f" até {_d(b['vigencia_fim'])}." if b.get("vigencia_fim") else ", em vigor."))
+        el.append(_p(_vig, small))
     # SAIRAM as tres pendencias que vinham impressas aqui: o inciso do desempate (B.1), a
     # portaria do FAP de cada exercicio (B.4) e as Solucoes de Consulta sobre preponderante x
     # principal (B.2/B.3). Eram marcadores de rascunho — "a confirmar" — dentro da peca que leva

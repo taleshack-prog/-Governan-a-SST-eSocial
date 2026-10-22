@@ -102,6 +102,32 @@ async def citacao_de(campo: str, em: date, db: AsyncSession) -> dict | None:
     }
 
 
+async def citacoes_do_periodo(campo: str, competencias: list[date], db: AsyncSession) -> list[dict]:
+    """A citacao de cada competencia, colapsada em blocos de redacao igual.
+
+    Uma memoria cobre dezenas de competencias. Se a norma mudou no meio do periodo, imprimir UMA
+    citacao para a serie inteira e afirmar sobre meses que ela nao governa — era o que a citacao
+    congelada na primeira linha fazia. Aqui cada competencia e resolvida na sua propria data e
+    meses consecutivos com a MESMA redacao viram um bloco com o intervalo que ele governa.
+
+    Resolve competencia por competencia de proposito, sem atalho. O atalho obvio — "enquanto a
+    competencia couber na vigencia do bloco anterior, repete" — erra quando uma redacao mais nova
+    comeca dentro da janela da anterior: as duas cobrem o mes, e a vigente e a mais recente.
+
+    Bloco com citacao None e LACUNA: competencia sem fundamentacao cadastrada. Vem explicita para
+    quem chama recusar a emissao, nunca para ser preenchida com texto de reserva.
+    """
+    blocos: list[dict] = []
+    for comp in competencias:
+        c = await citacao_de(campo, comp, db)
+        chave = (c or {}).get("vigencia_inicio")      # None agrupa lacunas consecutivas
+        if blocos and blocos[-1]["chave"] == chave:
+            blocos[-1]["ate"] = comp
+            continue
+        blocos.append({"chave": chave, "citacao": c, "de": comp, "ate": comp})
+    return blocos
+
+
 async def historico_de(campo: str, db: AsyncSession) -> list[dict]:
     """Todas as vigencias do campo, da mais antiga para a mais nova, ja montadas."""
     linhas = (await db.execute(

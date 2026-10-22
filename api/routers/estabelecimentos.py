@@ -24,6 +24,7 @@ from api.auth import get_current_user, require_perfil, require_papel
 from api.services.enquadramento_situacao import (
     situacao_de, divergencia_de, origem_divergencia, divergencia_amparada, ROTULO_ORIGEM,
 )
+from api.services.fundamentacao import citacoes_do_periodo
 
 router = APIRouter()
 
@@ -687,10 +688,10 @@ async def serie_enquadramento(
             "revogado_de": r.revogado_de,
             "em_fila": r.em_fila,
             "motivo_fila": r.motivo_fila,
-            "fundamentacao": {
-                "dispositivo": r.fund_dispositivo, "ato_normativo": r.fund_ato_normativo,
-                "anexo": r.fund_anexo, "vigencia": r.fund_vigencia,
-            },
+            # SEM 'fundamentacao' na linha. A citacao nao e dado da competencia: a tela pergunta
+            # a /fundamentacao/{campo}?em=<competencia>, que le a tabela versionada na data certa.
+            # Enquanto vinha daqui, o rodape da tela mostrava o texto congelado na primeira linha
+            # da serie — sem data — como se valesse para todos os anos exibidos.
         })
     return out
 
@@ -832,15 +833,32 @@ async def memoria_enquadramento(
         })
     autoria = sorted({f"{a.declarado_por or 'n/d'} em {a.declarado_em.date().isoformat()}"
                       for a in ativ if a.declarado_em})
-    f0 = serie_rows[0] if serie_rows else None
-    # Porta de emissao: a memoria so sai com a fundamentacao que a APURACAO gravou. Sem serie
-    # apurada, ou com a citacao em branco, nao ha o que citar — e documento sem fundamento nao
-    # se completa com texto de reserva, se recusa.
-    if f0 is None or not (f0.fund_dispositivo or "").strip():
+    # PORTA DE EMISSAO. A fundamentacao vem da tabela versionada, resolvida competencia por
+    # competencia (nao mais congelada na linha apurada, nem escrita a mao no gerador). Sem serie
+    # apurada nao ha periodo a fundamentar; com qualquer mes sem citacao cadastrada, ha mes que o
+    # documento nao sabe fundamentar — e documento sem fundamento nao se completa com texto de
+    # reserva, se recusa. Os meses da lacuna vao nomeados na resposta: a recusa tem que dizer o
+    # que fazer para deixar de acontecer.
+    if not serie_rows:
         raise HTTPException(
             status_code=409,
-            detail=("A memória não pode ser emitida: não há fundamentação apurada para este "
-                    "estabelecimento. Apure a série de enquadramento antes de gerar o documento."),
+            detail=("A memória não pode ser emitida: não há série de enquadramento apurada para "
+                    "este estabelecimento. Apure a série antes de gerar o documento."),
+        )
+    fund_blocos = await citacoes_do_periodo(
+        "rat_devido", [r.competencia for r in serie_rows], db
+    )
+    lacunas = [b for b in fund_blocos if b["citacao"] is None]
+    if lacunas:
+        faixas = "; ".join(
+            b["de"].strftime("%m/%Y") + (f" a {b['ate'].strftime('%m/%Y')}" if b["ate"] != b["de"] else "")
+            for b in lacunas
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=("A memória não pode ser emitida: não há fundamentação cadastrada para o campo "
+                    f"'rat_devido' nestas competências: {faixas}. Cadastre a vigência "
+                    "correspondente na tabela de fundamentação antes de gerar o documento."),
         )
     dados = {
         "empresa": {"razao_social": empresa.razao_social if empresa else None, "cnpj": (empresa.cnpj[:8] if empresa and empresa.cnpj else None)},
@@ -859,13 +877,23 @@ async def memoria_enquadramento(
         "atividades": [{"cnae": a.cnae, "descricao": a.descricao, "quantitativo": a.quantitativo,
                         "inicio": a.vigencia_inicio.isoformat(), "fim": a.vigencia_fim.isoformat() if a.vigencia_fim else None} for a in ativ],
         "serie": serie,
-        # SEM CITACAO, NAO EMITE. Aqui havia texto de reserva: nao encontrando a fundamentacao
-        # na linha apurada, o gerador escrevia uma citacao fixa e seguia. Isso e um gerador de
-        # afirmacao falsa dentro de um documento assinado por advogado — o fundamento impresso
-        # nao teria vindo da apuracao daquela competencia, e ninguem saberia disso lendo a peca.
-        # A recusa acontece antes, na checagem logo acima deste dicionario.
-        "fundamentacao": {"dispositivo": f0.fund_dispositivo, "ato": f0.fund_ato_normativo,
-                          "anexo": f0.fund_anexo, "vigencia": f0.fund_vigencia},
+        # SEM CITACAO, NAO EMITE — a recusa esta na checagem acima deste dicionario. Aqui havia
+        # texto de reserva: nao encontrando a fundamentacao na linha apurada, o gerador escrevia
+        # uma citacao fixa e seguia. Isso e um gerador de afirmacao falsa dentro de peca assinada
+        # por advogado. Agora o documento leva a COPIA do que a tabela versionada respondeu, por
+        # bloco de vigencia, com o intervalo de competencias que cada redacao governa e a data em
+        # que foi resolvida: e isso que torna a citacao conferivel depois de emitida.
+        "fundamentacao_blocos": [
+            {"de": b["de"].isoformat(), "ate": b["ate"].isoformat(),
+             "dispositivo": b["citacao"]["dispositivo"],
+             "ato": b["citacao"]["ato_normativo"],
+             "anexo": b["citacao"]["anexo"],
+             "observacao": b["citacao"]["observacao"],
+             "estruturado": b["citacao"]["estruturado"],
+             "vigencia_inicio": b["citacao"]["vigencia_inicio"],
+             "vigencia_fim": b["citacao"]["vigencia_fim"]}
+            for b in fund_blocos
+        ],
         "autoria": autoria,
         "cprb": {
             "status": (empresa.cprb_status if empresa else None) or "nao_informado",

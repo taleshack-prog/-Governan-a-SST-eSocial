@@ -58,6 +58,14 @@ class EstabelecimentoEnquadramento(Base):
     # do regime existir; ate la, toda declaracao de regime e do contribuinte.
     regime_origem: Mapped[str | None] = mapped_column(String(16))
     motivo_inaplicavel: Mapped[str | None] = mapped_column(String(300))
+    # LEGADO — APOSENTADAS (decisao da Carolina, 21/10). A citacao normativa nao e dado da
+    # competencia: e resolvida na tabela versionada (fundamentacao_campo) pela DATA da competencia.
+    # Estas quatro congelavam o texto no momento da apuracao e divergiam da tabela com o tempo;
+    # fund_vigencia guardava a versao das TABELAS DE CALCULO e era impressa como se fosse a
+    # vigencia da norma. Ninguem mais escreve nem le estas colunas.
+    # Nao apagar aqui: as colunas saem na limpeza de colunas aposentadas, DEPOIS que este codigo
+    # estiver em producao. Derrubar coluna que a versao anterior da API ainda le quebraria a API
+    # no intervalo entre a migration e o deploy — a ordem e inversa a de quando se acrescenta.
     fund_dispositivo: Mapped[str | None] = mapped_column(String(200))
     fund_ato_normativo: Mapped[str | None] = mapped_column(String(200))
     fund_anexo: Mapped[str | None] = mapped_column(String(80))

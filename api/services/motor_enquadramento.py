@@ -19,11 +19,21 @@ from api.models.estabelecimento_enquadramento import EstabelecimentoEnquadrament
 from api.models.cnae_enquadramento import CnaeEnquadramento
 from api.services.regime_competencia import regime_da_competencia, rat_se_aplica, CERTO
 
-FUND = {
-    "dispositivo": "Lei 8.212/91, art. 22, II; Decreto 3.048/99, art. 202, §§ 3º e 4º",
-    "ato": "IN RFB 2.110/2022, art. 43",
-    "anexo": "Anexo I (grau por subclasse CNAE)",
-}
+# A CITACAO NAO MORA MAIS AQUI (decisao da Carolina, 21/10). Havia uma constante FUND neste
+# arquivo com o dispositivo escrito a mao, e o motor a copiava em cada linha apurada. Eram duas
+# fontes divergindo com o tempo: a tabela versionada (fundamentacao_campo, campo 'rat_devido') e
+# este literal em Python. Quem lesse a competencia veria o literal; quem clicasse no § na tela
+# veria a tabela. O literal nao tinha data: uma serie de 2021 saia citando a redacao de hoje.
+#
+# A regra: a tabela versionada e a unica fonte do sistema, consultada SEMPRE pela data da
+# competencia (api/services/fundamentacao.citacao_de). A citacao congelada deixa de ser campo da
+# competencia e passa a ser parte do documento EMITIDO — a peca leva dentro dela a copia do que
+# citou, com a data em que resolveu.
+#
+# As colunas fund_dispositivo / fund_ato_normativo / fund_anexo / fund_vigencia continuam na
+# tabela, ja sem ninguem escrevendo nem lendo. Sao removidas na limpeza de colunas aposentadas,
+# DEPOIS que este codigo estiver em producao — derrubar coluna que o codigo antigo ainda le
+# quebraria a API no intervalo entre a migration e o deploy.
 
 
 def _meses(inicio: date, fim: date):
@@ -224,8 +234,10 @@ async def apurar_estabelecimento(estab_id, db: AsyncSession, autor: str | None =
             # procedencia; hoje toda declaracao de regime e do contribuinte.
             rat_aplicavel=rat_aplicavel, motivo_inaplicavel=motivo_inaplicavel,
             regime_competencia=reg.get("regime"), anexo_competencia=reg.get("anexo"),
-            fund_dispositivo=FUND["dispositivo"], fund_ato_normativo=FUND["ato"],
-            fund_anexo=FUND["anexo"], fund_vigencia=versao,
+            # fund_* NAO sao mais preenchidas: a citacao vem da tabela versionada, pela data da
+            # competencia. 'versao_tabelas' permanece — e outra coisa: a versao das tabelas de
+            # CALCULO usadas na apuracao, nao a vigencia da norma. Vinham impressas no mesmo
+            # rodape, uma rotulada como se fosse a outra.
             data_apuracao=datetime.utcnow(), versao_tabelas=versao,
         ))
 
