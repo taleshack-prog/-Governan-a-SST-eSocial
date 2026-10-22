@@ -1,0 +1,16 @@
+<!-- Favicon. O index.html ja apontava para /favicon.svg, mas o arquivo nunca existiu — a aba
+     vem sem icone hoje. A 16px a palavra e ilegivel e a textura de pontos desaparece, entao fica
+     so o hexagono do original, que e a forma que sobrevive ao tamanho. Fundo opaco de proposito:
+     favicon cai sobre a barra do navegador, clara ou escura, e precisa do proprio contraste. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="AjustaPrev">
+  <title>AjustaPrev</title>
+  <defs><linearGradient id="fv" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#6FA6EC"/><stop offset="1" stop-color="#2F64AE"/></linearGradient></defs>
+  <rect width="64" height="64" rx="12" fill="#0B1626"/>
+  <!-- Mesmo hexagono do clipPath oficial (765,88 / 1032,185 / 1032,515 / 765,748 / 500,515 / 500,185),
+       reduzido e centrado: (p - 500) * 0.0714 + deslocamento. -->
+  <polygon points="32,11 51,18 51,42 32,58 13,42 13,18" fill="none" stroke="url(#fv)" stroke-width="3.4"
+           stroke-linejoin="round"/>
+  <polygon points="32,22 42,26 42,38 32,46 22,38 22,26" fill="url(#fv)" fill-opacity="0.28"/>
+  <circle cx="32" cy="33" r="4.6" fill="#8FC0F5"/>
+</svg>

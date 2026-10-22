@@ -1,5 +1,5 @@
 // ==============================================================
-// RadarPrevi — Sidebar (agrupada, retrátil, tema teal)
+// AjustaPrev — Sidebar (agrupada, retrátil, tema teal)
 // ==============================================================
 import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
@@ -48,16 +48,25 @@ const GROUPS: { title: string | null; items: { path: string; label: string; icon
   ]},
 ];
 
+// Marca compacta: o que aparece com a sidebar recolhida, onde não cabe o logotipo inteiro.
+// É o hexágono do logo do AjustaPrev — as mesmas proporções do original, reduzidas. Antes era
+// o radar de círculos concêntricos do RadarPrevi.
+// As cores são as do logo, não as do tema: o tema do app é teal (--c-brand-500) e a marca nova
+// é azul. Enquanto a paleta não for revista, puxar a cor do tema deixaria o ícone teal ao lado
+// de um logotipo azul.
 function Mark({ size = 34 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 48 48" fill="none" aria-hidden>
-      <circle cx="24" cy="24" r="20" stroke="#5b6675" strokeWidth="1.4" />
-      <circle cx="24" cy="24" r="13" stroke="#5b6675" strokeWidth="1.4" />
-      <line x1="24" y1="3.5" x2="24" y2="44.5" stroke="#5b6675" strokeWidth="1" />
-      <line x1="3.5" y1="24" x2="44.5" y2="24" stroke="#5b6675" strokeWidth="1" />
-      <circle cx="24" cy="24" r="7.6" stroke="rgb(var(--c-brand-500))" strokeWidth="1.6" />
-      <circle cx="24" cy="24" r="3.3" fill="rgb(var(--c-brand-500))" />
-      <circle cx="35" cy="15" r="3.1" fill="rgb(var(--c-brand-500))" />
+      <defs>
+        <linearGradient id="mk-ap" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#6FA6EC" />
+          <stop offset="1" stopColor="#2F64AE" />
+        </linearGradient>
+      </defs>
+      <polygon points="24,5 38,11 38,30 24,44 10,30 10,11" fill="none" stroke="url(#mk-ap)"
+               strokeWidth="2.6" strokeLinejoin="round" />
+      <polygon points="24,14 32,17 32,27 24,34 16,27 16,17" fill="url(#mk-ap)" fillOpacity="0.26" />
+      <circle cx="24" cy="23.5" r="3.6" fill="#8FC0F5" />
     </svg>
   );
 }
@@ -84,14 +93,13 @@ export function Sidebar() {
     <aside className={`${collapsed ? "w-[72px]" : "w-64"} shrink-0 h-full bg-sidebar text-sidebar-ink flex flex-col transition-[width] duration-200`}>
       {/* Marca */}
       <div className={`flex items-center gap-3 px-4 py-4 border-b border-white/10 ${collapsed ? "justify-center" : ""}`}>
-        <Mark />
-        {!collapsed && (
-          <div className="leading-none">
-            <div className="font-bold tracking-[0.11em] text-white text-[15px]">
-              RADAR<span className="text-brand-500 ml-0.5">PREVI</span>
-            </div>
-            <div className="text-[9px] tracking-[0.22em] uppercase text-sidebar-muted mt-1">Consultoria Previdenciária</div>
-          </div>
+        {/* Recolhida mostra só o hexágono; expandida, o logotipo inteiro. O nome e a tagline não
+            são mais remontados em HTML — vinham como texto solto ("RADAR" + "PREVI" + a linha de
+            baixo), e qualquer ajuste de marca exigia mexer em CSS. Agora é o próprio arquivo da
+            marca, o mesmo que o login usa. */}
+        {collapsed ? <Mark /> : (
+          <img src="/logo-ajustaprev.svg" alt="AjustaPrev — Defesa Empresarial Previdenciária"
+               className="w-full" />
         )}
       </div>
 

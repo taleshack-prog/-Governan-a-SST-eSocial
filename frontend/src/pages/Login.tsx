@@ -8,7 +8,7 @@ import { useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Activity, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { authApi } from "../api/client";
 import { useAuthStore } from "../store/authStore";
 import toast from "react-hot-toast";
@@ -49,13 +49,11 @@ export function Login() {
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-3 text-white">
-            <Activity size={36} className="text-indigo-400" />
-            <div className="text-left">
-              <img src="/logo-radarprevi.svg" alt="Radar Previdenciário" className="h-16 w-auto mb-2" />
-              <p className="text-sm text-indigo-300">Inteligência Previdenciária com IA</p>
-            </div>
-          </div>
+          {/* Só a marca. O ícone genérico e a linha "Inteligência Previdenciária com IA" saíram:
+              a tagline agora faz parte do próprio logo, e repetir outra abaixo dela punha duas
+              descrições concorrentes do que o produto é. */}
+          <img src="/logo-ajustaprev.svg" alt="AjustaPrev — Defesa Empresarial Previdenciária"
+               className="w-full max-w-sm mx-auto" />
         </div>
 
         {/* Card */}

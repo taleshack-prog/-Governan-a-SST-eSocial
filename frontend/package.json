@@ -1,7 +1,7 @@
 {
-  "name": "radar-previdenciario-frontend",
+  "name": "ajustaprev-frontend",
   "version": "1.0.0",
-  "description": "Radar Previdenciário — Frontend React 18",
+  "description": "AjustaPrev — Defesa Empresarial Previdenciária — Frontend React 18",
   "private": true,
   "type": "module",
   "scripts": {
