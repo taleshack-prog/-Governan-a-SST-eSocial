@@ -98,7 +98,7 @@ export function Sidebar() {
             baixo), e qualquer ajuste de marca exigia mexer em CSS. Agora é o próprio arquivo da
             marca, o mesmo que o login usa. */}
         {collapsed ? <Mark /> : (
-          <img src="/logo-ajustaprev.svg" alt="AjustaPrev — Defesa Empresarial Previdenciária"
+          <img src="/logo-ajustaprev.svg" alt="AjustaPrev — Defesa Previdenciária Empresarial"
                className="w-full" />
         )}
       </div>

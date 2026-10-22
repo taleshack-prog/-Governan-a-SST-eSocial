@@ -52,7 +52,7 @@ export function Login() {
           {/* Só a marca. O ícone genérico e a linha "Inteligência Previdenciária com IA" saíram:
               a tagline agora faz parte do próprio logo, e repetir outra abaixo dela punha duas
               descrições concorrentes do que o produto é. */}
-          <img src="/logo-ajustaprev.svg" alt="AjustaPrev — Defesa Empresarial Previdenciária"
+          <img src="/logo-ajustaprev.svg" alt="AjustaPrev — Defesa Previdenciária Empresarial"
                className="w-full max-w-sm mx-auto" />
         </div>
 
