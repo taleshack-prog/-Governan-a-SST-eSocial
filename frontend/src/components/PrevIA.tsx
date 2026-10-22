@@ -3,6 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { X, Send, Minimize2 } from "lucide-react";
 import { apiClient } from "../api/client";
 import { useLocation } from "react-router-dom";
+import { BrasaoPrevIA } from "./BrasaoPrevIA";
 
 interface Mensagem {
   role: "user" | "assistant";
@@ -127,9 +128,9 @@ export default function PrevIA() {
 
   if (!aberto) return (
     <button onClick={() => setAberto(true)}
-      className="fixed bottom-6 right-6 z-50 w-16 h-16 rounded-full shadow-lg overflow-hidden border-3 border-[#1a9e8f] hover:scale-110 transition-all"
+      className="fixed bottom-6 right-6 z-50 w-16 h-16 rounded-full shadow-lg overflow-hidden border-[3px] border-[#2F64AE] hover:scale-110 transition-all"
       title="PrevIA">
-      <span className="w-full h-full block" style={{background:"radial-gradient(120% 120% at 30% 25%, rgb(var(--c-brand-500)), rgb(var(--c-brand-700)))"}} />
+      <BrasaoPrevIA className="w-full h-full" />
       <span className="absolute top-0 right-0 w-4 h-4 bg-green-400 rounded-full border-2 border-white animate-pulse" />
     </button>
   );
@@ -138,7 +139,7 @@ export default function PrevIA() {
     <div className={`fixed bottom-6 right-6 z-50 flex flex-col bg-white rounded-2xl shadow-2xl border border-gray-100 transition-all ${minimizado ? "w-72 h-14" : "w-80 sm:w-96 h-[520px]"}`}>
       <div className="flex items-center justify-between px-4 py-3 bg-[#0f2744] rounded-t-2xl flex-shrink-0">
         <div className="flex items-center gap-2.5">
-          <span className="w-8 h-8 rounded-full block" style={{background:"radial-gradient(120% 120% at 30% 25%, rgb(var(--c-brand-500)), rgb(var(--c-brand-700)))"}} />
+          <BrasaoPrevIA className="w-8 h-8" />
           <div>
             <p className="text-white text-sm font-bold">PrevIA</p>
             <p className="text-blue-300 text-xs">Assistente Previdenciária</p>
@@ -165,7 +166,7 @@ export default function PrevIA() {
             {historico.length === 0 && (
               <div className="space-y-3">
                 <div className="flex gap-2">
-                  <span className="w-6 h-6 rounded-full flex-shrink-0 mt-0.5 block" style={{background:"radial-gradient(120% 120% at 30% 25%, rgb(var(--c-brand-500)), rgb(var(--c-brand-700)))"}} />
+                  <BrasaoPrevIA className="w-6 h-6 flex-shrink-0 mt-0.5" />
                   <div className="bg-gray-50 rounded-2xl rounded-tl-sm px-3 py-2.5 text-xs text-gray-700 max-w-[85%]">
                     Olá! Sou a <strong>PrevIA</strong>. Posso explicar esta tela, orientar tarefas e identificar pendências. Como posso ajudar?
                   </div>
@@ -183,7 +184,7 @@ export default function PrevIA() {
             {historico.map((m, i) => (
               <div key={i} className={`flex gap-2 ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                 {m.role === "assistant" && (
-                  <span className="w-6 h-6 rounded-full flex-shrink-0 mt-0.5 block" style={{background:"radial-gradient(120% 120% at 30% 25%, rgb(var(--c-brand-500)), rgb(var(--c-brand-700)))"}} />
+                  <BrasaoPrevIA className="w-6 h-6 flex-shrink-0 mt-0.5" />
                 )}
                 <div className={`max-w-[85%] rounded-2xl px-3 py-2.5 text-xs leading-relaxed ${m.role === "user" ? "bg-[#0f2744] text-white rounded-tr-sm" : "bg-gray-50 text-gray-700 rounded-tl-sm"}`}
                   dangerouslySetInnerHTML={{ __html: m.role === "assistant" ? fmt(m.content) : m.content }} />
@@ -191,7 +192,7 @@ export default function PrevIA() {
             ))}
             {enviar.isPending && (
               <div className="flex gap-2">
-                <span className="w-6 h-6 rounded-full flex-shrink-0 block" style={{background:"radial-gradient(120% 120% at 30% 25%, rgb(var(--c-brand-500)), rgb(var(--c-brand-700)))"}} />
+                <BrasaoPrevIA className="w-6 h-6 flex-shrink-0" />
                 <div className="bg-gray-50 rounded-2xl rounded-tl-sm px-3 py-2.5">
                   <div className="flex gap-1">
                     {[0,150,300].map(d => <span key={d} className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{animationDelay:`${d}ms`}}/>)}
