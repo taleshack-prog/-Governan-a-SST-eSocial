@@ -248,10 +248,23 @@ def gerar_memoria_pdf(d: dict) -> bytes:
     # Fundamentação + autoria
     f = d.get("fundamentacao", {})
     el.append(_p("Fundamentação normativa", h2))
-    el.append(_p(f"{f.get('dispositivo') or ''}.<br/>{f.get('ato') or ''}.<br/>Grau de risco: {f.get('anexo') or ''} — {f.get('vigencia') or ''}.", body))
-    el.append(_p("Desempate pelo maior grau de risco: IN RFB 2.110/2022, art. 43, §1º — <i>inciso a confirmar (B.1)</i>. "
-                 "Portaria interministerial do FAP de cada ano: <i>a confirmar (B.4)</i>. "
-                 "Soluções de Consulta Cosit sobre atividade preponderante × principal: <i>a confirmar (B.2/B.3)</i>.", small))
+    # Linha a linha, omitindo o que nao existe. A versao anterior interpolava vazio e imprimia
+    # pontuacao orfa — ".<br/>.<br/>Grau de risco:  — ." —, que e a mesma classe de defeito:
+    # valor ausente virando texto no documento. O que nao existe nao se escreve.
+    _grau = " — ".join(x for x in [f.get("anexo"), f.get("vigencia")] if x)
+    _linhas = [x for x in [
+        f.get("dispositivo"),
+        f.get("ato"),
+        (f"Grau de risco: {_grau}" if _grau else None),
+    ] if x]
+    el.append(_p(".<br/>".join(_linhas) + ".", body))
+    # SAIRAM as tres pendencias que vinham impressas aqui: o inciso do desempate (B.1), a
+    # portaria do FAP de cada exercicio (B.4) e as Solucoes de Consulta sobre preponderante x
+    # principal (B.2/B.3). Eram marcadores de rascunho — "a confirmar" — dentro da peca que leva
+    # assinatura de advogado: citacao nao verificada impressa como se fosse fundamento. Apagar o
+    # marcador e manter a citacao seria pior, porque viraria afirmacao confiante sobre dispositivo
+    # que ninguem conferiu. Voltam quando o dispositivo estiver confirmado e vindo da tabela
+    # versionada, lido pela data da competencia, como as demais citacoes.
     # CPRB — estado explícito da verificação (RF-0.163). O bloco nunca fica ambíguo: ou foi
     # verificado (optante/não optante, com autor e data), ou consta pendente de conferência.
     cprb = d.get("cprb") or {}

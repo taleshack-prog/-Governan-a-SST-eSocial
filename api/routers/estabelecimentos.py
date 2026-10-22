@@ -824,6 +824,15 @@ async def memoria_enquadramento(
     autoria = sorted({f"{a.declarado_por or 'n/d'} em {a.declarado_em.date().isoformat()}"
                       for a in ativ if a.declarado_em})
     f0 = serie_rows[0] if serie_rows else None
+    # Porta de emissao: a memoria so sai com a fundamentacao que a APURACAO gravou. Sem serie
+    # apurada, ou com a citacao em branco, nao ha o que citar — e documento sem fundamento nao
+    # se completa com texto de reserva, se recusa.
+    if f0 is None or not (f0.fund_dispositivo or "").strip():
+        raise HTTPException(
+            status_code=409,
+            detail=("A memória não pode ser emitida: não há fundamentação apurada para este "
+                    "estabelecimento. Apure a série de enquadramento antes de gerar o documento."),
+        )
     dados = {
         "empresa": {"razao_social": empresa.razao_social if empresa else None, "cnpj": (empresa.cnpj[:8] if empresa and empresa.cnpj else None)},
         "estab": {"codigo": estab.codigo, "nome": estab.nome, "tipo": estab.tipo_estabelecimento,
@@ -841,9 +850,13 @@ async def memoria_enquadramento(
         "atividades": [{"cnae": a.cnae, "descricao": a.descricao, "quantitativo": a.quantitativo,
                         "inicio": a.vigencia_inicio.isoformat(), "fim": a.vigencia_fim.isoformat() if a.vigencia_fim else None} for a in ativ],
         "serie": serie,
-        "fundamentacao": {"dispositivo": f0.fund_dispositivo if f0 else "Lei 8.212/91, art. 22, II; Decreto 3.048/99, art. 202",
-                          "ato": f0.fund_ato_normativo if f0 else "IN RFB 2.110/2022, art. 43",
-                          "anexo": f0.fund_anexo if f0 else "Anexo I", "vigencia": f0.fund_vigencia if f0 else None},
+        # SEM CITACAO, NAO EMITE. Aqui havia texto de reserva: nao encontrando a fundamentacao
+        # na linha apurada, o gerador escrevia uma citacao fixa e seguia. Isso e um gerador de
+        # afirmacao falsa dentro de um documento assinado por advogado — o fundamento impresso
+        # nao teria vindo da apuracao daquela competencia, e ninguem saberia disso lendo a peca.
+        # A recusa acontece antes, na checagem logo acima deste dicionario.
+        "fundamentacao": {"dispositivo": f0.fund_dispositivo, "ato": f0.fund_ato_normativo,
+                          "anexo": f0.fund_anexo, "vigencia": f0.fund_vigencia},
         "autoria": autoria,
         "cprb": {
             "status": (empresa.cprb_status if empresa else None) or "nao_informado",
