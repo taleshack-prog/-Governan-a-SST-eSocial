@@ -425,6 +425,11 @@ export function CadastroEmpresa() {
         situacao_cadastral_data: form.situacao_cadastral_data || null,
         situacao_cadastral_em: form.situacao_cadastral_em || null,
         cnaes_secundarios: secundarios.map((c: any) => c.codigo).filter(Boolean),
+        // tipo_logradouro ESTAVA FALTANDO AQUI ate 23/10. A coluna existe desde a migration 044,
+        // o backend aceita e a tela mostra o campo — mas o corpo do PUT nao o enviava, entao a
+        // consulta preenchia a tela e o salvamento descartava. O campo ficava eternamente vazio
+        // no banco sem nenhum erro, e o endereco saia sem o tipo nos documentos.
+        tipo_logradouro: form.tipo_logradouro || null,
         endereco: form.endereco, numero: form.numero, complemento: form.complemento,
         bairro: form.bairro, cidade: form.cidade, uf: form.uf, cep: form.cep,
         contato_nome: form.contato_nome, contato_email: form.contato_email, contato_telefone: form.contato_telefone,
