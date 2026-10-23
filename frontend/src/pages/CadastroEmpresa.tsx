@@ -668,10 +668,12 @@ export function CadastroEmpresa() {
             como se um campo da consulta tivesse sido digitado. O campo preenchido à mão se
             identifica sozinho, pela marcação (declarado) e pelo fundo azul. */}
         {resumoOrigem?.campos_declarados?.length > 0 && (
-          <p className="text-[11px] text-gray-400 mt-3 pt-2 border-t border-gray-100"
-             title={`Nunca vieram da consulta: ${resumoOrigem.campos_declarados.map(rotuloCampo).join(", ")}`}>
-            Neste registro, {resumoOrigem.campos_declarados.length} campo
-            {resumoOrigem.campos_declarados.length > 1 ? "s foram preenchidos" : " foi preenchido"} à mão.
+          <p className="text-[11px] text-gray-400 mt-3 pt-2 border-t border-gray-100">
+            {resumoOrigem.campos_declarados.length} campo
+            {resumoOrigem.campos_declarados.length > 1 ? "s preenchidos" : " preenchido"} à mão:{" "}
+            <span className="text-gray-600">
+              {resumoOrigem.campos_declarados.map(rotuloCampo).join(", ")}
+            </span>.
           </p>
         )}
       </section>
