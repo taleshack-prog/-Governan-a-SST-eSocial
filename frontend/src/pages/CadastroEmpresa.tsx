@@ -511,7 +511,13 @@ export function CadastroEmpresa() {
         <h2 className="text-sm font-bold text-gray-800 mb-3">Identificação</h2>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className={labelCls}>CNPJ raiz</label>
+            {/* "CNPJ da matriz", não "raiz" (Carolina, 23/10). O campo guarda os 14 dígitos:
+                empresas.cnpj é String(14), único e obrigatório, e consultar_cnpj recusa o que
+                não tiver 14. Raiz são os oito primeiros, e ela nunca é armazenada — é derivada
+                por fatiamento onde alguém precisa dela (a memória faz cnpj[:8] para imprimir
+                "CNPJ raiz", e ali está certo). O rótulo é que dizia uma coisa e o campo guardava
+                outra, bem no campo que ancora a empresa e por onde as filiais se agrupam. */}
+            <label className={labelCls}>CNPJ da matriz</label>
             <div className="flex gap-2">
               <input className={`${inputCls} ${cnpjErro ? "border-red-400" : ""}`} value={maskCnpj(form.cnpj)}
                 onChange={(e) => { set("cnpj", e.target.value.replace(/\D/g, "").slice(0, 14)); if (cnpjErro) setCnpjErro(""); }}
@@ -544,12 +550,11 @@ export function CadastroEmpresa() {
                     {resumoOrigem.campos_alterados.length > 1 ? "s" : ""} manualmente
                   </span>
                 )}
-                {resumoOrigem?.campos_declarados?.length > 0 && (
-                  <span title={`Nunca vieram da consulta: ${resumoOrigem.campos_declarados.map(rotuloCampo).join(", ")}`}>
-                    {" · "}{resumoOrigem.campos_declarados.length} preenchido
-                    {resumoOrigem.campos_declarados.length > 1 ? "s" : ""} à mão
-                  </span>
-                )}
+                {/* A contagem de "preenchido à mão" SAIU daqui (Carolina, 23/10) e foi para o
+                    rodapé do bloco. Esta linha fala da CONSULTA — quando foi feita e o que dela
+                    foi editado depois. Quantos campos nunca vieram da consulta é fato do
+                    registro inteiro; ancorado logo abaixo de "Consultado em…", parecia dizer
+                    que um dos campos trazidos pela consulta tinha sido digitado. */}
                 .
               </p>
             )}
@@ -656,6 +661,17 @@ export function CadastroEmpresa() {
                   title={c.descricao || undefined}>{fmt.cnae(c.codigo)}</span>
               </span>
             ))}.
+          </p>
+        )}
+        {/* RODAPÉ DO BLOCO: composição do registro, não da consulta. Fica aqui, depois de todos
+            os campos, porque é sobre o conjunto deles — e não embaixo do CNPJ, onde era lido
+            como se um campo da consulta tivesse sido digitado. O campo preenchido à mão se
+            identifica sozinho, pela marcação (declarado) e pelo fundo azul. */}
+        {resumoOrigem?.campos_declarados?.length > 0 && (
+          <p className="text-[11px] text-gray-400 mt-3 pt-2 border-t border-gray-100"
+             title={`Nunca vieram da consulta: ${resumoOrigem.campos_declarados.map(rotuloCampo).join(", ")}`}>
+            Neste registro, {resumoOrigem.campos_declarados.length} campo
+            {resumoOrigem.campos_declarados.length > 1 ? "s foram preenchidos" : " foi preenchido"} à mão.
           </p>
         )}
       </section>
