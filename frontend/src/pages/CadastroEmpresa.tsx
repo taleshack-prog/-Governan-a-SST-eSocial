@@ -66,6 +66,13 @@ const ROTULO_CAMPO: Record<string, string> = {
 };
 const rotuloCampo = (c: string) => ROTULO_CAMPO[c] || c;
 
+// Tipos de logradouro para escolha quando a consulta NAO devolver o dado (Carolina, 23/10).
+// Texto livre produz "RUA", "Rua", "R." e "rua" na mesma coluna, e o endereco entra em peca
+// protocolada. A lista nao e fechada: o valor que vier da consulta entra como opcao mesmo fora
+// dela — no registro do Banco do Brasil o tipo e QUADRA, e perder isso seria pior que a variacao.
+const TIPOS_LOGRADOURO = ["RUA", "AVENIDA", "TRAVESSA", "RODOVIA", "ESTRADA", "PRAÇA",
+                          "ALAMEDA", "QUADRA", "VIA", "LARGO"];
+
 // Item 3: procedência POR CAMPO, em texto — não só por cor. O mesmo padrão que já existia no
 // rótulo da data de abertura, agora alimentado pelo mapa que o backend grava, campo a campo.
 // Cor sozinha não carrega a informação: num laudo, a origem precisa estar escrita.
@@ -699,8 +706,19 @@ export function CadastroEmpresa() {
               quiser e a busca por logradouro não precisa limpar prefixo. */}
           <div className="col-span-1">
             <label className={labelCls}>Tipo<Procedencia mapa={camposOrigem} campo="tipo_logradouro" genero="o" /></label>
-            <input className={fundoProcedencia(camposOrigem, "tipo_logradouro", inputCls)} value={form.tipo_logradouro}
-              onChange={(e) => set("tipo_logradouro", e.target.value)} placeholder="RUA" />
+            {/* Escolha, nao digitacao. Sem valor, a opcao em branco fica selecionada e o campo
+                diz "— escolher —": o que nao pode e ficar mudo, porque o tipo entra no endereco
+                que vai impresso em peca protocolada. O valor vindo da consulta entra na lista
+                mesmo quando nao e um dos comuns. */}
+            <select className={fundoProcedencia(camposOrigem, "tipo_logradouro", inputCls)}
+              value={form.tipo_logradouro}
+              onChange={(e) => set("tipo_logradouro", e.target.value)}>
+              <option value="">— escolher —</option>
+              {(TIPOS_LOGRADOURO.includes(form.tipo_logradouro)
+                ? TIPOS_LOGRADOURO
+                : [form.tipo_logradouro, ...TIPOS_LOGRADOURO].filter(Boolean)
+               ).map((tp) => <option key={tp} value={tp}>{tp}</option>)}
+            </select>
           </div>
           <div className="col-span-3">
             <label className={labelCls}>Logradouro<Procedencia mapa={camposOrigem} campo="endereco" genero="o" /></label>
