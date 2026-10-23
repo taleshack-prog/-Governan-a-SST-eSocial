@@ -69,6 +69,17 @@ CAMPOS_RASTREADOS = (
 )
 
 
+def _autor_declaracao(u) -> str:
+    """Quem declarou. Prefere o NOME, nao o e-mail.
+
+    A diferenca aparece na peca: "Declarado por Carolina Burnett" e o que a Carolina pediu, e e
+    o que um fiscal le. O e-mail entra so quando nao ha nome cadastrado — melhor um endereco do
+    que uma declaracao sem dono.
+    """
+    return (getattr(u, "nome", None) or getattr(u, "email", None)
+            or str(getattr(u, "id", "?")))
+
+
 def _txt(v) -> str | None:
     """Normaliza para comparação: data vira ISO, vazio vira None."""
     if v is None:
@@ -822,7 +833,11 @@ async def listar_regime(
         select(EmpresaRegime).where(EmpresaRegime.empresa_id == empresa_id).order_by(EmpresaRegime.inicio)
     )).scalars().all()
     return [{"regime": r.regime, "anexo_simples": r.anexo_simples,
-             "inicio": r.inicio.isoformat(), "fim": r.fim.isoformat() if r.fim else None} for r in rows]
+             "inicio": r.inicio.isoformat(), "fim": r.fim.isoformat() if r.fim else None,
+             # Autoria por periodo (048). A tela mostra no rodape a declaracao mais recente;
+             # vem por linha porque periodos podem ter sido declarados por pessoas diferentes.
+             "declarado_por": r.declarado_por,
+             "declarado_em": r.declarado_em.isoformat() if r.declarado_em else None} for r in rows]
 
 
 @router.put("/{empresa_id}/regime")
@@ -852,11 +867,26 @@ async def salvar_regime(
     existentes = (await db.execute(
         select(EmpresaRegime).where(EmpresaRegime.empresa_id == empresa_id)
     )).scalars().all()
+
+    # AUTORIA DA DECLARACAO (migration 048). O endpoint apaga a lista inteira e recria a cada
+    # salvamento. Se a autoria fosse gravada cega, abrir a tela e salvar sem mexer em nada
+    # reescreveria o nome de quem declarou o regime pelo de quem apenas passou por ali — e a
+    # memoria de calculo cita essa declaracao. Entao periodo IDENTICO herda a autoria que ja
+    # tinha; so o que e novo ou mudou recebe o autor de agora.
+    autoria_anterior = {
+        (e.regime, e.anexo_simples, e.inicio, e.fim): (e.declarado_por, e.declarado_em)
+        for e in existentes
+    }
+    quem = _autor_declaracao(current_user)
+    agora_decl = datetime.now(timezone.utc)
+
     for e in existentes:
         await db.delete(e)
     for it in data:
+        anterior = autoria_anterior.get((it.regime, it.anexo_simples, it.inicio, it.fim))
+        por, em = anterior if anterior and anterior[0] else (quem, agora_decl)
         db.add(EmpresaRegime(empresa_id=empresa_id, regime=it.regime, anexo_simples=it.anexo_simples,
-                             inicio=it.inicio, fim=it.fim))
+                             inicio=it.inicio, fim=it.fim, declarado_por=por, declarado_em=em))
     await db.commit()
 
     # REAPURA A SERIE (22/10). Desde que o motor passou a ler o regime, mudar o regime mudou a

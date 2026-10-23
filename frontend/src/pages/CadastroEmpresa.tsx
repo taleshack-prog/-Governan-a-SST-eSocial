@@ -45,6 +45,25 @@ const validaCnpj = (v: string): boolean => {
 const ym = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 const ymToday = () => ym(new Date());
 const ymMinus = (months: number) => { const d = new Date(); d.setMonth(d.getMonth() - months); return ym(d); };
+// Competencia por extenso: "novembro de 2021", nao "2021-11" (Carolina, 23/10). O formato
+// tecnico aparece em pergunta e aviso lidos por quem nao escreveu o sistema.
+const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho",
+               "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+const mesExtenso = (ym: string) => {
+  const [a, m] = (ym || "").split("-");
+  const i = Number(m) - 1;
+  return a && MESES[i] ? `${MESES[i]} de ${a}` : (ym || "—");
+};
+
+// Quantas competencias ha entre dois meses, inclusive. Usado para dizer o tamanho do estrago
+// antes de apagar um periodo de regime — "60 competencias" pesa diferente de "a janela".
+const competenciasEntre = (de: string, ate: string) => {
+  if (!de || !ate) return 0;
+  const [a1, m1] = de.split("-").map(Number);
+  const [a2, m2] = ate.split("-").map(Number);
+  return Math.max(0, (a2 - a1) * 12 + (m2 - m1) + 1);
+};
+
 const ymToDate = (s: string) => (s ? `${s}-01` : null);
 const dateToYm = (iso: string | null) => (iso ? iso.slice(0, 7) : "");
 const mesesEntre = (a: string, b: string) => {
@@ -53,7 +72,10 @@ const mesesEntre = (a: string, b: string) => {
   return (yb - ya) * 12 + (mb - ma);
 };
 
-interface Periodo { regime?: string; anexo_simples?: string; inicio: string; fim: string; fim_aberto?: boolean; }
+// declarado_por/declarado_em so existem no periodo de REGIME (migration 048); o mesmo tipo
+// serve aos periodos de CPRB, onde ficam ausentes — por isso opcionais.
+interface Periodo { regime?: string; anexo_simples?: string; inicio: string; fim: string;
+  fim_aberto?: boolean; declarado_por?: string | null; declarado_em?: string | null; }
 type CprbStatus = "nao_informado" | "nao_optante" | "optante";
 
 // Nomes legíveis dos campos rastreados, para a dica de procedência não mostrar nome de coluna.
@@ -183,17 +205,17 @@ const validaRegime = (regimes: Periodo[], pIni: string, pFim: string): string =>
       const x = comDatas[a], y = comDatas[b];
       const xFim = x.fim || "9999-12", yFim = y.fim || "9999-12";
       if (x.inicio <= yFim && y.inicio <= xFim) {
-        return `Dois períodos de regime se sobrepõem (${x.inicio} e ${y.inicio}). Cada competência precisa de um regime só.`;
+        return `Dois períodos de regime se sobrepõem (${mesExtenso(x.inicio)} e ${mesExtenso(y.inicio)}). Cada competência precisa de um regime só.`;
       }
     }
   }
   const validos = regimes.filter((r) => r.regime && r.inicio);
-  if (validos.length === 0) return `Declare o regime tributário para o período de apuração (${pIni} a ${pFim}).`;
+  if (validos.length === 0) return `Declare o regime tributário para o período de apuração (${mesExtenso(pIni)} a ${mesExtenso(pFim)}).`;
   // varre mês a mês a janela de apuração procurando o primeiro mês descoberto
   let m = pIni;
   while (m <= pFim) {
     const coberto = validos.some((r) => r.inicio <= m && (!r.fim || r.fim >= m));
-    if (!coberto) return `Lacuna de regime em ${m}: todo o período de apuração precisa estar coberto.`;
+    if (!coberto) return `Lacuna de regime em ${mesExtenso(m)}: todo o período de apuração precisa estar coberto.`;
     m = proxMes(m);
   }
   return "";
@@ -209,6 +231,8 @@ export function CadastroEmpresa() {
     tipo_logradouro: "", endereco: "", numero: "", complemento: "", bairro: "", cidade: "", uf: "", cep: "",
     contato_nome: "", contato_email: "", contato_telefone: "",
   });
+  // Indice do periodo de regime aguardando confirmacao de remocao, ou null.
+  const [removerRegime, setRemoverRegime] = useState<number | null>(null);
   const [origem, setOrigem] = useState<string>("");          // consultado | declarado
   const [consultaBruta, setConsultaBruta] = useState<Record<string, string | null> | null>(null);
   const [resumoOrigem, setResumoOrigem] = useState<any>(null);   // composição real, vinda do backend
@@ -274,7 +298,11 @@ export function CadastroEmpresa() {
     if (!empresaId) return;
     carregarEmpresa();
     apiClient.get(`/empresas/${empresaId}/regime`).then((r) => setRegimes(
-      (r.data || []).map((p: any) => ({ regime: p.regime, anexo_simples: p.anexo_simples, inicio: dateToYm(p.inicio), fim: dateToYm(p.fim) }))
+      // declarado_por/declarado_em vem JUNTO: sem eles o rodape de autoria nunca teria o que
+      // mostrar, porque o backend devolve e este map descartaria em silencio.
+      (r.data || []).map((p: any) => ({ regime: p.regime, anexo_simples: p.anexo_simples,
+        inicio: dateToYm(p.inicio), fim: dateToYm(p.fim),
+        declarado_por: p.declarado_por ?? null, declarado_em: p.declarado_em ?? null }))
     )).catch(() => {});
     apiClient.get(`/empresas/${empresaId}/cprb`).then((r) => {
       const d = r.data || {};
@@ -813,12 +841,79 @@ export function CadastroEmpresa() {
                 a base de cálculo — não dá para ler onde o período começa. */}
             <input type="month" className={`${inputCls} col-span-3`} value={p.inicio || ""} onChange={(e) => setRegimes((l) => l.map((x, j) => j === i ? { ...x, inicio: e.target.value } : x))} />
             <input type="month" className={`${inputCls} col-span-3`} value={p.fim || ""} onChange={(e) => setRegimes((l) => l.map((x, j) => j === i ? { ...x, fim: e.target.value } : x))} />
-            <button type="button" className="col-span-1 text-red-400 text-sm" onClick={() => setRegimes((l) => l.filter((_, j) => j !== i))}>✕</button>
+            {/* O × PERGUNTA antes de apagar (Carolina, 23/10). Um clique removia a linha calado,
+                e o regime e premissa de calculo de todas as competencias da janela: clique
+                acidental derrubava a base da apuracao inteira, e quem nao viu o clique nao
+                saberia por que os numeros mudaram. */}
+            <button type="button" className="col-span-1 text-red-400 text-sm"
+              title="Remover este período" onClick={() => setRemoverRegime(i)}>✕</button>
           </div>
         ))}
         {regimes.length > 0 && (
           <p className="text-[11px] text-gray-500 mt-1">“Até” vazio significa período em aberto.</p>
         )}
+
+        {/* CONFIRMAÇÃO DE REMOÇÃO — nomeia a linha, não é um "tem certeza?" genérico.
+            Quem clicou precisa reconhecer o que está prestes a sumir; e o aviso diz a
+            consequência real, que é a revogação das conferências apoiadas naquele regime. */}
+        {removerRegime !== null && regimes[removerRegime] && (() => {
+          const p = regimes[removerRegime];
+          const nome = REGIMES.find((r) => r.v === p.regime)?.label || "Regime não informado";
+          const anexo = p.regime === "simples" && p.anexo_simples ? `, Anexo ${p.anexo_simples}` : "";
+          const ate = p.fim || form.periodo_fim;
+          const n = competenciasEntre(p.inicio, ate);
+          return (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+                 onClick={() => setRemoverRegime(null)}>
+              <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl"
+                   onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-base font-bold text-gray-900">Remover este período de regime?</h3>
+                <p className="text-sm text-gray-700 mt-2">
+                  <b>{nome}</b>{anexo}, de <b>{mesExtenso(p.inicio)}</b>
+                  {p.fim ? <> a <b>{mesExtenso(p.fim)}</b></> : <> em diante</>}.
+                </p>
+                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
+                  O regime é premissa de cálculo{n > 0 ? <> d{n === 1 ? "a" : "as"} <b>{n} competência{n > 1 ? "s" : ""}</b> da janela</> : " das competências da janela"}.
+                  Removendo-o, as conferências que se apoiavam nele são revogadas e precisam ser refeitas.
+                </div>
+                <div className="flex gap-2 mt-5">
+                  <button type="button" onClick={() => setRemoverRegime(null)}
+                    className="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
+                    Cancelar
+                  </button>
+                  <button type="button"
+                    onClick={() => { setRegimes((l) => l.filter((_, j) => j !== removerRegime)); setRemoverRegime(null); }}
+                    className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700">
+                    Remover o período
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* RODAPÉ: quem declarou. Regime, anexo e as duas datas são dado DECLARADO — ninguém
+            consulta isso em lugar nenhum. A memória de cálculo se apoia nessa afirmação para
+            dizer que há ou não RAT a apurar; questionada a premissa, precisa haver a quem
+            atribuí-la. Mostra a declaração mais recente; sem autoria registrada, não afirma. */}
+        {(() => {
+          // Predicado de tipo, nao `as`: o filtro ja garante que os dois campos existem, e isto
+          // informa isso ao compilador. Com `r: any` o reduce devolvia Periodo de novo e o
+          // new Date() recebia string|null|undefined.
+          type ComAutor = Periodo & { declarado_por: string; declarado_em: string };
+          const comAutor = regimes.filter(
+            (r): r is ComAutor => !!r.declarado_por && !!r.declarado_em
+          );
+          if (!comAutor.length) return null;
+          const ult = comAutor.reduce((a, b) => (a.declarado_em > b.declarado_em ? a : b));
+          const d = new Date(ult.declarado_em);
+          return (
+            <p className="text-[11px] text-gray-400 mt-3 pt-2 border-t border-gray-100">
+              Declarado por <span className="text-gray-600">{ult.declarado_por}</span> em{" "}
+              {d.toLocaleDateString("pt-BR")} às {d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.
+            </p>
+          );
+        })()}
       </section>
 
       {/* Espelho do enquadramento da matriz (RF-0.155) */}

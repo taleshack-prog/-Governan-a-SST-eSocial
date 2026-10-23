@@ -21,3 +21,8 @@ class EmpresaRegime(Base):
     inicio: Mapped[date] = mapped_column(Date, nullable=False)
     fim: Mapped[date | None] = mapped_column(Date)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    # AUTORIA (migration 048). O regime nao vem de consulta: e declaracao, e a memoria de calculo
+    # se apoia nela para afirmar que ha ou nao RAT a apurar. Sem isto, a peca afirma o regime de
+    # 60 competencias sem dizer quem o afirmou.
+    declarado_por: Mapped[str | None] = mapped_column(String(200))
+    declarado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
