@@ -4,7 +4,7 @@
 # lista de atividades com quantitativo por periodo (RF-0.173).
 import re
 from datetime import date, datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, status, Response
+from fastapi import APIRouter, Depends, HTTPException, status, Response, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import UUID
@@ -25,6 +25,8 @@ from api.services.enquadramento_situacao import (
     situacao_de, divergencia_de, origem_divergencia, divergencia_amparada, ROTULO_ORIGEM,
 )
 from api.services.fundamentacao import citacoes_do_periodo
+from api.models.enquadramento_evento import EnquadramentoEvento, ROTULO_EVENTO
+from api.services.enquadramento_eventos import registrar_ato_humano, retrato
 
 router = APIRouter()
 
@@ -746,6 +748,12 @@ async def conferir_competencias(
         r.conferido_em = agora
         r.revogado_em = r.revogado_por = r.revogado_de = None
         conferidas += 1
+        # TRILHA (047): o valor vai JUNTO do ato. Era o nucleo do pedido — o sistema sabia que
+        # alguem havia conferido e nao sabia dizer sobre qual numero.
+        await registrar_ato_humano(
+            db, estabelecimento_id=estab_id, competencia=r.competencia, conferindo=True,
+            valores=retrato(r), autor=autor, observacao=data.observacao,
+        )
     await db.commit()
     return {"ok": True, "conferidas": conferidas,
             "ignoradas_por_pendencia": len(rows) - conferidas,
@@ -772,10 +780,64 @@ async def desconferir_competencias(
         r.revogado_de = r.conferido_por
         r.revogado_em = agora
         r.revogado_por = autor
+        # O retrato guarda o numero que estava validado ate este instante. Ele NAO inclui os
+        # campos de conferencia, entao gravar antes ou depois de limpa-los da no mesmo — fica
+        # antes por clareza de leitura, nao por necessidade.
+        await registrar_ato_humano(
+            db, estabelecimento_id=estab_id, competencia=r.competencia, conferindo=False,
+            valores=retrato(r), autor=autor, observacao=data.observacao,
+        )
         r.conferido_por = None
         r.conferido_em = None
     await db.commit()
     return {"ok": True, "desconferidas": len(rows)}
+
+
+# ---- Trilha de eventos do enquadramento (migration 047) ----
+@router.get("/{estab_id}/eventos")
+async def eventos_enquadramento(
+    estab_id: UUID,
+    competencia: date | None = Query(
+        None, description="Filtra uma competência. Omitido, traz a trilha do estabelecimento."),
+    limite: int = Query(200, ge=1, le=1000),
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """O que aconteceu com uma competência, do mais recente para o mais antigo.
+
+    Cada linha traz o VALOR DAQUELE INSTANTE, não o valor de hoje: é o que permite ler uma
+    conferência antiga e saber sobre o que ela foi dada, mesmo depois de a competência ter sido
+    recalculada várias vezes.
+    """
+    await _tenant_estab(estab_id, current_user, db)
+    q = select(EnquadramentoEvento).where(EnquadramentoEvento.estabelecimento_id == estab_id)
+    if competencia:
+        q = q.where(EnquadramentoEvento.competencia == competencia)
+    linhas = (await db.execute(
+        q.order_by(EnquadramentoEvento.ocorrido_em.desc()).limit(limite)
+    )).scalars().all()
+
+    def _n(v):
+        return float(v) if v is not None else None
+
+    return [{
+        "id": str(e.id),
+        "competencia": e.competencia.isoformat(),
+        "evento": e.evento,
+        "evento_label": ROTULO_EVENTO.get(e.evento, e.evento),
+        "autor": e.autor,
+        "ocorrido_em": e.ocorrido_em.isoformat() if e.ocorrido_em else None,
+        # O retrato do cálculo naquele instante — é o que torna a conferência uma assinatura
+        # sobre um número determinado, e não só uma marca de que alguém olhou.
+        "grau_risco": e.grau_risco,
+        "aliquota_devida": _n(e.aliquota_devida),
+        "fap": _n(e.fap),
+        "aliquota_efetiva": _n(e.aliquota_efetiva),
+        "aliquota_aplicada": _n(e.aliquota_aplicada),
+        "rat_aplicavel": e.rat_aplicavel,
+        "alteracoes": e.alteracoes,
+        "motivo": e.motivo,
+    } for e in linhas]
 
 
 # ---- Memória de enquadramento em PDF (RF-0.183) ----

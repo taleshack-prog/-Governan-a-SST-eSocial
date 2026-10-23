@@ -18,6 +18,7 @@ from api.models.estabelecimento_rat_aplicado import EstabelecimentoRatAplicado
 from api.models.estabelecimento_enquadramento import EstabelecimentoEnquadramento
 from api.models.cnae_enquadramento import CnaeEnquadramento
 from api.services.regime_competencia import regime_da_competencia, rat_se_aplica, CERTO
+from api.services.enquadramento_eventos import registrar_apuracao, retrato
 
 # A CITACAO NAO MORA MAIS AQUI (decisao da Carolina, 21/10). Havia uma constante FUND neste
 # arquivo com o dispositivo escrito a mao, e o motor a copiava em cada linha apurada. Eram duas
@@ -104,16 +105,22 @@ async def apurar_estabelecimento(estab_id, db: AsyncSession, autor: str | None =
     # uma pessoa sobre um valor que ja nao existe. Antes de reescrever a serie, guardamos QUEM
     # havia conferido cada competencia, para que a nova linha nasca NAO conferida mas com o
     # rastro de que houve um aval e de que ele foi revogado — quando e por quem.
+    # A SERIE ANTERIOR INTEIRA, e nao so as conferidas (migration 047). Duas razoes: o diff da
+    # trilha precisa do valor de antes para dizer "de quanto para quanto", e so da para saber se
+    # algo mudou comparando com o que havia. Como a serie e APAGADA logo abaixo, este e o unico
+    # instante em que o estado anterior existe.
+    linhas_antes = (await db.execute(
+        select(EstabelecimentoEnquadramento).where(
+            EstabelecimentoEnquadramento.estabelecimento_id == estab_id
+        )
+    )).scalars().all()
+    antes_por_comp = {r.competencia: retrato(r) for r in linhas_antes}
     conferidas_antes = {
         r.competencia: (r.conferido_por, r.conferido_em)
-        for r in (await db.execute(
-            select(EstabelecimentoEnquadramento).where(
-                EstabelecimentoEnquadramento.estabelecimento_id == estab_id,
-                EstabelecimentoEnquadramento.conferido_por.isnot(None),
-            )
-        )).scalars().all()
+        for r in linhas_antes if r.conferido_por
     }
     agora = datetime.utcnow()
+    eventos_gravados = 0
 
     # recalcula: apaga a serie anterior e regrava
     await db.execute(delete(EstabelecimentoEnquadramento).where(EstabelecimentoEnquadramento.estabelecimento_id == estab_id))
@@ -241,9 +248,27 @@ async def apurar_estabelecimento(estab_id, db: AsyncSession, autor: str | None =
             data_apuracao=datetime.utcnow(), versao_tabelas=versao,
         ))
 
+        # TRILHA (migration 047). Registra o que esta competencia passou a valer e, quando havia
+        # conferencia sobre um numero diferente, tambem o que deixou de valer e de quem era a
+        # assinatura. Nao grava nada quando o numero nao mudou — ver registrar_apuracao.
+        eventos_gravados += await registrar_apuracao(
+            db,
+            estabelecimento_id=estab_id,
+            competencia=comp,
+            antes=antes_por_comp.get(comp),
+            depois={
+                "grau_risco": grau, "aliquota_devida": aliq_dev, "fap": faps.get(comp.year),
+                "aliquota_efetiva": aliq_ef, "aliquota_aplicada": aliq_apl,
+                "rat_aplicavel": rat_aplicavel,
+            },
+            autor=autor,
+            conferido_por=conferidas_antes.get(comp, (None, None))[0],
+        )
+
     await db.commit()
     revogadas = sum(1 for c in conferidas_antes if ini <= c <= fim)
     return {"ok": True, "competencias": total, "em_fila": em_fila,
+            "eventos_registrados": eventos_gravados,
             "conferencias_revogadas": revogadas,
             "aviso": (f"{revogadas} competência(s) tinham sido conferidas e voltaram a apurado: "
                       f"o dado de cálculo mudou, então a validação anterior não vale mais.")
