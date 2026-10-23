@@ -660,10 +660,71 @@ export function CadastroEmpresa() {
         )}
       </section>
 
-      {/* ORDEM DELIBERADA (Carolina, 22/10): o regime vem ANTES do enquadramento.
-          É ele que decide se existe alguma coisa a calcular — no Simples fora do Anexo IV
-          não há RAT a apurar —, e estando abaixo do resultado, quem preenche de cima para
-          baixo lia a divergência antes de declarar o regime que a anula. */}
+      {/* Endereço (matriz) */}
+      <section className="bg-white rounded-xl border border-gray-100 p-5 mb-4">
+        <h2 className="text-sm font-bold text-gray-800 mb-3">Endereço (matriz)</h2>
+        {/* Os sete campos deste bloco vinham da consulta e nenhum dizia isso. A maquinaria de
+            procedência já os rastreava no backend — o bloco é que nunca a chamava. Importa
+            porque o endereço é editável: a Receita pode estar desatualizada e o cliente
+            corrigir, e o laudo precisa saber se descreve o estabelecimento conforme o cadastro
+            oficial ou conforme alguém digitou. */}
+        <div className="grid grid-cols-6 gap-4">
+          <div className="col-span-2">
+            <label className={labelCls}>CEP<Procedencia mapa={camposOrigem} campo="cep" genero="o" /></label>
+            <input className={fundoProcedencia(camposOrigem, "cep", inputCls)} value={form.cep}
+              onChange={(e) => { const v = maskCep(e.target.value); set("cep", v); if (v.replace(/\D/g, "").length === 8) buscarCep(v); }}
+              onBlur={(e) => buscarCep(e.target.value)} maxLength={9} placeholder="00000-000" inputMode="numeric" />
+            {cepMsg && <p className="text-[11px] text-amber-600 mt-1">{cepMsg}</p>}
+          </div>
+          {/* Campo PRÓPRIO, não prefixo concatenado no logradouro: a fonte separa os dois, e o
+              tipo nem sempre abre o logradouro. Assim o laudo compõe o endereço na ordem que
+              quiser e a busca por logradouro não precisa limpar prefixo. */}
+          <div className="col-span-1">
+            <label className={labelCls}>Tipo<Procedencia mapa={camposOrigem} campo="tipo_logradouro" genero="o" /></label>
+            <input className={fundoProcedencia(camposOrigem, "tipo_logradouro", inputCls)} value={form.tipo_logradouro}
+              onChange={(e) => set("tipo_logradouro", e.target.value)} placeholder="RUA" />
+          </div>
+          <div className="col-span-3">
+            <label className={labelCls}>Logradouro<Procedencia mapa={camposOrigem} campo="endereco" genero="o" /></label>
+            <input className={fundoProcedencia(camposOrigem, "endereco", inputCls)} value={form.endereco}
+              onChange={(e) => set("endereco", e.target.value)} />
+          </div>
+          <div className="col-span-2">
+            <label className={labelCls}>Número<Procedencia mapa={camposOrigem} campo="numero" genero="o" /></label>
+            <input className={fundoProcedencia(camposOrigem, "numero", inputCls)} value={form.numero}
+              onChange={(e) => set("numero", e.target.value)} />
+          </div>
+          <div className="col-span-2">
+            <label className={labelCls}>Complemento<Procedencia mapa={camposOrigem} campo="complemento" genero="o" /></label>
+            <input className={fundoProcedencia(camposOrigem, "complemento", inputCls)} value={form.complemento}
+              onChange={(e) => set("complemento", e.target.value)} />
+          </div>
+          <div className="col-span-2">
+            <label className={labelCls}>Bairro<Procedencia mapa={camposOrigem} campo="bairro" genero="o" /></label>
+            <input className={fundoProcedencia(camposOrigem, "bairro", inputCls)} value={form.bairro}
+              onChange={(e) => set("bairro", e.target.value)} />
+          </div>
+          <div className="col-span-4">
+            <label className={labelCls}>Cidade<Procedencia mapa={camposOrigem} campo="cidade" /></label>
+            <input className={fundoProcedencia(camposOrigem, "cidade", inputCls)} value={form.cidade}
+              onChange={(e) => set("cidade", e.target.value)} />
+          </div>
+          <div className="col-span-2">
+            <label className={labelCls}>UF<Procedencia mapa={camposOrigem} campo="uf" /></label>
+            <select className={fundoProcedencia(camposOrigem, "uf", inputCls)} value={form.uf}
+              onChange={(e) => set("uf", e.target.value)}>
+              <option value="">—</option>{UFS.map((u) => <option key={u} value={u}>{u}</option>)}
+            </select>
+          </div>
+        </div>
+      </section>
+
+      {/* ORDEM DOS BLOCOS — DEFINIDA, NÃO ACIDENTAL (Tales, 23/10):
+          identificação · endereço · regime tributário · enquadramento · CPRB · contato.
+          Quem reordenar precisa saber o que quebra: o regime vem ANTES do enquadramento
+          porque é ele que decide se existe alguma coisa a calcular — no Simples fora do
+          Anexo IV não há RAT a apurar. Com o regime abaixo do resultado, quem preenche de
+          cima para baixo lê a divergência antes de declarar o regime que a anula. */}
       {/* Regime tributário por período (RF-0.156) */}
       <section className="bg-white rounded-xl border border-gray-100 p-5 mb-4">
         <div className="flex items-center justify-between mb-3">
@@ -965,65 +1026,6 @@ export function CadastroEmpresa() {
             {espelho.motivo && <p className="text-[11px] text-gray-400 mt-2">{espelho.motivo}</p>}
           </>
         )}
-      </section>
-
-      {/* Endereço (matriz) */}
-      <section className="bg-white rounded-xl border border-gray-100 p-5 mb-4">
-        <h2 className="text-sm font-bold text-gray-800 mb-3">Endereço (matriz)</h2>
-        {/* Os sete campos deste bloco vinham da consulta e nenhum dizia isso. A maquinaria de
-            procedência já os rastreava no backend — o bloco é que nunca a chamava. Importa
-            porque o endereço é editável: a Receita pode estar desatualizada e o cliente
-            corrigir, e o laudo precisa saber se descreve o estabelecimento conforme o cadastro
-            oficial ou conforme alguém digitou. */}
-        <div className="grid grid-cols-6 gap-4">
-          <div className="col-span-2">
-            <label className={labelCls}>CEP<Procedencia mapa={camposOrigem} campo="cep" genero="o" /></label>
-            <input className={fundoProcedencia(camposOrigem, "cep", inputCls)} value={form.cep}
-              onChange={(e) => { const v = maskCep(e.target.value); set("cep", v); if (v.replace(/\D/g, "").length === 8) buscarCep(v); }}
-              onBlur={(e) => buscarCep(e.target.value)} maxLength={9} placeholder="00000-000" inputMode="numeric" />
-            {cepMsg && <p className="text-[11px] text-amber-600 mt-1">{cepMsg}</p>}
-          </div>
-          {/* Campo PRÓPRIO, não prefixo concatenado no logradouro: a fonte separa os dois, e o
-              tipo nem sempre abre o logradouro. Assim o laudo compõe o endereço na ordem que
-              quiser e a busca por logradouro não precisa limpar prefixo. */}
-          <div className="col-span-1">
-            <label className={labelCls}>Tipo<Procedencia mapa={camposOrigem} campo="tipo_logradouro" genero="o" /></label>
-            <input className={fundoProcedencia(camposOrigem, "tipo_logradouro", inputCls)} value={form.tipo_logradouro}
-              onChange={(e) => set("tipo_logradouro", e.target.value)} placeholder="RUA" />
-          </div>
-          <div className="col-span-3">
-            <label className={labelCls}>Logradouro<Procedencia mapa={camposOrigem} campo="endereco" genero="o" /></label>
-            <input className={fundoProcedencia(camposOrigem, "endereco", inputCls)} value={form.endereco}
-              onChange={(e) => set("endereco", e.target.value)} />
-          </div>
-          <div className="col-span-2">
-            <label className={labelCls}>Número<Procedencia mapa={camposOrigem} campo="numero" genero="o" /></label>
-            <input className={fundoProcedencia(camposOrigem, "numero", inputCls)} value={form.numero}
-              onChange={(e) => set("numero", e.target.value)} />
-          </div>
-          <div className="col-span-2">
-            <label className={labelCls}>Complemento<Procedencia mapa={camposOrigem} campo="complemento" genero="o" /></label>
-            <input className={fundoProcedencia(camposOrigem, "complemento", inputCls)} value={form.complemento}
-              onChange={(e) => set("complemento", e.target.value)} />
-          </div>
-          <div className="col-span-2">
-            <label className={labelCls}>Bairro<Procedencia mapa={camposOrigem} campo="bairro" genero="o" /></label>
-            <input className={fundoProcedencia(camposOrigem, "bairro", inputCls)} value={form.bairro}
-              onChange={(e) => set("bairro", e.target.value)} />
-          </div>
-          <div className="col-span-4">
-            <label className={labelCls}>Cidade<Procedencia mapa={camposOrigem} campo="cidade" /></label>
-            <input className={fundoProcedencia(camposOrigem, "cidade", inputCls)} value={form.cidade}
-              onChange={(e) => set("cidade", e.target.value)} />
-          </div>
-          <div className="col-span-2">
-            <label className={labelCls}>UF<Procedencia mapa={camposOrigem} campo="uf" /></label>
-            <select className={fundoProcedencia(camposOrigem, "uf", inputCls)} value={form.uf}
-              onChange={(e) => set("uf", e.target.value)}>
-              <option value="">—</option>{UFS.map((u) => <option key={u} value={u}>{u}</option>)}
-            </select>
-          </div>
-        </div>
       </section>
 
       {/* CPRB — estado explícito de verificação (RF-0.163..0.166) */}
