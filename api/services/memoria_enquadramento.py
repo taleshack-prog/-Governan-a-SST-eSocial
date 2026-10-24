@@ -108,7 +108,16 @@ def gerar_memoria_pdf(d: dict) -> bytes:
     el = []
 
     el.append(_p("Memória de Enquadramento", h1))
-    el.append(_p("Atividade preponderante, grau de risco e RAT devido — Decreto 3.048/99, art. 202, §§ 3º e 5º", sub))
+    # O SUBTITULO NAO CITA NORMA. Citava "art. 202, §§ 3º e 5º", literal cravado aqui, enquanto a
+    # tabela versionada diz "§§ 3º e 4º" — e a tabela esta certa: o § 3º define a preponderante e
+    # o § 4º remete ao Anexo V, de onde sai o grau; o § 5º trata de QUEM faz o enquadramento, que
+    # nao e nenhuma das tres coisas anunciadas nesta linha. O mesmo PDF citava dois dispositivos
+    # diferentes para a mesma afirmacao, porque um vinha da tabela e o outro do codigo.
+    #
+    # A citacao sai inteira no bloco "Fundamentacao normativa", resolvida pela data de cada
+    # competencia e com a vigencia declarada. Duplica-la aqui so cria uma segunda fonte para
+    # divergir — exatamente o que a decisao da Carolina de 21/10 eliminou.
+    el.append(_p("Atividade preponderante, grau de risco e RAT devido", sub))
     el.append(Spacer(1, 6))
     el.append(HRFlowable(width="100%", color=colors.HexColor("#e5e7eb")))
 
@@ -116,7 +125,10 @@ def gerar_memoria_pdf(d: dict) -> bytes:
     es = d.get("estab", {})
     per = d.get("periodo", {})
     el.append(_p("Identificação", h2))
-    ident = (f"<b>Empresa:</b> {emp.get('razao_social') or '—'} — CNPJ raiz {emp.get('cnpj') or '—'}<br/>"
+    # "CNPJ da matriz", nao "raiz" (revisao da Carolina, 23/10): raiz sao os oito primeiros
+    # digitos, e o que se mostra aqui e o CNPJ completo do estabelecimento matriz. A tela de
+    # cadastro ja foi corrigida; a memoria e o documento que sai assinado e ficou para tras.
+    ident = (f"<b>Empresa:</b> {emp.get('razao_social') or '—'} — CNPJ da matriz {emp.get('cnpj') or '—'}<br/>"
              f"<b>Estabelecimento:</b> {es.get('codigo') or ''} {es.get('nome') or ''} "
              f"({es.get('posicao') or '—'}, natureza {es.get('tipo') or '—'})<br/>"
              f"<b>Matrícula:</b> {es.get('identificador') or es.get('cnpj') or '—'}<br/>"
