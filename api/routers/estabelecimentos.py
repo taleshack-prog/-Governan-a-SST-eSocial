@@ -37,8 +37,19 @@ GRAU_LABEL = {1: "leve", 2: "médio", 3: "grave"}
 
 
 def _autor(u: Usuario) -> str:
-    """Quem assina. Nunca "sistema": o estado conferido registra pessoa."""
-    return getattr(u, "email", None) or getattr(u, "nome", None) or str(getattr(u, "id", "?"))
+    """Quem assina. Nunca "sistema": o estado conferido registra pessoa.
+
+    PREFERE O NOME, nao o e-mail — mesma regra de _autor_declaracao em empresas.py (048). Ate
+    24/10 esta funcao preferia o e-mail e aquela preferia o nome, e o resultado apareceu na
+    primeira conferencia gravada em producao: a mesma pessoa saiu como "Tales Hack" na declaracao
+    do regime e como "talhack@yahoo.com" na conferencia. Numa peca lida por fiscal, duas grafias
+    do mesmo autor na mesma pagina sao duas pessoas.
+
+    O e-mail entra so quando nao ha nome cadastrado — melhor um endereco do que um ato sem dono.
+    (As duas funcoes seguem duplicadas, em routers diferentes. Unifica-las e a correcao de
+    verdade e esta na fila; a divergencia ja custou uma vez.)
+    """
+    return getattr(u, "nome", None) or getattr(u, "email", None) or str(getattr(u, "id", "?"))
 
 
 def _sem_sobreposicao(periodos: list, rotulo: str) -> None:
