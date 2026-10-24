@@ -70,6 +70,17 @@ const SIT: Record<string, { txt: string; cls: string; ajuda: string }> = {
 
 const mesBR = (iso?: string | null) => (iso ? `${iso.slice(5, 7)}/${iso.slice(0, 4)}` : "—");
 
+// Data e hora da assinatura. A hora entra porque conferir e reapurar podem acontecer no mesmo
+// dia, e a ordem entre os dois é o que explica uma conferência revogada. Devolve string vazia
+// em vez de "Invalid Date" quando o valor não vem — new Date(null) não falha, mente.
+const dataHoraBR = (iso?: string | null): string => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleString("pt-BR", {
+    day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
+  });
+};
+
 // Origem da divergência: qual das duas declarações do S-1005 saiu errada. A resposta decide a
 // defesa — grau se corrige com reenquadramento, FAP com a portaria e o extrato do FAPWeb.
 const ORIGEM: Record<string, string> = {
@@ -169,12 +180,65 @@ function AtividadesModal({ estab, onFechar }: { estab: any; onFechar: () => void
 // ---------- Painel de enquadramento apurado (RF-0.155/série) ----------
 const CRIT: Record<string, string> = { maior_quantitativo: "maior quantitativo", desempate_grau: "empate → grau", fila_conferencia: "—" };
 function PainelModal({ estab, onFechar }: { estab: any; onFechar: () => void }) {
+  const qc = useQueryClient();
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [apurando, setApurando] = useState(false);
-  const load = () => { setLoading(true); apiClient.get(`/estabelecimentos/${estab.id}/enquadramento`).then((r) => setRows(r.data || [])).catch(() => setRows([])).finally(() => setLoading(false)); };
+  // Conferência (item da revisão de 19/10, interface). O endpoint existia desde então e nenhuma
+  // tela o chamava: a situação "conferido" aparecia na listagem, a memória se apoiava nela e o
+  // motor revogava conferências ao mudar o número — e não havia como criar uma.
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [obs, setObs] = useState("");
+  const [agindo, setAgindo] = useState(false);
+  const [msgErro, setMsgErro] = useState("");
+  const load = () => {
+    setLoading(true);
+    setSel(new Set<string>());   // a série muda de estado; seleção velha apontaria para o que já não vale
+    apiClient.get(`/estabelecimentos/${estab.id}/enquadramento`).then((r) => setRows(r.data || [])).catch(() => setRows([])).finally(() => setLoading(false));
+  };
   useEffect(load, [estab.id]);
   const apurar = async () => { setApurando(true); try { await apiClient.post(`/estabelecimentos/${estab.id}/apurar`); load(); } catch { /* */ } finally { setApurando(false); } };
+
+  // Conferir é assinar embaixo de um número. Onde não há número — competência em fila por falta
+  // de dado, ou afastada do RAT pelo regime — não há o que assinar, e a caixa nem aparece. O
+  // backend recusa essas com 422; oferecer o clique para depois recusá-lo seria desenhar o erro.
+  const conferivel = (r: any) => r.situacao === "apurado" || r.situacao === "conferido";
+  const selecionaveis = rows.filter(conferivel).map((r) => String(r.competencia));
+  const todasMarcadas = selecionaveis.length > 0 && selecionaveis.every((c) => sel.has(c));
+  const alternar = (comp: string) => setSel((s) => {
+    const n = new Set(s);
+    if (n.has(comp)) n.delete(comp); else n.add(comp);
+    return n;
+  });
+  // Quantas da seleção ganham assinatura e quantas perdem. Os dois botões dizem o número, porque
+  // "conferir 12" e "conferir" pedem graus de atenção diferentes antes do clique.
+  const selArr = Array.from(sel);
+  const aConferir = selArr.filter((c) => !rows.find((r) => String(r.competencia) === c)?.conferido_por).length;
+  const aRetirar = selArr.length - aConferir;
+
+  const agir = async (conferindo: boolean) => {
+    // Manda só o que de fato muda de estado. Enviando a seleção inteira, "Conferir 12" passaria
+    // também pelas já conferidas e reescreveria o nome de quem assinou pelo de quem clicou — o
+    // mesmo erro que a preservação de autoria do regime (048) existe para impedir. E o número no
+    // botão deixaria de ser verdade.
+    const alvo = selArr.filter((c) => {
+      const r = rows.find((x) => String(x.competencia) === c);
+      return conferindo ? !r?.conferido_por : !!r?.conferido_por;
+    });
+    if (alvo.length === 0) return;
+    setAgindo(true); setMsgErro("");
+    try {
+      await apiClient.post(`/estabelecimentos/${estab.id}/${conferindo ? "conferir" : "desconferir"}`,
+        { competencias: alvo, observacao: obs.trim() || null });
+      setObs("");
+      load();
+      qc.invalidateQueries({ queryKey: ["estabelecimentos"] });   // a situação da listagem mudou
+    } catch (e: any) {
+      // A recusa NOMEIA as competências pendentes. Trocá-la por "não foi possível" devolveria ao
+      // usuário a tarefa de descobrir qual das sessenta linhas impediu o ato.
+      setMsgErro(e?.response?.data?.detail || "Não foi possível registrar a conferência.");
+    } finally { setAgindo(false); }
+  };
   // Os quatro estados (conferência, apurado, conferido, não auditada) particionam a série; esta
   // linha de resumo só destaca dois deles. 'semAplicado' NÃO é um quinto grupo: é subconjunto das
   // apuradas — as que o motor fechou e ainda não têm o RAT aplicado informado. Era contado como
@@ -183,6 +247,7 @@ function PainelModal({ estab, onFechar }: { estab: any; onFechar: () => void }) 
   const emFila = rows.filter((r) => r.situacao === "conferencia").length;
   const naoAuditadas = rows.filter((r) => r.situacao === "nao_auditada").length;
   const semAplicado = rows.filter((r) => r.situacao === "apurado" && r.aliquota_aplicada == null).length;
+  const conferidas = rows.filter((r) => r.conferido_por).length;
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl p-6 w-full max-w-5xl shadow-xl max-h-[90vh] overflow-y-auto">
@@ -216,7 +281,8 @@ function PainelModal({ estab, onFechar }: { estab: any; onFechar: () => void }) 
           Divergência = aplicado − alíquota efetiva (RAT × FAP).{" "}
           {emFila > 0 && <span className="text-amber-600">{emFila} em conferência. </span>}
           {naoAuditadas > 0 && <span className="text-gray-500">{naoAuditadas} não auditada(s) quanto ao RAT. </span>}
-          {semAplicado > 0 && <span className="text-sky-700">{semAplicado} apurada(s) sem o RAT aplicado informado.</span>}
+          {semAplicado > 0 && <span className="text-sky-700">{semAplicado} apurada(s) sem o RAT aplicado informado. </span>}
+          {conferidas > 0 && <span className="text-emerald-700">{conferidas} conferida(s) por pessoa.</span>}
         </p>
         {naoAuditadas > 0 && (
           <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
@@ -224,16 +290,64 @@ function PainelModal({ estab, onFechar }: { estab: any; onFechar: () => void }) 
               "O regime tributário afasta a apuração do RAT em parte do período."}
           </div>
         )}
+        {/* Barra de conferência. Só aparece com seleção: dois botões permanentemente
+            desabilitados no topo ensinam a ignorar aquele canto da tela. */}
+        {sel.size > 0 && (
+          <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-medium text-emerald-900 whitespace-nowrap">
+                {sel.size} competência{sel.size > 1 ? "s" : ""} selecionada{sel.size > 1 ? "s" : ""}
+              </span>
+              <input className="flex-1 min-w-[180px] border border-emerald-200 rounded-lg px-2 py-1 text-xs"
+                value={obs} onChange={(e) => setObs(e.target.value)}
+                placeholder="Observação (opcional) — fica registrada no evento" />
+              {aConferir > 0 && (
+                <button onClick={() => agir(true)} disabled={agindo}
+                  className="text-xs bg-emerald-600 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-700 disabled:opacity-50 whitespace-nowrap">
+                  {agindo ? "Registrando…" : `Conferir ${aConferir}`}
+                </button>
+              )}
+              {aRetirar > 0 && (
+                <button onClick={() => agir(false)} disabled={agindo}
+                  className="text-xs border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-white disabled:opacity-50 whitespace-nowrap">
+                  {agindo ? "…" : `Retirar conferência de ${aRetirar}`}
+                </button>
+              )}
+              <button type="button" onClick={() => setSel(new Set<string>())} className="text-[11px] text-gray-500 hover:underline">limpar</button>
+            </div>
+            <p className="text-[11px] text-emerald-800 mt-1.5">
+              Conferir é ato de pessoa: ficam registrados o seu nome, a data e o valor sobre o qual
+              você assinou. Se o número mudar depois, a conferência é revogada e o sistema diz o
+              que mudou.
+            </p>
+          </div>
+        )}
+        {msgErro && (
+          <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-700">{msgErro}</div>
+        )}
         {loading ? <div className="p-6 text-center text-gray-400 text-sm">Carregando…</div>
           : rows.length === 0 ? <div className="p-6 text-center text-gray-400 text-sm">Nada apurado. Cadastre atividades (com quantitativo) e FAP; a série aparece aqui.</div>
           : (
             <table className="w-full text-xs">
               <thead className="bg-gray-50 border-b border-gray-200 text-gray-500">
-                <tr>{["Comp.", "Preponderante", "Critério", "Grau", "Devido", "FAP", "Efetivo", "Aplicado", "Diverg.", "Situação"].map((h) => <th key={h} className="text-left px-2 py-2 font-medium">{h}</th>)}</tr>
+                <tr>
+                  <th className="px-2 py-2 w-8">
+                    <input type="checkbox" disabled={selecionaveis.length === 0} checked={todasMarcadas}
+                      title={selecionaveis.length ? "Selecionar todas as competências que podem ser conferidas" : "Nenhuma competência desta série pode ser conferida"}
+                      onChange={() => setSel(todasMarcadas ? new Set<string>() : new Set<string>(selecionaveis))} />
+                  </th>
+                  {["Comp.", "Preponderante", "Critério", "Grau", "Devido", "FAP", "Efetivo", "Aplicado", "Diverg.", "Situação"].map((h) => <th key={h} className="text-left px-2 py-2 font-medium">{h}</th>)}
+                </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {rows.map((r, i) => (
-                  <tr key={i} className={r.situacao === "conferencia" ? "bg-amber-50" : r.situacao === "nao_auditada" ? "bg-gray-100/70 text-gray-500" : r.situacao === "apurado" ? "bg-sky-50/40" : "hover:bg-gray-50"}>
+                  <tr key={i} className={sel.has(String(r.competencia)) ? "bg-emerald-50" : r.situacao === "conferencia" ? "bg-amber-50" : r.situacao === "nao_auditada" ? "bg-gray-100/70 text-gray-500" : r.situacao === "apurado" ? "bg-sky-50/40" : "hover:bg-gray-50"}>
+                    <td className="px-2 py-1.5">
+                      {conferivel(r) && (
+                        <input type="checkbox" checked={sel.has(String(r.competencia))}
+                          onChange={() => alternar(String(r.competencia))} />
+                      )}
+                    </td>
                     <td className="px-2 py-1.5 font-mono">{r.competencia?.slice(0, 7)}</td>
                     <td className="px-2 py-1.5 font-mono">{fmt.cnae(r.cnae_preponderante)}</td>
                     <td className="px-2 py-1.5 text-gray-500">{CRIT[r.criterio] || r.criterio || "—"}</td>
@@ -248,6 +362,17 @@ function PainelModal({ estab, onFechar }: { estab: any; onFechar: () => void }) 
                         title={r.motivo_inaplicavel || r.motivo_fila || SIT[r.situacao]?.ajuda || ""}>
                         {r.situacao === "conferencia" ? "⚠ " : ""}{SIT[r.situacao]?.txt || "—"}
                       </span>
+                      {r.conferido_por && (
+                        <span className="block text-[11px] text-gray-500">
+                          {r.conferido_por}{dataHoraBR(r.conferido_em) ? ` · ${dataHoraBR(r.conferido_em)}` : ""}
+                        </span>
+                      )}
+                      {!r.conferido_por && r.revogado_de && (
+                        <span className="block text-[11px] text-amber-700"
+                          title={`O número mudou depois da conferência${dataHoraBR(r.revogado_em) ? `, em ${dataHoraBR(r.revogado_em)}` : ""}.`}>
+                          conferência de {r.revogado_de} revogada
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}
