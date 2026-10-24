@@ -43,7 +43,8 @@ def gerar_dossie_prova(dados: dict, incluir_fundamento: bool = False) -> bytes:
 
     story = []
     story.append(Paragraph("Dossiê de Prova — Divergência de Custeio", titulo))
-    story.append(Paragraph("RadarPrevi · Consultoria Previdenciária", subt))
+    # Assinatura institucional. Caixa alta so no logo; em texto corrido "AjustaPrev" se le melhor.
+    story.append(Paragraph("AjustaPrev · Defesa Previdenciária Empresarial", subt))
     story.append(Spacer(1, 6))
     story.append(Paragraph(
         f"<b>Empresa:</b> {empresa.get('razao_social','—')} &nbsp;&nbsp; "
@@ -120,7 +121,7 @@ def gerar_dossie_prova(dados: dict, incluir_fundamento: bool = False) -> bytes:
     story.append(HRFlowable(width="100%", color=colors.grey, thickness=0.5))
     story.append(Spacer(1, 4))
     story.append(Paragraph(
-        "Documento gerado pela plataforma RadarPrevi. Valores estimados, sujeitos a confirmação na análise jurídica.", obs))
+        "Documento gerado pela plataforma AjustaPrev. Valores estimados, sujeitos a confirmação na análise jurídica.", obs))
 
     doc.build(story)
     pdf = buffer.getvalue()
