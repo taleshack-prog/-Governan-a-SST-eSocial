@@ -804,25 +804,29 @@ export function CadastroEmpresa() {
         {regimes.length === 0 && <p className="text-xs text-gray-500">Nenhum período. A empresa pode mudar de regime dentro da janela.</p>}
         {/* A linha tinha quatro campos e nenhum rótulo: "De" e "Até" só se distinguiam pela
             ordem em que aparecem. Os nomes vêm uma vez, no alto, e não se repetem por linha. */}
+        {/* Colunas PROPORCIONAIS, não as 12 fixas (Carolina, 24/10). Com col-span de 12 o campo
+            do anexo cabia em 2 e cortava "— não se aplica" em "— não se apli"; e não dava para
+            roubar coluna de "De"/"Até", que precisam de largura para o ano do mês aparecer.
+            Em frações, o botão do × ocupa só o necessário e devolve o espaço. */}
         {regimes.length > 0 && (
-          <div className="grid grid-cols-12 gap-2 mb-1">
-            <span className={`${labelCls} col-span-3`}>Regime</span>
-            <span className={`${labelCls} col-span-2`}>Anexo do Simples</span>
-            <span className={`${labelCls} col-span-3`}>De</span>
-            <span className={`${labelCls} col-span-3`}>Até</span>
-            <span className="col-span-1" />
+          <div className="grid grid-cols-[1.1fr_1.1fr_1fr_1fr_auto] gap-2 mb-1">
+            <span className={labelCls}>Regime</span>
+            <span className={labelCls}>Anexo do Simples</span>
+            <span className={labelCls}>De</span>
+            <span className={labelCls}>Até</span>
+            <span />
           </div>
         )}
         {regimes.map((p, i) => (
-          <div key={i} className="grid grid-cols-12 gap-2 mb-2 items-center">
-            <select className={`${inputCls} col-span-3`} value={p.regime || ""} onChange={(e) => setRegimes((l) => l.map((x, j) => j === i ? { ...x, regime: e.target.value } : x))}>
+          <div key={i} className="grid grid-cols-[1.1fr_1.1fr_1fr_1fr_auto] gap-2 mb-2 items-center">
+            <select className={inputCls} value={p.regime || ""} onChange={(e) => setRegimes((l) => l.map((x, j) => j === i ? { ...x, regime: e.target.value } : x))}>
               <option value="">Regime…</option>{REGIMES.map((r) => <option key={r.v} value={r.v}>{r.label}</option>)}
             </select>
             {/* Lista fechada no lugar de texto livre. Fora do Simples o campo fica desabilitado e
                 legendado, em vez de um vão em branco: espaço vazio não diz se o campo não existe
                 ali ou se ninguém preencheu. */}
             {p.regime === "simples" ? (
-              <select className={`${inputCls} col-span-2`} value={p.anexo_simples || ""}
+              <select className={inputCls} value={p.anexo_simples || ""}
                 onChange={(e) => setRegimes((l) => l.map((x, j) => j === i ? { ...x, anexo_simples: e.target.value } : x))}>
                 <option value="">Anexo…</option>
                 {ANEXOS_SIMPLES.map((a) => <option key={a} value={a}>Anexo {a}</option>)}
@@ -833,19 +837,19 @@ export function CadastroEmpresa() {
                 )}
               </select>
             ) : (
-              <select className={`${inputCls} col-span-2 text-gray-400`} value="" disabled>
+              <select className={`${inputCls} text-gray-400`} value="" disabled>
                 <option>— não se aplica</option>
               </select>
             )}
             {/* Três colunas, não duas: em duas o campo de mês cortava o ano, e é ele que delimita
                 a base de cálculo — não dá para ler onde o período começa. */}
-            <input type="month" className={`${inputCls} col-span-3`} value={p.inicio || ""} onChange={(e) => setRegimes((l) => l.map((x, j) => j === i ? { ...x, inicio: e.target.value } : x))} />
-            <input type="month" className={`${inputCls} col-span-3`} value={p.fim || ""} onChange={(e) => setRegimes((l) => l.map((x, j) => j === i ? { ...x, fim: e.target.value } : x))} />
+            <input type="month" className={inputCls} value={p.inicio || ""} onChange={(e) => setRegimes((l) => l.map((x, j) => j === i ? { ...x, inicio: e.target.value } : x))} />
+            <input type="month" className={inputCls} value={p.fim || ""} onChange={(e) => setRegimes((l) => l.map((x, j) => j === i ? { ...x, fim: e.target.value } : x))} />
             {/* O × PERGUNTA antes de apagar (Carolina, 23/10). Um clique removia a linha calado,
                 e o regime e premissa de calculo de todas as competencias da janela: clique
                 acidental derrubava a base da apuracao inteira, e quem nao viu o clique nao
                 saberia por que os numeros mudaram. */}
-            <button type="button" className="col-span-1 text-red-400 text-sm"
+            <button type="button" className="text-red-400 text-sm px-1"
               title="Remover este período" onClick={() => setRemoverRegime(i)}>✕</button>
           </div>
         ))}
