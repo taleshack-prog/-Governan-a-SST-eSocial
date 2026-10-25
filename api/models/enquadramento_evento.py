@@ -1,4 +1,4 @@
-# api/models/enquadramento_evento.py — AJUSTAPREV
+# api/models/enquadramento_evento.py — AJUSTA
 # Trilha de eventos do enquadramento (migration 047, especificacao da Carolina de 21/10).
 #
 # A competencia ja registrava que uma conferencia tinha sido revogada, mas nao SOBRE QUAL NUMERO

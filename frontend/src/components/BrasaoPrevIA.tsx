@@ -1,4 +1,4 @@
-// frontend/src/components/BrasaoPrevIA.tsx — AJUSTAPREV
+// frontend/src/components/BrasaoPrevIA.tsx — AJUSTA
 // Brasão da PrevIA: o escudo técnico da marca, usado como avatar da assistente.
 //
 // DESENHADO PARA 24px, NÃO PARA 64px. O brasão aparece em cinco lugares, e o menor deles é o

@@ -8,8 +8,8 @@ export default defineConfig({
     VitePWA({
       registerType: "autoUpdate",
       manifest: {
-        name: "AjustaPrev",
-        short_name: "AjustaPrev",
+        name: "Ajusta",
+        short_name: "Ajusta",
         description: "Acompanhe seu afastamento",
         theme_color: "#0f2744",
         background_color: "#ffffff",

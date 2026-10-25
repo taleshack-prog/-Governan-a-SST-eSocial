@@ -43,7 +43,7 @@ TELAS = {
     "auditoria":        "Log de auditoria SHA-256",
 }
 
-SYSTEM_PROMPT = """Você é a PrevIA, assistente inteligente do AjustaPrev.
+SYSTEM_PROMPT = """Você é a PrevIA, assistente inteligente do Ajusta.
 
 Sua missão é ajudar o usuário a:
 1. Entender a tela atual

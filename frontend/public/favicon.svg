@@ -2,8 +2,8 @@
      vem sem icone hoje. A 16px a palavra e ilegivel e a textura de pontos desaparece, entao fica
      so o hexagono do original, que e a forma que sobrevive ao tamanho. Fundo opaco de proposito:
      favicon cai sobre a barra do navegador, clara ou escura, e precisa do proprio contraste. -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="AjustaPrev">
-  <title>AjustaPrev</title>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Ajusta">
+  <title>Ajusta</title>
   <defs><linearGradient id="fv" x1="0" y1="0" x2="0" y2="1">
     <stop offset="0" stop-color="#6FA6EC"/><stop offset="1" stop-color="#2F64AE"/></linearGradient></defs>
   <rect width="64" height="64" rx="12" fill="#0B1626"/>

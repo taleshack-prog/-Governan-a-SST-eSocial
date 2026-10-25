@@ -1,5 +1,5 @@
 // ==============================================================
-// AjustaPrev — Sidebar (agrupada, retrátil, tema teal)
+// Ajusta — Sidebar (agrupada, retrátil, tema teal)
 // ==============================================================
 import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
@@ -49,7 +49,7 @@ const GROUPS: { title: string | null; items: { path: string; label: string; icon
 ];
 
 // Marca compacta: o que aparece com a sidebar recolhida, onde não cabe o logotipo inteiro.
-// É o hexágono do logo do AjustaPrev — as mesmas proporções do original, reduzidas. Antes era
+// É o hexágono do logo do Ajusta — as mesmas proporções do original, reduzidas. Antes era
 // o radar de círculos concêntricos do RadarPrevi.
 // As cores são as do logo, não as do tema: o tema do app é teal (--c-brand-500) e a marca nova
 // é azul. Enquanto a paleta não for revista, puxar a cor do tema deixaria o ícone teal ao lado
@@ -98,7 +98,7 @@ export function Sidebar() {
             baixo), e qualquer ajuste de marca exigia mexer em CSS. Agora é o próprio arquivo da
             marca, o mesmo que o login usa. */}
         {collapsed ? <Mark /> : (
-          <img src="/logo-ajustaprev.svg" alt="AjustaPrev — Defesa Previdenciária Empresarial"
+          <img src="/logo-ajusta.svg" alt="Ajusta — Defesa Previdenciária Empresarial"
                className="w-full" />
         )}
       </div>

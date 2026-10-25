@@ -129,7 +129,7 @@ export default function Login() {
             <path d="M8 12l3 3 5-5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </div>
-        <h1 className="text-white text-2xl font-bold">AjustaPrev</h1>
+        <h1 className="text-white text-2xl font-bold">Ajusta</h1>
         <p className="text-blue-300 text-sm mt-1">
           {tela === "login" ? "Portal do Funcionário" :
            tela === "cadastro" ? "Solicitar acesso" :

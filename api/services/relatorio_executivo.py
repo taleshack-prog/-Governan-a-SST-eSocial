@@ -43,8 +43,8 @@ def gerar_relatorio_executivo(dados: dict) -> bytes:
     achados = dados.get("achados", [])
 
     story = []
-    # Assinatura institucional. Caixa alta so no logo; em texto corrido "AjustaPrev" se le melhor.
-    story.append(Paragraph("AjustaPrev — Relatório Executivo de Custeio", titulo))
+    # Assinatura institucional. Caixa alta so no logo; em texto corrido "Ajusta" se le melhor.
+    story.append(Paragraph("Ajusta — Relatório Executivo de Custeio", titulo))
     story.append(Paragraph("Defesa Previdenciária Empresarial", subt))
     story.append(Spacer(1, 6))
     story.append(Paragraph(
@@ -107,7 +107,7 @@ def gerar_relatorio_executivo(dados: dict) -> bytes:
     story.append(Spacer(1, 4))
     story.append(Paragraph(
         "Valores estimados com base na parametrização informada, confirmados na análise jurídica. "
-        "Documento gerado automaticamente pela plataforma AjustaPrev.", obs))
+        "Documento gerado automaticamente pela plataforma Ajusta.", obs))
 
     doc.build(story)
     pdf = buffer.getvalue()

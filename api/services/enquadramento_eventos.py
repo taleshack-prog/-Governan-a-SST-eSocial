@@ -1,4 +1,4 @@
-# api/services/enquadramento_eventos.py — AJUSTAPREV
+# api/services/enquadramento_eventos.py — AJUSTA
 # Gravacao da trilha de eventos do enquadramento (migration 047).
 #
 # Um lugar so grava evento. Os quatro pontos que disparam (motor, conferir, desconferir,
