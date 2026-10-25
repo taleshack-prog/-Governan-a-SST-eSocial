@@ -236,10 +236,13 @@ def _exigir_cobertura_regime(periodos: list, empresa: Empresa) -> None:
         )
 
 
-async def _garantir_matriz(empresa: Empresa, db: AsyncSession, declarante: str | None = None) -> None:
-    """RF-0.152: ao salvar a empresa, garante o estabelecimento matriz e registra a atividade
-    declarada da matriz (input do motor do Adendo 04). O enquadramento apurado (grau/RAT) é
-    resultado do motor, não é gravado aqui."""
+async def _garantir_matriz(empresa: Empresa, db: AsyncSession) -> None:
+    """RF-0.152: ao salvar a empresa, garante o estabelecimento MATRIZ.
+
+    Nao registra mais atividade: o parametro 'declarante' saiu junto com ela, em 25/10. Atividade
+    e quantitativo so existem declarados, com periodo e autor — ver o bloco removido no corpo.
+    O enquadramento apurado (grau/RAT) e resultado do motor e nunca e gravado aqui.
+    """
     matriz = (await db.execute(
         select(Estabelecimento).where(
             Estabelecimento.empresa_id == empresa.id, Estabelecimento.posicao == "matriz"
@@ -264,22 +267,28 @@ async def _garantir_matriz(empresa: Empresa, db: AsyncSession, declarante: str |
             matriz.data_abertura = abertura
         matriz.data_encerramento = empresa.data_encerramento
 
-    # registra a atividade declarada da matriz (uma linha) — INPUT do motor (RF-0.173)
-    if empresa.cnae_principal:
-        inicio = abertura or getattr(matriz, "data_abertura", None) or date.today()
-        ativ = (await db.execute(
-            select(EstabelecimentoAtividade).where(
-                EstabelecimentoAtividade.estabelecimento_id == matriz.id,
-                EstabelecimentoAtividade.vigencia_fim.is_(None),
-            ).order_by(EstabelecimentoAtividade.vigencia_inicio.desc())
-        )).scalars().first()
-        if ativ is None:
-            db.add(EstabelecimentoAtividade(
-                estabelecimento_id=matriz.id, cnae=empresa.cnae_principal,
-                vigencia_inicio=inicio, declarado_por=declarante,
-            ))
-        else:
-            ativ.cnae = empresa.cnae_principal
+    # A CONSULTA DA RECEITA NAO CRIA ATIVIDADE (Carolina, 25/10).
+    #
+    # Aqui nascia, a cada salvamento do cadastro, uma linha de atividade com o CNAE principal do
+    # cartao CNPJ e vigencia comecando na DATA DE ABERTURA da empresa. Na KRETA isso produziu
+    # "4712-1/00, 50 trabalhadores, 16/05/1985, em aberto": uma afirmacao sobre trinta e seis anos
+    # de historia que ninguem declarou, atravessando a janela de apuracao inteira e sobrepondo-se
+    # a atividade que foi de fato declarada.
+    #
+    # Nas palavras dela: "Atividade e numero de trabalhadores so existem quando alguem declara,
+    # com periodo e autor." Preencher por conveniencia o que deveria ser declarado e a mesma
+    # classe de defeito do texto de reserva que saiu do gerador da memoria — dado inventado
+    # ocupando o lugar de dado afirmado, dentro de peca assinada.
+    #
+    # O SEGUNDO DEFEITO, que vinha junto: o ramo 'else' SOBRESCREVIA o CNAE da atividade com fim
+    # aberto pelo CNAE principal. Quem declarasse 4120-4/00 em Atividades e depois salvasse o
+    # cadastro da empresa veria a propria declaracao trocada em silencio pelo codigo do cartao —
+    # e o CNAE do cartao nao e a atividade preponderante, que e justamente a confusao que este
+    # produto existe para desfazer.
+    #
+    # O CNAE principal continua no cadastro da empresa e aparece na tela como o que e: "CNAE
+    # principal do cadastro — ainda nao ha preponderante apurada". Enquanto ninguem declarar
+    # atividade com quantitativo, a serie nao apura, e isso esta correto.
 
 
 # ---------------- schemas ----------------
@@ -552,8 +561,7 @@ async def atualizar_empresa(
             if c and c not in vistos:
                 vistos.add(c)
                 db.add(EmpresaCnaeSecundario(empresa_id=empresa_id, cnae=c))
-    declarante = getattr(current_user, "email", None) or getattr(current_user, "nome", None)
-    await _garantir_matriz(empresa, db, declarante)   # RF-0.152
+    await _garantir_matriz(empresa, db)   # RF-0.152
     await db.commit()
     return {"id": str(empresa.id), "ok": True}
 

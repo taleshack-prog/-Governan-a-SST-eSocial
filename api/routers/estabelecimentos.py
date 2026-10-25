@@ -412,19 +412,43 @@ async def salvar_atividades(
     if conflito:
         raise HTTPException(status_code=422, detail=conflito)
 
-    # Autoria PELO NOME, como em _autor() e na declaracao do regime. Gravava o e-mail, e era
-    # dele que saia "Declaracao dos quantitativos: talhack@yahoo.com" na memoria.
-    declarante = _autor(current_user)
     antigas = (await db.execute(
         select(EstabelecimentoAtividade).where(EstabelecimentoAtividade.estabelecimento_id == estab_id)
     )).scalars().all()
+
+    # AUTORIA PRESERVADA, MESMA REGRA DO REGIME (Carolina, 25/10).
+    #
+    # Este endpoint apaga a lista inteira e recria a cada salvamento. Gravar o autor cego faria
+    # com que abrir a tela e salvar sem mexer em nada transferisse para quem salvou a declaracao
+    # de quem declarou — e quantitativo de trabalhadores e declaracao, nao dado de cadastro:
+    # e dela que sai a atividade preponderante, e e por ela que alguem responde.
+    #
+    # Nas palavras dela: "salvar sem alterar nao transfere autoria. O que muda e so a forma, de
+    # e-mail para o nome."
+    #
+    # A chave e a LINHA DECLARADA inteira — atividade, quantitativo e periodo. Mudou qualquer um
+    # dos tres, e outra declaracao, e o autor passa a ser quem a fez agora. A descricao fica de
+    # fora de proposito: ela vem do Anexo I, nao e declarada por ninguem.
+    autoria_anterior = {
+        (a.cnae, a.quantitativo, a.vigencia_inicio, a.vigencia_fim): (a.declarado_por, a.declarado_em)
+        for a in antigas
+    }
+    # NORMALIZA A GRAFIA, nao a pessoa: as linhas antigas gravaram o e-mail, e e o nome que o
+    # documento imprime. Trocar "talhack@yahoo.com" por "Tales Hack" nao muda quem declarou;
+    # trocar por quem esta salvando, sim — e e isso que a preservacao acima impede.
+    _nomes = {e: n for e, n in (await db.execute(select(Usuario.email, Usuario.nome))).all() if e}
+    quem = _autor(current_user)
+    agora = datetime.now(timezone.utc)
+
     for a in antigas:
         await db.delete(a)
     for cnae, descricao, it in itens:
+        anterior = autoria_anterior.get((cnae, it.quantitativo, it.inicio, it.fim))
+        por, em = anterior if anterior and anterior[0] else (quem, agora)
         db.add(EstabelecimentoAtividade(
             estabelecimento_id=estab_id, cnae=cnae, descricao=descricao,
             quantitativo=it.quantitativo, vigencia_inicio=it.inicio, vigencia_fim=it.fim,
-            declarado_por=declarante, declarado_em=datetime.now(timezone.utc),
+            declarado_por=_nomes.get(por, por), declarado_em=em or agora,
         ))
     await db.commit()
     from api.services.motor_enquadramento import apurar_estabelecimento
