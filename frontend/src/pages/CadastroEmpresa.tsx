@@ -1158,13 +1158,27 @@ export function CadastroEmpresa() {
                           ? <span className="text-sm font-semibold text-gray-900 tabular-nums">{fmt.num(espelho.enquadramento.fap_aplicado, 4)}</span>
                           : <NaoInformado />}
                       </div>
+                      {/* O RÓTULO NÃO DECIDE O QUE O QUADRO AO LADO DIZ NÃO SABER (Carolina,
+                          24/10). Chamar o número de "alíquota efetiva aplicada" é afirmar que
+                          ele é a efetiva — exatamente a leitura que produz +1,50 p.p. de crédito
+                          — enquanto a caixa da direita declara que não dá para saber se é a
+                          efetiva ou a base. Sem o desdobramento ele é "Valor declarado", e nada
+                          além disso.
+                          O rótulo é condicional e não fixo: COM o RAT base e o FAP informados, a
+                          efetiva é conhecida e "alíquota efetiva aplicada" é o nome certo. Trocar
+                          sempre perderia precisão onde não há ambiguidade nenhuma. */}
                       <div className="mt-2 pt-2 border-t border-gray-200">
-                        <span className={derivLabel}>Alíquota efetiva aplicada</span>
+                        <span className={derivLabel}>
+                          {faltaDesdobramento(espelho.enquadramento.rat_base_aplicado, espelho.enquadramento.fap_aplicado)
+                            ? "Valor declarado"
+                            : "Alíquota efetiva aplicada"}
+                        </span>
                         <div className={derivVal}>{fmt.pct(espelho.enquadramento.aliquota_aplicada)}</div>
                       </div>
                       {faltaDesdobramento(espelho.enquadramento.rat_base_aplicado, espelho.enquadramento.fap_aplicado) && (
                         <p className="text-[10px] text-gray-500 mt-2 leading-snug">
-                          A origem da divergência não pode ser afirmada enquanto{" "}
+                          Não é possível saber se este valor é a alíquota base ou a efetiva, e a
+                          origem da divergência não pode ser afirmada enquanto{" "}
                           {faltaDesdobramento(espelho.enquadramento.rat_base_aplicado, espelho.enquadramento.fap_aplicado)}.
                         </p>
                       )}
