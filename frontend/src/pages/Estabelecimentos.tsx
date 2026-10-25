@@ -128,7 +128,45 @@ function AtividadesModal({ estab, onFechar }: { estab: any; onFechar: () => void
     apiClient.get(`/estabelecimentos/${estab.id}/atividades`).then((r) => setRows(r.data || [])).catch(() => setRows([]));
   }, [estab.id]);
   const upd = (i: number, k: string, v: any) => setRows((l) => l.map((x, j) => j === i ? { ...x, [k]: v } : x));
+
+  // ESPELHO DA REGRA DO BACKEND (Carolina, 25/10, item 2). A mesma atividade não pode ter dois
+  // períodos cobrindo a mesma competência: ali não há o que comparar, há um quantitativo
+  // duplicado, e o motor passa a depender da ordem das linhas no banco. Foi assim que a memória
+  // saiu com o 4712-1/00 duas vezes, 50 e 50, ao lado do 4120-4/00 com 60 — e quem soma 100
+  // contra 60 conclui que a preponderante apurada está errada, dentro do documento que a afirma.
+  //
+  // Atividades DIFERENTES na mesma competência continuam válidas, e têm de continuar: é
+  // comparando os quantitativos delas que a preponderante se apura. A validação é por CNAE.
+  const problema = (): string => {
+    const uteis = rows.filter((r) => r.cnae || r.inicio);
+    for (const r of uteis) {
+      if (!r.cnae) return "Toda linha precisa de uma atividade (CNAE).";
+      if (!r.inicio) return "Toda linha precisa de início.";
+      if (r.fim && r.fim < r.inicio) return "Há uma atividade com fim anterior ao início.";
+    }
+    const porCnae: Record<string, any[]> = {};
+    for (const r of uteis) {
+      const c = String(r.cnae || "").replace(/\D/g, "");
+      (porCnae[c] = porCnae[c] || []).push(r);
+    }
+    const mes = (d: string) => (d ? `${d.slice(5, 7)}/${d.slice(0, 4)}` : "em aberto");
+    for (const [c, lista] of Object.entries(porCnae)) {
+      const ord = [...lista].sort((a, b) => String(a.inicio).localeCompare(String(b.inicio)));
+      for (let i = 0; i < ord.length - 1; i++) {
+        if (!ord[i].fim || ord[i].fim >= ord[i + 1].inicio) {
+          const fmt = `${c.slice(0, 4)}-${c.slice(4, 5)}/${c.slice(5)}`;
+          return `O CNAE ${fmt} aparece em dois períodos que se sobrepõem: `
+            + `${mes(ord[i].inicio)} a ${mes(ord[i].fim)} e ${mes(ord[i + 1].inicio)} a ${mes(ord[i + 1].fim)}. `
+            + "Feche o período anterior antes de abrir o seguinte.";
+        }
+      }
+    }
+    return "";
+  };
+
   const salvar = async () => {
+    const p = problema();
+    if (p) { setErro(p); return; }
     setSalvando(true); setErro("");
     try {
       await apiClient.put(`/estabelecimentos/${estab.id}/atividades`, rows.filter((r) => r.cnae && r.inicio).map((r) => ({

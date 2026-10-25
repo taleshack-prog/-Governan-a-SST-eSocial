@@ -306,6 +306,39 @@ class AtividadeIn(BaseModel):
     fim: date | None = None
 
 
+def sobreposicao_mesmo_cnae(linhas: list[tuple]) -> str | None:
+    """Mensagem do conflito, ou None quando nao ha. Recebe [(cnae, inicio, fim), ...].
+
+    A MESMA atividade nao pode ter duas vigencias cobrindo a mesma competencia. Atividades
+    DIFERENTES podem e devem coexistir: e comparando os quantitativos delas que a preponderante
+    se apura — copiar aqui a regra do bloco de regime, que proibe qualquer sobreposicao, quebraria
+    a apuracao inteira.
+
+    Funcao de modulo, e nao bloco dentro do endpoint, para poder ser exercitada sem banco: e a
+    regra que impediu a memoria de sair com o 4712-1/00 duas vezes, 50 e 50, ao lado do 4120-4/00
+    com 60 — e quem soma 100 contra 60 conclui que a preponderante apurada esta errada, dentro do
+    documento que a afirma.
+    """
+    def _mes(d) -> str:
+        return d.strftime("%m/%Y") if d else "em aberto"
+
+    por_cnae: dict[str, list] = {}
+    for cnae, inicio, fim in linhas:
+        por_cnae.setdefault(cnae, []).append((inicio, fim))
+    for cnae, periodos in por_cnae.items():
+        ordenados = sorted(periodos, key=lambda p: p[0])
+        for (ini_a, fim_a), (ini_b, fim_b) in zip(ordenados, ordenados[1:]):
+            # Fim aberto sobrepoe tudo o que vier depois: e o caso mais comum, a linha antiga que
+            # nunca foi fechada quando a atividade mudou.
+            if fim_a is None or fim_a >= ini_b:
+                fmt = f"{cnae[:4]}-{cnae[4:5]}/{cnae[5:]}" if len(cnae) == 7 else cnae
+                return (f"O CNAE {fmt} aparece em dois períodos que se sobrepõem: "
+                        f"{_mes(ini_a)} a {_mes(fim_a)} e {_mes(ini_b)} a {_mes(fim_b)}. "
+                        "Feche o período anterior antes de abrir o seguinte — a mesma atividade "
+                        "não pode ter dois quantitativos na mesma competência.")
+    return None
+
+
 async def _tenant_estab(estab_id: UUID, current_user: Usuario, db: AsyncSession) -> Estabelecimento:
     e = (await db.execute(
         select(Estabelecimento).where(
@@ -341,30 +374,57 @@ async def salvar_atividades(
     current_user: Usuario = Depends(require_perfil("admin")),
 ):
     """Substitui a lista de atividades. Rejeita CNAE inexistente no Anexo I (RF-0.173).
-    Grava autoria (RN-23)."""
+    Grava autoria (RN-23).
+
+    SOBREPOSICAO DO MESMO CNAE (Carolina, 25/10, item 2). A tabela de atividades da memoria saiu
+    com o 4712-1/00 duas vezes, em periodos sobrepostos — 50 trabalhadores em cada —, ao lado do
+    4120-4/00 com 60. Quem soma 50 + 50 = 100 contra 60 conclui que a preponderante apurada esta
+    errada, DENTRO do documento que a afirma.
+
+    A regra NAO e a do bloco de regime, e copia-la seria pior que nao ter. Duas atividades
+    DIFERENTES precisam coexistir na mesma competencia: e comparando os quantitativos delas que a
+    preponderante se apura. O que nao pode e o MESMO CNAE ter duas vigencias cobrindo o mesmo mes
+    — ali nao ha o que comparar, ha um numero duplicado, e o motor pega a primeira linha que
+    encontrar, de modo que o resultado passa a depender da ordem das linhas no banco.
+    """
     await _tenant_estab(estab_id, current_user, db)
+    # Normaliza uma vez e guarda a descricao oficial junto: ela e usada na validacao e na gravacao.
+    itens: list[tuple] = []
     for it in data:
         cnae = re.sub(r"\D", "", it.cnae or "")
         if len(cnae) != 7:
             raise HTTPException(status_code=422, detail=f"CNAE '{it.cnae}' deve ter 7 dígitos.")
-        existe = (await db.execute(
-            select(CnaeEnquadramento.cnae).where(CnaeEnquadramento.cnae == cnae)
+        oficial = (await db.execute(
+            select(CnaeEnquadramento.descricao).where(CnaeEnquadramento.cnae == cnae)
         )).scalar_one_or_none()
-        if not existe:
+        if oficial is None:
             raise HTTPException(status_code=422, detail=f"CNAE {cnae} não existe no Anexo I. Confira a subclasse.")
         if it.fim and it.fim < it.inicio:
             raise HTTPException(status_code=422, detail="Atividade com fim anterior ao início.")
-    declarante = getattr(current_user, "email", None) or getattr(current_user, "nome", None)
+        # A DESCRICAO VEM EM TODAS AS LINHAS, e vem do Anexo I. Era opcional, e linha sem ela
+        # saia muda na memoria — um codigo de sete digitos sem nada ao lado, no documento que
+        # precisa justificar por que aquela atividade e a preponderante. Nao se pede ao usuario
+        # que digite o que a tabela oficial ja diz: o que ele informou prevalece, e o que faltar
+        # e completado pela fonte.
+        itens.append((cnae, (it.descricao or "").strip() or oficial, it))
+
+    conflito = sobreposicao_mesmo_cnae([(c, it.inicio, it.fim) for c, _d, it in itens])
+    if conflito:
+        raise HTTPException(status_code=422, detail=conflito)
+
+    # Autoria PELO NOME, como em _autor() e na declaracao do regime. Gravava o e-mail, e era
+    # dele que saia "Declaracao dos quantitativos: talhack@yahoo.com" na memoria.
+    declarante = _autor(current_user)
     antigas = (await db.execute(
         select(EstabelecimentoAtividade).where(EstabelecimentoAtividade.estabelecimento_id == estab_id)
     )).scalars().all()
     for a in antigas:
         await db.delete(a)
-    for it in data:
+    for cnae, descricao, it in itens:
         db.add(EstabelecimentoAtividade(
-            estabelecimento_id=estab_id, cnae=re.sub(r"\D", "", it.cnae), descricao=it.descricao,
+            estabelecimento_id=estab_id, cnae=cnae, descricao=descricao,
             quantitativo=it.quantitativo, vigencia_inicio=it.inicio, vigencia_fim=it.fim,
-            declarado_por=declarante, declarado_em=datetime.utcnow(),
+            declarado_por=declarante, declarado_em=datetime.now(timezone.utc),
         ))
     await db.commit()
     from api.services.motor_enquadramento import apurar_estabelecimento
