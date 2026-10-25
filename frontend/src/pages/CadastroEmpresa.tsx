@@ -1193,9 +1193,12 @@ export function CadastroEmpresa() {
                 </div>
 
                 {/* Item 6: a divergência é o produto — é o número pelo qual o cliente paga.
-                    Peso maior, posição de resultado, e cor COM rótulo em texto: positiva é
-                    crédito a recuperar, negativa é passivo a regularizar. Confundir as duas num
-                    laudo é grave — quem compensa crédito inexistente responde com multa. */}
+                    Peso maior e posição de resultado. O rótulo em texto que acompanhava a cor
+                    ("crédito a recuperar" / "passivo a regularizar") SAIU em 25/10: ele concluía
+                    sobre o caso a partir de um mês. Confundir crédito com passivo num laudo é
+                    grave — quem compensa crédito inexistente responde com multa —, e justamente
+                    por isso a conclusão pertence a quem viu a série inteira, não a este cartão,
+                    que mostra uma competência de sessenta. */}
                 {/* TRÊS ESTADOS, e o do meio é novo (Carolina, 24/10). Antes havia dois: ou não
                     havia aplicado, ou a divergência era afirmada. Faltava o caso em que HÁ um
                     número aplicado mas ele não diz se é base ou efetiva — e aí este quadro
@@ -1260,18 +1263,30 @@ export function CadastroEmpresa() {
                       : d > 0 ? "bg-blue-50 border-blue-200"
                       : d < 0 ? "bg-red-50 border-red-200"
                       : "bg-gray-50 border-gray-200"}`}>
+                      {/* O QUADRO INFORMA A DIVERGÊNCIA DESTA COMPETÊNCIA E PARA AÍ (Carolina,
+                          25/10). Saíram daqui a frase "A empresa recolheu acima do devido. Há
+                          valor a recuperar." e o sufixo "— crédito" do título.
+                          O motivo apareceu quando a memória da janela inteira foi emitida pela
+                          primeira vez: das sessenta competências, 24 são de débito e 22 de
+                          crédito. O quadro mostra UM mês, e a frase lia como conclusão sobre o
+                          caso — afirmando "há valor a recuperar" num período em que, na maior
+                          parte dos meses, há valor a pagar. Conclusão sobre a janela só pode sair
+                          de quem olhou a janela inteira, e esse lugar é a memória de cálculo.
+                          O sinal continua legível: sinal do número, cor, e o title, que diz
+                          "nesta competência" de forma explícita. */}
                       <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-2">
                         Divergência
-                        {d != null && d > 0 && " — crédito"}
-                        {d != null && d < 0 && " — passivo"}
                       </p>
                       <div className={d != null && d > 0 ? "text-blue-700" : d != null && d < 0 ? "text-red-700" : "text-gray-700"}>
-                        <div className="text-2xl font-bold tabular-nums leading-tight">{fmt.pp(d)}</div>
-                        <p className="text-[11px] font-medium mt-1 leading-snug">
-                          {d != null && d > 0 ? "A empresa recolheu acima do devido. Há valor a recuperar."
-                           : d != null && d < 0 ? "A empresa recolheu abaixo do devido. Há passivo a regularizar."
-                           : "Sem divergência."}
-                        </p>
+                        <div className="text-2xl font-bold tabular-nums leading-tight"
+                          title={d != null && d > 0 ? "Nesta competência a empresa recolheu acima do devido."
+                                 : d != null && d < 0 ? "Nesta competência a empresa recolheu abaixo do devido."
+                                 : undefined}>
+                          {fmt.pp(d)}
+                        </div>
+                        {d === 0 && (
+                          <p className="text-[11px] font-medium mt-1 leading-snug">Sem divergência.</p>
+                        )}
                       </div>
                       {/* A ORIGEM DECIDE A TESE, e é por isso que ela aparece aqui e não só na
                           listagem. Divergência de FAP se defende com a publicação do fator e o
