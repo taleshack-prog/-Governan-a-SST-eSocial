@@ -23,6 +23,7 @@ from api.models.usuario import Usuario
 from api.auth import get_current_user, require_perfil, require_papel
 from api.services.enquadramento_situacao import (
     situacao_de, divergencia_de, origem_divergencia, divergencia_amparada, ROTULO_ORIGEM,
+    divergencia_confirmada, motivo_conferencia,
 )
 from api.services.fundamentacao import citacoes_do_periodo
 from api.models.enquadramento_evento import EnquadramentoEvento, ROTULO_EVENTO
@@ -188,7 +189,14 @@ async def _enquadramento_corrente(estab_ids: list, db: AsyncSession) -> dict:
             "origem_divergencia": orig,
             "amparada": divergencia_amparada(orig, r.processo_rat, r.processo_fap),
             "situacao": situacao_de(rat_aplicavel=r.rat_aplicavel, em_fila=r.em_fila,
-                                    aliquota_devida=devida, conferido_por=r.conferido_por),
+                                    aliquota_devida=devida, rat_aplicado=rat_apl,
+                                    fap_aplicado=fap_apl, conferido_por=r.conferido_por),
+            # A divergencia so pode ser AFIRMADA com o aplicado desdobrado: sem isso o mesmo
+            # numero admite duas leituras opostas (ver enquadramento_situacao.situacao_de).
+            "divergencia_confirmada": divergencia_confirmada(rat_apl, fap_apl),
+            "motivo_conferencia": motivo_conferencia(
+                em_fila=r.em_fila, motivo_fila=r.motivo_fila, aliquota_devida=devida,
+                rat_aplicado=rat_apl, fap_aplicado=fap_apl),
             "rat_aplicavel": bool(r.rat_aplicavel),
             "motivo_inaplicavel": r.motivo_inaplicavel,
             "conferido_por": r.conferido_por,
@@ -691,8 +699,13 @@ async def serie_enquadramento(
             "processo_rat": r.processo_rat,
             "processo_fap": r.processo_fap,
             "divergencia_pp": divergencia_de(efet, apl),
+            "divergencia_confirmada": divergencia_confirmada(rat_apl, fap_apl),
             "situacao": situacao_de(rat_aplicavel=r.rat_aplicavel, em_fila=r.em_fila,
-                                    aliquota_devida=devida, conferido_por=r.conferido_por),
+                                    aliquota_devida=devida, rat_aplicado=rat_apl,
+                                    fap_aplicado=fap_apl, conferido_por=r.conferido_por),
+            "motivo_conferencia": motivo_conferencia(
+                em_fila=r.em_fila, motivo_fila=r.motivo_fila, aliquota_devida=devida,
+                rat_aplicado=rat_apl, fap_aplicado=fap_apl),
             "rat_aplicavel": bool(r.rat_aplicavel),
             "motivo_inaplicavel": r.motivo_inaplicavel,
             "conferido_por": r.conferido_por,
@@ -739,21 +752,32 @@ async def conferir_competencias(
     if not rows:
         raise HTTPException(status_code=404, detail="Nenhuma competência encontrada para conferir.")
 
-    pendentes = [r for r in rows if r.em_fila or r.aliquota_devida is None]
+    # NAO CONFERIVEL = a comparacao nao fecha, por qualquer das duas causas. A segunda entrou em
+    # 24/10 (Carolina): aplicado sem desdobramento em RAT base e FAP admite duas leituras com
+    # resultados opostos, e conferir ali seria assinar embaixo de um numero que o sistema escolheu
+    # entre dois. Mesma regra de situacao_de(); se divergirem, a tela oferece o que a API recusa.
+    def _nao_fecha(r) -> bool:
+        return (r.em_fila or r.aliquota_devida is None
+                or r.rat_aplicado is None or r.fap_aplicado is None)
+
+    pendentes = [r for r in rows if _nao_fecha(r)]
     if pendentes and data.competencias:
         comps = ", ".join(r.competencia.strftime("%m/%Y") for r in pendentes[:5])
+        falta_aplicado = all(not (r.em_fila or r.aliquota_devida is None) for r in pendentes)
+        oque = ("Informe o RAT base e o FAP aplicados antes de validar."
+                if falta_aplicado else
+                "Resolva a pendência (FAP, atividade, CNAE) antes de validar.")
         raise HTTPException(
             status_code=422,
             detail=(f"Não é possível conferir competência em conferência: {comps}"
-                    f"{'…' if len(pendentes) > 5 else ''}. "
-                    f"Resolva a pendência (FAP, atividade, CNAE) antes de validar."),
+                    f"{'…' if len(pendentes) > 5 else ''}. {oque}"),
         )
 
     autor = _autor(current_user)
     agora = datetime.now(timezone.utc)
     conferidas = 0
     for r in rows:
-        if r.em_fila or r.aliquota_devida is None:
+        if _nao_fecha(r):
             continue                       # pendente: fica de fora, sem erro, numa conferência em lote
         r.conferido_por = autor
         r.conferido_em = agora
@@ -896,8 +920,13 @@ async def memoria_enquadramento(
             "amparada": divergencia_amparada(orig, r.processo_rat, r.processo_fap),
             "processo_rat": r.processo_rat, "processo_fap": r.processo_fap,
             "divergencia_pp": divergencia_de(efet, apl),
+            "divergencia_confirmada": divergencia_confirmada(rat_apl, fap_apl),
             "situacao": situacao_de(rat_aplicavel=r.rat_aplicavel, em_fila=r.em_fila,
-                                    aliquota_devida=devida, conferido_por=r.conferido_por),
+                                    aliquota_devida=devida, rat_aplicado=rat_apl,
+                                    fap_aplicado=fap_apl, conferido_por=r.conferido_por),
+            "motivo_conferencia": motivo_conferencia(
+                em_fila=r.em_fila, motivo_fila=r.motivo_fila, aliquota_devida=devida,
+                rat_aplicado=rat_apl, fap_aplicado=fap_apl),
             "rat_aplicavel": bool(r.rat_aplicavel),
             "motivo_inaplicavel": r.motivo_inaplicavel,
             "conferido_por": r.conferido_por,

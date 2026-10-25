@@ -23,7 +23,9 @@ from api.models.cnae_enquadramento import CnaeEnquadramento
 from api.models.cnae_fpas_sugestao import CnaeFpasSugestao
 from api.models.usuario import Usuario
 from api.auth import get_current_user, require_perfil, require_papel
-from api.services.enquadramento_situacao import situacao_de, divergencia_de
+from api.services.enquadramento_situacao import (
+    situacao_de, divergencia_de, divergencia_confirmada, motivo_conferencia,
+)
 
 router = APIRouter()
 
@@ -708,24 +710,34 @@ async def matriz_enquadramento(
         #
         # situacao_de() passou a QUATRO valores em 22/10: entrou 'nao_auditada', para a
         # competencia em que o regime afasta a apuracao. Continua sendo estado, e os quatro
-        # somam o total; 'sem_aplicado' segue sendo recorte de 'apuradas' e fora da soma.
+        # somam o total.
+        #
+        # 'sem_aplicado' SAIU, e nao foi renomeado por gosto. Ele era recorte de 'apuradas' — as
+        # apuradas em que o aplicado ainda nao fora informado. Desde 24/10 essa combinacao nao
+        # existe: competencia sem o aplicado DESDOBRADO nao e apurada, porque a comparacao nao
+        # fecha (ver enquadramento_situacao.situacao_de). O recorte continua util, mas agora
+        # recorta 'em_conferencia': dentro da fila, quais esperam a empresa informar o que
+        # recolheu, e quais esperam o motor concluir. Sao acoes diferentes para quem opera.
         resumo = {"total": len(todas), "conferidas": 0, "apuradas": 0,
-                  "sem_aplicado": 0, "em_conferencia": 0, "nao_auditadas": 0}
+                  "aguardando_aplicado": 0, "em_conferencia": 0, "nao_auditadas": 0}
         for r in todas:
+            dev = float(r.aliquota_devida) if r.aliquota_devida is not None else None
+            rat_a = float(r.rat_aplicado) if r.rat_aplicado is not None else None
+            fap_a = float(r.fap_aplicado) if r.fap_aplicado is not None else None
             s = situacao_de(
-                rat_aplicavel=r.rat_aplicavel, em_fila=r.em_fila,
-                aliquota_devida=float(r.aliquota_devida) if r.aliquota_devida is not None else None,
-                conferido_por=r.conferido_por)
+                rat_aplicavel=r.rat_aplicavel, em_fila=r.em_fila, aliquota_devida=dev,
+                rat_aplicado=rat_a, fap_aplicado=fap_a, conferido_por=r.conferido_por)
             if s == "nao_auditada":
                 resumo["nao_auditadas"] += 1
             elif s == "conferido":
                 resumo["conferidas"] += 1
             elif s == "apurado":
                 resumo["apuradas"] += 1
-                if r.aliquota_aplicada is None:
-                    resumo["sem_aplicado"] += 1
             else:
                 resumo["em_conferencia"] += 1
+                # Recorte: o devido fechou, falta so o que a empresa aplicou.
+                if not (r.em_fila or dev is None):
+                    resumo["aguardando_aplicado"] += 1
         return {
             "existe": True,
             "estabelecimento_id": str(matriz.id),
@@ -748,9 +760,24 @@ async def matriz_enquadramento(
                 "rat_base_aplicado": float(apurada.rat_aplicado) if apurada.rat_aplicado is not None else None,
                 "fap_aplicado": float(apurada.fap_aplicado) if apurada.fap_aplicado is not None else None,
                 "divergencia_pp": divergencia_de(efetiva, aplicada),
-                "situacao": situacao_de(rat_aplicavel=apurada.rat_aplicavel,
-                                        em_fila=apurada.em_fila, aliquota_devida=devida,
-                                        conferido_por=apurada.conferido_por),
+                # A divergencia existe como numero, mas so pode ser AFIRMADA com o aplicado
+                # desdobrado. Sem isso o mesmo valor admite duas leituras opostas — era a tela
+                # deste bloco que afirmava credito enquanto o quadro ao lado, no mesmo cartao,
+                # dizia que a origem nao podia ser afirmada.
+                "divergencia_confirmada": divergencia_confirmada(
+                    float(apurada.rat_aplicado) if apurada.rat_aplicado is not None else None,
+                    float(apurada.fap_aplicado) if apurada.fap_aplicado is not None else None),
+                "situacao": situacao_de(
+                    rat_aplicavel=apurada.rat_aplicavel, em_fila=apurada.em_fila,
+                    aliquota_devida=devida,
+                    rat_aplicado=float(apurada.rat_aplicado) if apurada.rat_aplicado is not None else None,
+                    fap_aplicado=float(apurada.fap_aplicado) if apurada.fap_aplicado is not None else None,
+                    conferido_por=apurada.conferido_por),
+                "motivo_conferencia": motivo_conferencia(
+                    em_fila=apurada.em_fila, motivo_fila=apurada.motivo_fila,
+                    aliquota_devida=devida,
+                    rat_aplicado=float(apurada.rat_aplicado) if apurada.rat_aplicado is not None else None,
+                    fap_aplicado=float(apurada.fap_aplicado) if apurada.fap_aplicado is not None else None),
                 # O regime que decidiu a aplicabilidade viaja junto: a peca precisa dizer o
                 # fato e a fonte, nao so que a competencia nao foi auditada.
                 "rat_aplicavel": bool(apurada.rat_aplicavel),

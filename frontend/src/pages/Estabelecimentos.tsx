@@ -246,7 +246,13 @@ function PainelModal({ estab, onFechar }: { estab: any; onFechar: () => void }) 
   // uma tinha. Contador não presume: quem não tem o dado é quem tem o campo vazio.
   const emFila = rows.filter((r) => r.situacao === "conferencia").length;
   const naoAuditadas = rows.filter((r) => r.situacao === "nao_auditada").length;
-  const semAplicado = rows.filter((r) => r.situacao === "apurado" && r.aliquota_aplicada == null).length;
+  // RECORTE DA FILA, não das apuradas (Carolina, 24/10). Era `situacao === "apurado" &&
+  // aliquota_aplicada == null`, e essa combinação deixou de existir: competência sem o aplicado
+  // desdobrado não é apurada, porque a comparação não fecha. O que interessa agora é, dentro da
+  // fila, quantas já têm o devido calculado e esperam só o que a empresa aplicou — é a ação que
+  // destrava a maior parte da série de uma vez.
+  const aguardandoAplicado = rows.filter(
+    (r) => r.situacao === "conferencia" && !r.em_fila && r.aliquota_devida != null).length;
   const conferidas = rows.filter((r) => r.conferido_por).length;
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -281,7 +287,7 @@ function PainelModal({ estab, onFechar }: { estab: any; onFechar: () => void }) 
           Divergência = aplicado − alíquota efetiva (RAT × FAP).{" "}
           {emFila > 0 && <span className="text-amber-600">{emFila} em conferência. </span>}
           {naoAuditadas > 0 && <span className="text-gray-500">{naoAuditadas} não auditada(s) quanto ao RAT. </span>}
-          {semAplicado > 0 && <span className="text-sky-700">{semAplicado} apurada(s) sem o RAT aplicado informado. </span>}
+          {aguardandoAplicado > 0 && <span className="text-sky-700">{aguardandoAplicado} aguardando o RAT base e o FAP aplicados. </span>}
           {conferidas > 0 && <span className="text-emerald-700">{conferidas} conferida(s) por pessoa.</span>}
         </p>
         {naoAuditadas > 0 && (
@@ -356,7 +362,16 @@ function PainelModal({ estab, onFechar }: { estab: any; onFechar: () => void }) 
                     <td className="px-2 py-1.5">{fmt.num(r.fap, 4)}</td>
                     <td className="px-2 py-1.5">{fmt.pct(r.aliquota_efetiva)}</td>
                     <td className="px-2 py-1.5">{fmt.pct(r.aliquota_aplicada)}</td>
-                    <td className={`px-2 py-1.5 font-medium tabular-nums ${r.divergencia_pp > 0 ? "text-blue-700" : r.divergencia_pp < 0 ? "text-red-700" : "text-gray-400"}`} title={r.divergencia_pp > 0 ? "pagou a mais — crédito a recuperar" : r.divergencia_pp < 0 ? "pagou a menos — passivo a regularizar" : ""}>{fmt.pp(r.divergencia_pp)}</td>
+                    {/* A divergência só é AFIRMADA com o aplicado desdobrado. Sem isso o mesmo
+                        número admite duas leituras opostas — uma dá crédito, a outra dá zero — e
+                        imprimir uma delas aqui é escolher por quem assina. A coluna mostra "?" e
+                        diz onde resolver, em vez de um número que parece apurado. */}
+                    {r.divergencia_confirmada === false ? (
+                      <td className="px-2 py-1.5 font-medium tabular-nums text-amber-700"
+                        title="Divergência não confirmada: depende de informar o RAT base e o FAP aplicados.">?</td>
+                    ) : (
+                      <td className={`px-2 py-1.5 font-medium tabular-nums ${r.divergencia_pp > 0 ? "text-blue-700" : r.divergencia_pp < 0 ? "text-red-700" : "text-gray-400"}`} title={r.divergencia_pp > 0 ? "pagou a mais — crédito a recuperar" : r.divergencia_pp < 0 ? "pagou a menos — passivo a regularizar" : ""}>{fmt.pp(r.divergencia_pp)}</td>
+                    )}
                     <td className="px-2 py-1.5">
                       <span className={SIT[r.situacao]?.cls || "text-gray-400"}
                         title={r.motivo_inaplicavel || r.motivo_fila || SIT[r.situacao]?.ajuda || ""}>
@@ -868,7 +883,12 @@ export function Estabelecimentos() {
                     {/* Item 9: a divergência é o que diz QUAL estabelecimento tem problema.
                         Positiva = crédito; negativa = passivo. Cor acompanhada de rótulo. */}
                     <td className="px-3 py-3 tabular-nums whitespace-nowrap">
-                      {a?.divergencia_pp == null ? <span className="text-gray-400">—</span> : (
+                      {a?.divergencia_confirmada === false ? (
+                        <span className="text-amber-700" title="Divergência não confirmada: depende de informar o RAT base e o FAP aplicados.">
+                          <b>?</b>
+                          <span className="block text-[11px] font-normal">não confirmada</span>
+                        </span>
+                      ) : a?.divergencia_pp == null ? <span className="text-gray-400">—</span> : (
                         <span className={a.divergencia_pp > 0 ? "text-blue-700" : a.divergencia_pp < 0 ? "text-red-700" : "text-gray-500"}
                           title={a.divergencia_pp > 0 ? "pagou a mais — crédito a recuperar" : a.divergencia_pp < 0 ? "pagou a menos — passivo a regularizar" : "sem divergência"}>
                           <b>{fmt.pp(a.divergencia_pp)}</b>

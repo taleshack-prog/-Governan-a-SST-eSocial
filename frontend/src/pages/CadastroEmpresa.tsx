@@ -155,6 +155,31 @@ function faltaDesdobramento(rat: number | null | undefined, fap: number | null |
   return null;
 }
 
+// AS DUAS LEITURAS DO MESMO NÚMERO APLICADO (Carolina, 24/10).
+//
+// Quando a empresa informou só um percentual, sem dizer se é a alíquota BASE ou a EFETIVA, o
+// mesmo valor produz achados opostos. O caso real: grau 3, RAT base 3,00%, FAP publicado 0,5000,
+// devida 1,50%. Lido como efetiva, dá +1,50 p.p. de crédito; lido como base, 3,00 × 0,5000 =
+// 1,50% e a divergência é zero. E escrever a base no lugar da efetiva é o erro mais provável
+// justamente porque o número coincide com o grau.
+//
+// A tela deixa de escolher: mostra as duas e não afirma nenhuma. O cálculo "como base" usa o FAP
+// PUBLICADO, e isso é hipótese — o FAP que a empresa aplicou é desconhecido, é o dado que falta.
+// Por isso o resultado aparece rotulado como leitura, nunca como divergência apurada.
+function leiturasDoAplicado(
+  aplicada: number | null | undefined,
+  fapPublicado: number | null | undefined,
+  efetivaDevida: number | null | undefined,
+) {
+  if (aplicada == null || efetivaDevida == null) return null;
+  const r4 = (n: number) => Number(n.toFixed(4));
+  return {
+    comoEfetiva: r4(aplicada - efetivaDevida),
+    efetivaSeBase: fapPublicado == null ? null : r4(aplicada * fapPublicado),
+    comoBase: fapPublicado == null ? null : r4(aplicada * fapPublicado - efetivaDevida),
+  };
+}
+
 // Situação da competência no espelho (espelha api/services/enquadramento_situacao.py)
 // Concordam com ROTULO do backend, no feminino, porque entram na frase "Esta competência
 // está ___". "apurado (falta o aplicado)" era o rótulo anterior a 19/10 e dizia o contrário do
@@ -948,18 +973,23 @@ export function CadastroEmpresa() {
                   <>
                     Competência <b>{fmt.competencia(espelho.enquadramento.competencia)}</b>
                     {espelho.serie_resumo?.total ? <>, de {espelho.serie_resumo.total} analisadas</> : null}
-                    {/* TRÊS estados somam o total; "sem o RAT aplicado" é RECORTE das apuradas e
-                        vai entre parênteses, dentro do mesmo número. Antes o recorte saía como
-                        balde irmão e a linha passava a afirmar que todas as apuradas estavam sem
-                        o aplicado — inclusive a competência exibida logo abaixo, com divergência
-                        calculada a partir dele. Atributo não desloca contagem de estado.
+                    {/* Os QUATRO estados somam o total, e nenhum recorte entra nessa conta.
+                        "sem o RAT aplicado" saiu daqui (Carolina, 24/10): ele era recorte das
+                        APURADAS, e essa combinação deixou de existir — competência sem o aplicado
+                        desdobrado não é apurada, porque a comparação não fecha. Quem lia "58
+                        apuradas" lia 58 competências prontas para virar pedido de restituição, e
+                        57 delas não tinham a informação que sustenta o pedido.
+                        O recorte continua útil para operar e vive no title: dentro da fila, quais
+                        esperam a empresa informar o que recolheu.
                         As vírgulas ficam coladas ao texto anterior de propósito: quebrar a linha
                         antes delas fazia o JSX inserir um espaço e sair "aplicado , 2". */}
                     {espelho.serie_resumo ? (
-                      <> — <b>
+                      <> — <b title={espelho.serie_resumo.aguardando_aplicado > 0
+                            ? `${espelho.serie_resumo.aguardando_aplicado} em conferência aguardam o RAT base e o FAP aplicados`
+                            : undefined}>
                         {espelho.serie_resumo.apuradas} apurada{espelho.serie_resumo.apuradas === 1 ? "" : "s"}
-                        {espelho.serie_resumo.sem_aplicado > 0 && ` (${espelho.serie_resumo.sem_aplicado} sem o RAT aplicado)`}
-                      </b>{`, ${espelho.serie_resumo.em_conferencia} em conferência, ${espelho.serie_resumo.conferidas} conferida${espelho.serie_resumo.conferidas === 1 ? "" : "s"}`}
+                        {`, ${espelho.serie_resumo.em_conferencia} em conferência`}
+                      </b>{`, ${espelho.serie_resumo.conferidas} conferida${espelho.serie_resumo.conferidas === 1 ? "" : "s"}`}
                         {espelho.serie_resumo.nao_auditadas > 0 && (
                           <>{`, `}<b>{`${espelho.serie_resumo.nao_auditadas} não auditada${espelho.serie_resumo.nao_auditadas === 1 ? "" : "s"} quanto ao RAT`}</b></>
                         )}</>
@@ -1099,36 +1129,86 @@ export function CadastroEmpresa() {
                     Peso maior, posição de resultado, e cor COM rótulo em texto: positiva é
                     crédito a recuperar, negativa é passivo a regularizar. Confundir as duas num
                     laudo é grave — quem compensa crédito inexistente responde com multa. */}
-                <div className={`rounded-lg border p-3 ${
-                  espelho.enquadramento.divergencia_pp == null ? "bg-gray-50 border-gray-200"
-                  : espelho.enquadramento.divergencia_pp > 0 ? "bg-blue-50 border-blue-200"
-                  : espelho.enquadramento.divergencia_pp < 0 ? "bg-red-50 border-red-200"
-                  : "bg-gray-50 border-gray-200"}`}>
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-2">
-                    Divergência
-                    {espelho.enquadramento.divergencia_pp != null && espelho.enquadramento.divergencia_pp > 0 && " — crédito"}
-                    {espelho.enquadramento.divergencia_pp != null && espelho.enquadramento.divergencia_pp < 0 && " — passivo"}
-                  </p>
-                  {espelho.enquadramento.divergencia_pp == null ? (
-                    <>
-                      <div className={`${derivVal} text-gray-400`}>—</div>
-                      <p className="text-[10px] text-gray-500 mt-2 leading-snug">
-                        Sem o aplicado informado não há comparação a fazer.
+                {/* TRÊS ESTADOS, e o do meio é novo (Carolina, 24/10). Antes havia dois: ou não
+                    havia aplicado, ou a divergência era afirmada. Faltava o caso em que HÁ um
+                    número aplicado mas ele não diz se é base ou efetiva — e aí este quadro
+                    afirmava crédito enquanto o quadro ao lado, no mesmo cartão, admitia que a
+                    origem não podia ser afirmada. Um cartão não pode dizer as duas coisas. */}
+                {(() => {
+                  const e = espelho.enquadramento;
+                  // 'undefined' conta como NÃO confirmada, de propósito: se o frontend subir
+                  // antes da API, a tela fica conservadora e deixa de afirmar. O erro barato é
+                  // pedir um dado que já existe; o caro é afirmar crédito que não se sustenta.
+                  const confirmada = e.divergencia_confirmada === true;
+                  const leituras = leiturasDoAplicado(e.aliquota_aplicada, e.fap, e.aliquota_efetiva);
+                  const d = e.divergencia_pp;
+
+                  if (e.aliquota_aplicada == null) {
+                    return (
+                      <div className="rounded-lg border bg-gray-50 border-gray-200 p-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-2">Divergência</p>
+                        <div className={`${derivVal} text-gray-400`}>—</div>
+                        <p className="text-[10px] text-gray-500 mt-2 leading-snug">
+                          Sem o aplicado informado não há comparação a fazer.
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  if (!confirmada) {
+                    return (
+                      <div className="rounded-lg border-2 bg-amber-50 border-amber-300 p-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-800 mb-2">
+                          Divergência — não confirmada
+                        </p>
+                        <div className={`${derivVal} text-amber-700`}>—</div>
+                        <p className="text-[11px] text-amber-900 mt-1 leading-snug">
+                          Depende de informar o <b>RAT base</b> e o <b>FAP</b> aplicados.
+                        </p>
+                        {/* As duas leituras lado a lado. Mostrar ambas é o que impede a tela de
+                            escolher por quem assina — e deixa evidente que a diferença entre
+                            "crédito a recuperar" e "nada a recuperar" está num dado que falta. */}
+                        {leituras && (
+                          <div className="mt-2 rounded border border-amber-200 bg-white/70 px-2 py-1.5 font-mono text-[10px] leading-relaxed text-gray-700">
+                            <div>{fmt.pct(e.aliquota_aplicada)} como <b>efetiva</b></div>
+                            <div className="pl-3 text-red-700">→ {fmt.pp(leituras.comoEfetiva)}</div>
+                            {leituras.comoBase != null && leituras.efetivaSeBase != null && (
+                              <>
+                                <div className="mt-0.5">{fmt.pct(e.aliquota_aplicada)} como <b>base</b></div>
+                                <div className="pl-3 text-emerald-700">
+                                  → {fmt.pct(leituras.efetivaSeBase)}
+                                  {leituras.comoBase === 0 ? " · sem divergência" : ` · ${fmt.pp(leituras.comoBase)}`}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className={`rounded-lg border p-3 ${
+                      d == null ? "bg-gray-50 border-gray-200"
+                      : d > 0 ? "bg-blue-50 border-blue-200"
+                      : d < 0 ? "bg-red-50 border-red-200"
+                      : "bg-gray-50 border-gray-200"}`}>
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-2">
+                        Divergência
+                        {d != null && d > 0 && " — crédito"}
+                        {d != null && d < 0 && " — passivo"}
                       </p>
-                    </>
-                  ) : (
-                    <div className={
-                      espelho.enquadramento.divergencia_pp > 0 ? "text-blue-700"
-                      : espelho.enquadramento.divergencia_pp < 0 ? "text-red-700" : "text-gray-700"}>
-                      <div className="text-2xl font-bold tabular-nums leading-tight">{fmt.pp(espelho.enquadramento.divergencia_pp)}</div>
-                      <p className="text-[11px] font-medium mt-1 leading-snug">
-                        {espelho.enquadramento.divergencia_pp > 0 ? "A empresa recolheu acima do devido. Há valor a recuperar."
-                         : espelho.enquadramento.divergencia_pp < 0 ? "A empresa recolheu abaixo do devido. Há passivo a regularizar."
-                         : "Sem divergência."}
-                      </p>
+                      <div className={d != null && d > 0 ? "text-blue-700" : d != null && d < 0 ? "text-red-700" : "text-gray-700"}>
+                        <div className="text-2xl font-bold tabular-nums leading-tight">{fmt.pp(d)}</div>
+                        <p className="text-[11px] font-medium mt-1 leading-snug">
+                          {d != null && d > 0 ? "A empresa recolheu acima do devido. Há valor a recuperar."
+                           : d != null && d < 0 ? "A empresa recolheu abaixo do devido. Há passivo a regularizar."
+                           : "Sem divergência."}
+                        </p>
+                      </div>
                     </div>
-                  )}
-                </div>
+                  );
+                })()}
               </div>
             )}
             </>
@@ -1146,9 +1226,25 @@ export function CadastroEmpresa() {
                 pela linha de cima e pelo motivo logo abaixo. */}
             {espelho.enquadramento.confirmado && (
             <div className="flex flex-wrap items-baseline justify-between gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 mt-4">
+              {/* O MOTIVO VEM ANTES de qualquer outra coisa quando a competência está em
+                  conferência: "em conferência" sozinho manda o usuário procurar o que falta.
+                  Duas pendências caem no mesmo estado e pedem ações opostas — a do motor se
+                  resolve declarando atividade, FAP ou CNAE; a do aplicado, informando o que a
+                  empresa recolheu. O texto vem do backend (enquadramento_situacao), para a tela
+                  não manter uma segunda versão da mesma regra. */}
               <p className="text-xs text-gray-700">
                 Esta competência está <b>{ESP_SIT[espelho.enquadramento.situacao] || espelho.enquadramento.situacao}</b>.{" "}
-                {espelho.enquadramento.conferido_por ? (
+                {espelho.enquadramento.motivo_conferencia ? (
+                  <>
+                    {espelho.enquadramento.motivo_conferencia}
+                    {/* Conferência que existia e deixou de valer: o nome não some em silêncio.
+                        Acontece quando a competência foi conferida e depois se constatou que a
+                        comparação não fechava. */}
+                    {espelho.enquadramento.conferido_por && (
+                      <span className="text-gray-500"> Havia conferência de {espelho.enquadramento.conferido_por}, que deixa de valer enquanto o dado faltar.</span>
+                    )}
+                  </>
+                ) : espelho.enquadramento.conferido_por ? (
                   <>Conferida por {espelho.enquadramento.conferido_por}
                     {espelho.enquadramento.conferido_em && <> em {fmt.dataHora(espelho.enquadramento.conferido_em)}</>}.</>
                 ) : espelho.enquadramento.rat_aplicavel === false ? (
@@ -1158,7 +1254,9 @@ export function CadastroEmpresa() {
                 )}
               </p>
               <a href="/estabelecimentos" className="text-xs text-teal-700 hover:underline whitespace-nowrap">
-                Conferir no relatório de enquadramento →
+                {espelho.enquadramento.motivo_conferencia
+                  ? "Informar em Estabelecimentos →"
+                  : "Conferir no relatório de enquadramento →"}
               </a>
             </div>
             )}

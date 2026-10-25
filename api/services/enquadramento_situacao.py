@@ -11,9 +11,13 @@
 #   nao_auditada — o REGIME afasta a apuracao: Simples fora do Anexo IV, em que a patronal e o
 #                 RAT estao no documento unico de arrecadacao. Nao ha aliquota devida, logo nao
 #                 ha divergencia nem credito. Nao e pendencia: e ausencia de objeto. DERIVADO.
-#   conferencia — tem PENDENCIA: falta dado, o motor nao concluiu (FAP do ano ausente, CNAE fora
-#                 do Anexo I, sem quantitativo declarado, obra CNO). Nada a afirmar. DERIVADO.
-#   apurado     — o motor calculou ate o fim sem pendencia. E afirmacao do SISTEMA. DERIVADO.
+#   conferencia — tem PENDENCIA: falta dado e a comparacao nao fecha. Duas causas, mesmo estado:
+#                 (a) o motor nao concluiu o DEVIDO (FAP do ano ausente, CNAE fora do Anexo I,
+#                 sem quantitativo declarado, obra CNO); (b) o APLICADO nao veio desdobrado em
+#                 RAT base e FAP, e entao o mesmo numero admite duas leituras opostas — ver
+#                 situacao_de(). Nada a afirmar. DERIVADO.
+#   apurado     — o motor concluiu a COMPARACAO: ha devido calculado e ha aplicado desdobrado
+#                 para comparar com ele. E afirmacao do SISTEMA. DERIVADO.
 #   conferido   — uma PESSOA examinou e validou, com autor e data gravados. E afirmacao de
 #                 PESSOA. ARMAZENADO (migration 040). Nada chega aqui sem acao explicita.
 #
@@ -26,6 +30,11 @@
 #
 # Que o APLICADO esteja informado ou nao NAO e mais estado: e atributo, visivel nas colunas
 # Aplicado e Divergencia. Misturar as duas coisas foi o erro.
+#
+# RESSALVA DE 24/10, que nao desfaz o paragrafo acima. O aplicado informado SEM DESDOBRAMENTO em
+# RAT base e FAP nao e atributo faltando: e comparacao que nao fecha, porque o mesmo numero
+# admite duas leituras com resultados opostos — uma afirma credito, a outra afirma divergencia
+# zero. Ali o motor nao concluiu, escolheu. Ver situacao_de() para o caso concreto.
 #
 # Fonte unica: tela, API e PDF importam DESTE modulo. Se a regra mudar, muda em um lugar so.
 
@@ -54,7 +63,8 @@ AUTORIA_ESTADO = {
 }
 
 
-def situacao_de(*, rat_aplicavel: bool, em_fila: bool, aliquota_devida, conferido_por=None) -> str:
+def situacao_de(*, rat_aplicavel: bool, em_fila: bool, aliquota_devida,
+                rat_aplicado, fap_aplicado, conferido_por=None) -> str:
     """Situacao da competencia. Ver os quatro estados no cabecalho do modulo.
 
     'conferido_por' vem GRAVADO na linha: e o ato humano. O sistema nunca o preenche, e por isso
@@ -65,19 +75,74 @@ def situacao_de(*, rat_aplicavel: bool, em_fila: bool, aliquota_devida, conferid
     inaplicabilidade e falta de objeto. Uma competencia que nao tem RAT a apurar nao fica
     "pendente" de nada — nao ha o que esperar.
 
-    A ASSINATURA E SO POR NOME, de proposito, e mudou duas vezes pelo mesmo motivo. Em 19/10 o
+    APLICADO SEM DESDOBRAMENTO E PENDENCIA (Carolina, 24/10). Entrou 'rat_aplicado'/'fap_aplicado'
+    porque, sem eles, a comparacao NAO FECHA e o sistema estava escolhendo sozinho a leitura que
+    gera credito. O caso dela, real: empresa grau 3, RAT base 3,00%, FAP publicado 0,5000, devida
+    1,50%. A linha de aplicado guarda "3,00%" sem dizer se e base ou efetiva, e as duas leituras
+    dao resultados opostos:
+        3,00% como EFETIVA aplicada  -> divergencia +1,50 p.p. (credito a recuperar)
+        3,00% como BASE aplicada     -> 3,00% x 0,5000 = 1,50% -> divergencia ZERO
+    E o erro de digitacao mais provavel nesse campo e justamente escrever a base, porque o numero
+    coincide com o grau. O achado inteiro depende de qual campo foi preenchido — e isso sai
+    assinado. Nas palavras dela: "incerteza vai para a fila de conferencia, nunca vira premissa".
+
+    ISTO NAO CONTRADIZ A DECISAO DE 19/10 ("que o aplicado esteja informado ou nao nao e estado,
+    e atributo"). Aquilo separou 'o sistema calculou' de 'uma pessoa validou', e segue valendo. O
+    que muda e o significado de 'apurado': e a afirmacao de que o motor CONCLUIU a comparacao.
+    Sem o desdobramento ele nao concluiu — escolheu um dos dois sentidos possiveis. Competencia
+    cuja comparacao nao fecha nao e apurada com um atributo faltando; e comparacao em aberto.
+
+    A ORDEM IMPORTA: a falta do desdobramento e testada ANTES de 'conferido_por'. Invertendo,
+    bastaria alguem clicar em Conferir para o sistema voltar a afirmar credito sobre o numero
+    ambiguo — a assinatura passaria a valer como se fosse o dado que falta.
+
+    A ASSINATURA E SO POR NOME, de proposito, e mudou tres vezes pelo mesmo motivo. Em 19/10 o
     terceiro parametro era 'aliquota_aplicada' e produzia 'conferido' sozinho. Em 22/10 entrou
     'rat_aplicavel', e sem ele uma competencia inaplicavel — que tem aliquota devida NULL —
-    voltaria 'conferencia', afirmando pendencia onde nao ha nada a apurar. Chamada antiga,
-    posicional, levanta TypeError em vez de devolver um estado errado em silencio.
+    voltaria 'conferencia', afirmando pendencia onde nao ha nada a apurar. Agora entram as duas
+    origens do aplicado, SEM VALOR PADRAO: chamada que nao as passe levanta TypeError na hora, em
+    vez de devolver 'apurado' em silencio sobre uma comparacao que nao fechou.
     """
     if not rat_aplicavel:
         return SITUACAO_NAO_AUDITADA
     if em_fila or aliquota_devida is None:
         return SITUACAO_CONFERENCIA
+    if rat_aplicado is None or fap_aplicado is None:
+        return SITUACAO_CONFERENCIA
     if conferido_por:
         return SITUACAO_CONFERIDO
     return SITUACAO_APURADO
+
+
+def divergencia_confirmada(rat_aplicado, fap_aplicado) -> bool:
+    """A divergencia pode ser AFIRMADA? So quando o aplicado veio desdobrado.
+
+    Existe como funcao, e nao como 'if' repetido em cada tela, porque a regra precisa ser a mesma
+    nos tres lugares que mostram divergencia (cadastro, estabelecimentos, memoria). Era a
+    duplicacao da regra que deixava a tela afirmar credito enquanto o quadro ao lado admitia, no
+    mesmo cartao, que a origem nao podia ser afirmada.
+    """
+    return rat_aplicado is not None and fap_aplicado is not None
+
+
+# Por que a competencia esta em conferencia. O texto vai para o rodape da tela e para a fila: o
+# usuario precisa saber O QUE informar, nao so que algo falta.
+FALTA_APLICADO = "Faltam o RAT base e o FAP aplicados."
+
+
+def motivo_conferencia(*, em_fila: bool, motivo_fila, aliquota_devida,
+                       rat_aplicado, fap_aplicado) -> str | None:
+    """Motivo legivel da pendencia, ou None quando a competencia nao esta em conferencia.
+
+    Duas pendencias diferentes caem no mesmo estado e pedem acoes opostas: a do motor se resolve
+    declarando atividade, FAP ou CNAE; a do aplicado se resolve informando o que a empresa
+    recolheu. Um rodape que diga apenas "em conferencia" manda o usuario procurar.
+    """
+    if em_fila or aliquota_devida is None:
+        return motivo_fila or "O motor não concluiu a apuração desta competência."
+    if rat_aplicado is None or fap_aplicado is None:
+        return FALTA_APLICADO
+    return None
 
 
 ORIGEM_NENHUMA = "nenhuma"
