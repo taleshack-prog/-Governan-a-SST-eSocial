@@ -3,7 +3,7 @@
 # e DERIVADO da atividade preponderante (RN-20) — não é campo escolhido. A entrada do motor é a
 # lista de atividades com quantitativo por periodo (RF-0.173).
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -933,8 +933,21 @@ async def memoria_enquadramento(
             "conferido_por": r.conferido_por,
             "em_fila": r.em_fila, "motivo_fila": r.motivo_fila,
         })
-    autoria = sorted({f"{a.declarado_por or 'n/d'} em {a.declarado_em.date().isoformat()}"
-                      for a in ativ if a.declarado_em})
+    # AUTORIA POR NOME E DATA EM FORMATO BRASILEIRO (Carolina, 25/10, item 8). Saia
+    # "talhack@yahoo.com em 2026-10-19" — e-mail pessoal do desenvolvedor como autor da declaracao
+    # dos quantitativos, e data no formato do banco, dentro de documento que chega ao cliente e
+    # eventualmente a Receita.
+    #
+    # O e-mail esta GRAVADO assim nas linhas antigas, de antes de _autor() passar a preferir o
+    # nome. Em vez de reescrever o dado — que seria falsificar quem declarou —, o e-mail e
+    # RESOLVIDO para o nome na hora de imprimir, pela tabela de usuarios. Linha cujo autor nao
+    # corresponda a usuario algum sai como esta: melhor um endereco do que um nome inventado.
+    _nomes = {e: n for e, n in (await db.execute(select(Usuario.email, Usuario.nome))).all() if e}
+    autoria = sorted({
+        f"{_nomes.get(a.declarado_por, a.declarado_por) or 'n/d'}, "
+        f"em {a.declarado_em.strftime('%d/%m/%Y')}"
+        for a in ativ if a.declarado_em
+    })
     # PORTA DE EMISSAO. A fundamentacao vem da tabela versionada, resolvida competencia por
     # competencia (nao mais congelada na linha apurada, nem escrita a mao no gerador). Sem serie
     # apurada nao ha periodo a fundamentar; com qualquer mes sem citacao cadastrada, ha mes que o
@@ -947,23 +960,54 @@ async def memoria_enquadramento(
             detail=("A memória não pode ser emitida: não há série de enquadramento apurada para "
                     "este estabelecimento. Apure a série antes de gerar o documento."),
         )
-    fund_blocos = await citacoes_do_periodo(
-        "rat_devido", [r.competencia for r in serie_rows], db
-    )
-    lacunas = [b for b in fund_blocos if b["citacao"] is None]
-    if lacunas:
-        faixas = "; ".join(
-            b["de"].strftime("%m/%Y") + (f" a {b['ate'].strftime('%m/%Y')}" if b["ate"] != b["de"] else "")
-            for b in lacunas
-        )
-        raise HTTPException(
-            status_code=409,
-            detail=("A memória não pode ser emitida: não há fundamentação cadastrada para o campo "
-                    f"'rat_devido' nestas competências: {faixas}. Cadastre a vigência "
-                    "correspondente na tabela de fundamentação antes de gerar o documento."),
-        )
+    # DOIS CAMPOS FUNDAMENTADOS, nao um (Carolina, 25/10, item 4). A memoria citava apenas
+    # 'rat_devido', e por isso a Sumula 351 do STJ — que esta cadastrada em
+    # 'atividade_preponderante', nas duas vigencias — nao aparecia em lugar nenhum do documento.
+    # Ela sustenta a apuracao individualizada por CNPJ, que e a tese central da peca: sem ela, o
+    # documento afirma o enquadramento por estabelecimento sem citar o que o ampara.
+    #
+    # O campo entra tambem na PORTA DE EMISSAO, pela mesma regra que ja vale para o outro: se a
+    # competencia nao tem como ser fundamentada, o documento nao se completa com texto de reserva.
+    _campos_fund = {"rat_devido": "RAT devido",
+                    "atividade_preponderante": "atividade preponderante"}
+    _comps = [r.competencia for r in serie_rows]
+    fund_por_campo = {c: await citacoes_do_periodo(c, _comps, db) for c in _campos_fund}
+    for _campo, _rotulo in _campos_fund.items():
+        lacunas = [b for b in fund_por_campo[_campo] if b["citacao"] is None]
+        if lacunas:
+            faixas = "; ".join(
+                b["de"].strftime("%m/%Y") + (f" a {b['ate'].strftime('%m/%Y')}" if b["ate"] != b["de"] else "")
+                for b in lacunas
+            )
+            raise HTTPException(
+                status_code=409,
+                detail=("A memória não pode ser emitida: não há fundamentação cadastrada para "
+                        f"{_rotulo} ('{_campo}') nestas competências: {faixas}. Cadastre a "
+                        "vigência correspondente na tabela de fundamentação antes de gerar o "
+                        "documento."),
+            )
+    fund_blocos = fund_por_campo["rat_devido"]
+    def _blocos(lista):
+        """Serializa os blocos de vigencia. Existe porque agora sao DOIS campos fundamentados."""
+        return [
+            {"de": b["de"].isoformat(), "ate": b["ate"].isoformat(),
+             "dispositivo": b["citacao"]["dispositivo"],
+             "ato": b["citacao"]["ato_normativo"],
+             "anexo": b["citacao"]["anexo"],
+             "observacao": b["citacao"]["observacao"],
+             "estruturado": b["citacao"]["estruturado"],
+             "vigencia_inicio": b["citacao"]["vigencia_inicio"],
+             "vigencia_fim": b["citacao"]["vigencia_fim"]}
+            for b in lista
+        ]
+
     dados = {
-        "empresa": {"razao_social": empresa.razao_social if empresa else None, "cnpj": (empresa.cnpj[:8] if empresa and empresa.cnpj else None)},
+        # CNPJ DA MATRIZ INTEIRO, nao a raiz (Carolina, 25/10, item 3). Era truncado em [:8] de
+        # quando o rotulo dizia "CNPJ raiz"; o rotulo mudou em 23/10 e o truncamento ficou, entao
+        # o documento exibia oito digitos chamados de CNPJ da matriz. A formatacao e feita no
+        # gerador, junto das demais.
+        "empresa": {"razao_social": empresa.razao_social if empresa else None,
+                    "cnpj": (empresa.cnpj if empresa and empresa.cnpj else None)},
         "estab": {"codigo": estab.codigo, "nome": estab.nome, "tipo": estab.tipo_estabelecimento,
                   "identificador": estab.identificador, "cnpj": estab.cnpj, "posicao": estab.posicao,
                   "abertura": estab.data_abertura.isoformat() if estab.data_abertura else None,
@@ -985,17 +1029,8 @@ async def memoria_enquadramento(
         # por advogado. Agora o documento leva a COPIA do que a tabela versionada respondeu, por
         # bloco de vigencia, com o intervalo de competencias que cada redacao governa e a data em
         # que foi resolvida: e isso que torna a citacao conferivel depois de emitida.
-        "fundamentacao_blocos": [
-            {"de": b["de"].isoformat(), "ate": b["ate"].isoformat(),
-             "dispositivo": b["citacao"]["dispositivo"],
-             "ato": b["citacao"]["ato_normativo"],
-             "anexo": b["citacao"]["anexo"],
-             "observacao": b["citacao"]["observacao"],
-             "estruturado": b["citacao"]["estruturado"],
-             "vigencia_inicio": b["citacao"]["vigencia_inicio"],
-             "vigencia_fim": b["citacao"]["vigencia_fim"]}
-            for b in fund_blocos
-        ],
+        "fundamentacao_blocos": _blocos(fund_blocos),
+        "fundamentacao_preponderante": _blocos(fund_por_campo["atividade_preponderante"]),
         "autoria": autoria,
         "cprb": {
             "status": (empresa.cprb_status if empresa else None) or "nao_informado",
@@ -1003,7 +1038,12 @@ async def memoria_enquadramento(
             "verificado_em": empresa.cprb_verificado_em.strftime("%d/%m/%Y") if (empresa and empresa.cprb_verificado_em) else None,
             "periodos": [{"inicio": c.inicio.isoformat(), "fim": c.fim.isoformat() if c.fim else None} for c in cprb_rows],
         },
-        "gerado_em": datetime.utcnow().strftime("%d/%m/%Y %H:%M UTC"),
+        # HORARIO DE BRASILIA, nao UTC (Carolina, 25/10, item 8). "13:51 UTC" num documento que o
+        # cliente le obriga quem o le a converter de cabeca, e convida a erro de uma hora em
+        # discussao de prazo. Offset fixo de -3h de proposito, sem depender da base de fusos do
+        # sistema: o Brasil nao adota horario de verao desde 2019, e um container sem tzdata
+        # devolveria UTC em silencio — que e o defeito que estamos corrigindo.
+        "gerado_em": datetime.now(timezone(timedelta(hours=-3))).strftime("%d/%m/%Y às %H:%M"),
     }
     pdf = gerar_memoria_pdf(dados)
     return Response(content=pdf, media_type="application/pdf",

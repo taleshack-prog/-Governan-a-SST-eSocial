@@ -16,7 +16,7 @@
 #
 # A DATA NAO TEM PADRAO SILENCIOSO. Quem chama informa a competencia. Era justamente o
 # 'default: hoje' que fazia uma peca de 2021 citar a redacao de 2026 sem ninguem notar.
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -102,6 +102,39 @@ async def citacao_de(campo: str, em: date, db: AsyncSession) -> dict | None:
     }
 
 
+# CRITERIO DO CORTE ENTRE VIGENCIAS (decisao da Carolina, 25/10, item 7).
+#
+# O DEFEITO. A competencia e guardada como o primeiro dia do mes, e era por ele que a citacao se
+# resolvia. Quando uma norma passa a valer no MEIO do mes — a IN RFB 2.110/2022 comeca em
+# 17/10/2022 —, a competencia 10/2022 caia na redacao anterior, e o documento imprimia
+# "Competencias 11/2021 a 10/2022 ... Redacao vigente desde 01/07/2020 ate 16/10/2022": o proprio
+# bloco dizia que aquela redacao tinha acabado no dia 16 e, ainda assim, fundamentava outubro
+# inteiro com ela. Nenhum numero mudava — o criterio das duas INs e identico —, mas e
+# inconsistencia visivel dentro de peca assinada, e e o tipo de coisa que a fiscalizacao usa para
+# questionar o resto.
+#
+# O CRITERIO. A competencia segue a norma vigente no seu FECHAMENTO. 10/2022 passa para o bloco
+# novo, e os blocos ficam 11/2021 a 09/2022 e 10/2022 em diante.
+#
+# Nas palavras dela: "o criterio precisa estar escrito no documento, nao so no codigo" — por isso
+# a constante abaixo, que a memoria imprime junto da fundamentacao.
+TEXTO_CRITERIO_VIGENCIA = (
+    "Quando uma norma passa a vigorar no curso de um mês, a competência inteira é fundamentada "
+    "pela redação vigente no seu <b>fechamento</b>. É o critério adotado em todos os cortes de "
+    "vigência deste documento."
+)
+
+
+def fechamento_da_competencia(comp: date) -> date:
+    """Ultimo dia do mes da competencia — a data pela qual a citacao se resolve.
+
+    Ver TEXTO_CRITERIO_VIGENCIA acima para o porque.
+    """
+    if comp.month == 12:
+        return comp.replace(day=31)
+    return comp.replace(month=comp.month + 1, day=1) - timedelta(days=1)
+
+
 async def citacoes_do_periodo(campo: str, competencias: list[date], db: AsyncSession) -> list[dict]:
     """A citacao de cada competencia, colapsada em blocos de redacao igual.
 
@@ -119,7 +152,7 @@ async def citacoes_do_periodo(campo: str, competencias: list[date], db: AsyncSes
     """
     blocos: list[dict] = []
     for comp in competencias:
-        c = await citacao_de(campo, comp, db)
+        c = await citacao_de(campo, fechamento_da_competencia(comp), db)
         chave = (c or {}).get("vigencia_inicio")      # None agrupa lacunas consecutivas
         if blocos and blocos[-1]["chave"] == chave:
             blocos[-1]["ate"] = comp
