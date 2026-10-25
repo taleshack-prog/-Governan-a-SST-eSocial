@@ -130,14 +130,21 @@ def divergencia_confirmada(rat_aplicado, fap_aplicado) -> bool:
 FALTA_APLICADO = "Faltam o RAT base e o FAP aplicados."
 
 
-def motivo_conferencia(*, em_fila: bool, motivo_fila, aliquota_devida,
+def motivo_conferencia(*, rat_aplicavel: bool, em_fila: bool, motivo_fila, aliquota_devida,
                        rat_aplicado, fap_aplicado) -> str | None:
     """Motivo legivel da pendencia, ou None quando a competencia nao esta em conferencia.
 
     Duas pendencias diferentes caem no mesmo estado e pedem acoes opostas: a do motor se resolve
     declarando atividade, FAP ou CNAE; a do aplicado se resolve informando o que a empresa
     recolheu. Um rodape que diga apenas "em conferencia" manda o usuario procurar.
+
+    'rat_aplicavel' e testado PRIMEIRO pela mesma razao que em situacao_de(): competencia que o
+    regime afasta tem aliquota devida NULL, e sem esta guarda ela receberia "o motor nao concluiu
+    a apuracao" — afirmando pendencia onde nao ha objeto, e mandando o usuario buscar um dado que
+    nao mudaria nada.
     """
+    if not rat_aplicavel:
+        return None
     if em_fila or aliquota_devida is None:
         return motivo_fila or "O motor não concluiu a apuração desta competência."
     if rat_aplicado is None or fap_aplicado is None:

@@ -1016,12 +1016,32 @@ export function CadastroEmpresa() {
                 que houve foi o contrário: está resolvido, e a resposta é que não há o que
                 apurar. Por isso o bloco inteiro dá lugar ao aviso. */}
             {espelho.enquadramento.rat_aplicavel === false ? (
+              <>
+              {/* O REGIME ABRE A FRASE (Carolina, 24/10). Ele não é nota de rodapé do aviso: é a
+                  razão de não haver o que apurar, e quem lê precisa ver o fato e a fonte na mesma
+                  linha. O § ao lado vem da tabela versionada, resolvido pela data da competência,
+                  como todas as outras citações. */}
               <div className="rounded-lg bg-amber-50 border border-amber-300 px-4 py-3">
                 <p className="text-sm font-semibold text-amber-900">
-                  Neste período não há RAT nem contribuições a Terceiros a apurar.
+                  {espelho.enquadramento.regime_competencia === "simples" ? "Simples Nacional" : null}
+                  {espelho.enquadramento.regime_competencia === "simples" && espelho.enquadramento.anexo_competencia
+                    ? `, Anexo ${espelho.enquadramento.anexo_competencia}` : null}
+                  {espelho.enquadramento.regime_competencia === "simples" ? " — " : null}
+                  não há RAT nem contribuições a Terceiros a apurar neste período.
+                  <Fundamentacao campo="regime_tributario" em={espelho.enquadramento.competencia || hojeISO()} />
                 </p>
                 {espelho.enquadramento.motivo_inaplicavel && (
                   <p className="text-xs text-amber-900 mt-1 leading-snug">{espelho.enquadramento.motivo_inaplicavel}</p>
+                )}
+                {/* Quantas competências isso alcança. Sem o número, "não há o que apurar" parece
+                    valer só para o mês exibido — e o que está em jogo é a série inteira sair do
+                    universo auditado. */}
+                {espelho.serie_resumo?.nao_auditadas > 0 && (
+                  <p className="text-xs text-amber-900 mt-1 leading-snug">
+                    {espelho.serie_resumo.nao_auditadas === 1
+                      ? "1 competência não entra no universo auditado."
+                      : `As ${espelho.serie_resumo.nao_auditadas} competências não entram no universo auditado.`}
+                  </p>
                 )}
                 {espelho.enquadramento.regime_competencia && (
                   <p className="text-[11px] text-gray-600 mt-2">
@@ -1036,6 +1056,34 @@ export function CadastroEmpresa() {
                   </p>
                 )}
               </div>
+
+              {/* O CNAE DO CADASTRO, CHAMADO PELO NOME (Carolina, 24/10). Sem apuração de RAT não
+                  existe preponderante apurada: ela se apura pelo número de segurados empregados e
+                  trabalhadores avulsos em cada estabelecimento, não pelo CNAE do cartão CNPJ. A
+                  tela exibia o principal do cadastro sob o título "atividade preponderante da
+                  competência" — na mesma empresa, o principal é 4712-1/00 e a preponderante
+                  apurada é 4120-4/00. "Um rótulo que chama um de outro, dentro da tela que
+                  fundamenta a peça, ensina o erro que a peça combate."
+                  Grau de risco e quadros de cálculo não aparecem aqui de propósito: não há
+                  alíquota devida para comparar com nada. */}
+              {espelho.enquadramento.cnae_principal_cadastro && (
+                <div className="mt-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1">
+                    CNAE principal do cadastro — ainda não há preponderante apurada
+                  </p>
+                  <div className={`${derivVal} font-mono`}>{fmt.cnae(espelho.enquadramento.cnae_principal_cadastro)}</div>
+                  {espelho.enquadramento.cnae_principal_descricao && (
+                    <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">
+                      {espelho.enquadramento.cnae_principal_descricao}
+                    </p>
+                  )}
+                  <p className="text-[11px] text-gray-400 mt-2 leading-snug">
+                    Sem apuração de RAT, não se exibe grau de risco nem quadros de cálculo: não há
+                    alíquota devida para comparar.
+                  </p>
+                </div>
+              )}
+              </>
             ) : (
             <>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-2">

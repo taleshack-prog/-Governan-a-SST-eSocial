@@ -688,8 +688,24 @@ async def matriz_enquadramento(
             select(CnaeEnquadramento.descricao).where(CnaeEnquadramento.cnae == c)
         )).scalar_one_or_none()
 
-    if apurada is not None and apurada.aliquota_devida is not None:
-        devida = float(apurada.aliquota_devida)
+    # A CONDICAO ACEITA A COMPETENCIA SEM ALIQUOTA DEVIDA quando o REGIME a afastou (Carolina,
+    # 24/10, item 3). Era so `aliquota_devida is not None`, e no Simples fora do Anexo IV o motor
+    # grava a linha justamente com a devida NULA — nao ha RAT a apurar. A linha existia, com
+    # rat_aplicavel=False, motivo_inaplicavel e o regime da competencia, e este endpoint a
+    # IGNORAVA e caia no preview do Anexo I logo abaixo.
+    #
+    # Dai os dois sintomas que ela viu na mesma tela: o texto "declare o quantitativo da atividade
+    # e o FAP para o numero virar apuracao" — afirmando que falta dado onde nao falta, porque no
+    # Simples fora do Anexo IV nao ha RAT a apurar por mais quantitativo que se declare — e o CNAE
+    # 4712-1/00 exibido sob o titulo "atividade preponderante da competencia", que e o CNAE
+    # principal do cadastro e nao preponderante nenhuma: o preview o usa como base por nao ter
+    # serie. Nas palavras dela: "um rotulo que chama um de outro, dentro da tela que fundamenta a
+    # peca, ensina o erro que a peca combate".
+    #
+    # Nao era problema de texto: o preview nunca soube do regime porque nao chegava a olhar a
+    # linha que ja tinha a resposta.
+    if apurada is not None and (apurada.aliquota_devida is not None or not apurada.rat_aplicavel):
+        devida = float(apurada.aliquota_devida) if apurada.aliquota_devida is not None else None
         aplicada = float(apurada.aliquota_aplicada) if apurada.aliquota_aplicada is not None else None
         efetiva = float(apurada.aliquota_efetiva) if apurada.aliquota_efetiva is not None else None
         # Resumo da SÉRIE INTEIRA (item 7): o espelho mostra uma competência de sessenta, e quem
@@ -774,10 +790,17 @@ async def matriz_enquadramento(
                     fap_aplicado=float(apurada.fap_aplicado) if apurada.fap_aplicado is not None else None,
                     conferido_por=apurada.conferido_por),
                 "motivo_conferencia": motivo_conferencia(
+                    rat_aplicavel=apurada.rat_aplicavel,
                     em_fila=apurada.em_fila, motivo_fila=apurada.motivo_fila,
                     aliquota_devida=devida,
                     rat_aplicado=float(apurada.rat_aplicado) if apurada.rat_aplicado is not None else None,
                     fap_aplicado=float(apurada.fap_aplicado) if apurada.fap_aplicado is not None else None),
+                # O CNAE PRINCIPAL DO CADASTRO viaja junto, com nome proprio. Quando o regime
+                # afasta a apuracao nao ha preponderante apurada — ela se apura pelo numero de
+                # segurados em cada estabelecimento, nao pelo cartao CNPJ —, e a tela precisa
+                # poder exibir o que tem sem chamar de preponderante o que nao e.
+                "cnae_principal_cadastro": empresa_cnae_principal,
+                "cnae_principal_descricao": await _descricao_cnae(empresa_cnae_principal),
                 # O regime que decidiu a aplicabilidade viaja junto: a peca precisa dizer o
                 # fato e a fonte, nao so que a competencia nao foi auditada.
                 "rat_aplicavel": bool(apurada.rat_aplicavel),

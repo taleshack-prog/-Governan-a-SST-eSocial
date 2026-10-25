@@ -195,8 +195,8 @@ async def _enquadramento_corrente(estab_ids: list, db: AsyncSession) -> dict:
             # numero admite duas leituras opostas (ver enquadramento_situacao.situacao_de).
             "divergencia_confirmada": divergencia_confirmada(rat_apl, fap_apl),
             "motivo_conferencia": motivo_conferencia(
-                em_fila=r.em_fila, motivo_fila=r.motivo_fila, aliquota_devida=devida,
-                rat_aplicado=rat_apl, fap_aplicado=fap_apl),
+                rat_aplicavel=r.rat_aplicavel, em_fila=r.em_fila, motivo_fila=r.motivo_fila,
+                aliquota_devida=devida, rat_aplicado=rat_apl, fap_aplicado=fap_apl),
             "rat_aplicavel": bool(r.rat_aplicavel),
             "motivo_inaplicavel": r.motivo_inaplicavel,
             "conferido_por": r.conferido_por,
@@ -704,8 +704,8 @@ async def serie_enquadramento(
                                     aliquota_devida=devida, rat_aplicado=rat_apl,
                                     fap_aplicado=fap_apl, conferido_por=r.conferido_por),
             "motivo_conferencia": motivo_conferencia(
-                em_fila=r.em_fila, motivo_fila=r.motivo_fila, aliquota_devida=devida,
-                rat_aplicado=rat_apl, fap_aplicado=fap_apl),
+                rat_aplicavel=r.rat_aplicavel, em_fila=r.em_fila, motivo_fila=r.motivo_fila,
+                aliquota_devida=devida, rat_aplicado=rat_apl, fap_aplicado=fap_apl),
             "rat_aplicavel": bool(r.rat_aplicavel),
             "motivo_inaplicavel": r.motivo_inaplicavel,
             "conferido_por": r.conferido_por,
@@ -925,12 +925,12 @@ async def memoria_enquadramento(
                                     aliquota_devida=devida, rat_aplicado=rat_apl,
                                     fap_aplicado=fap_apl, conferido_por=r.conferido_por),
             "motivo_conferencia": motivo_conferencia(
-                em_fila=r.em_fila, motivo_fila=r.motivo_fila, aliquota_devida=devida,
-                rat_aplicado=rat_apl, fap_aplicado=fap_apl),
+                rat_aplicavel=r.rat_aplicavel, em_fila=r.em_fila, motivo_fila=r.motivo_fila,
+                aliquota_devida=devida, rat_aplicado=rat_apl, fap_aplicado=fap_apl),
             "rat_aplicavel": bool(r.rat_aplicavel),
             "motivo_inaplicavel": r.motivo_inaplicavel,
-            "conferido_por": r.conferido_por,
             "conferido_em": r.conferido_em.strftime("%d/%m/%Y") if r.conferido_em else None,
+            "conferido_por": r.conferido_por,
             "em_fila": r.em_fila, "motivo_fila": r.motivo_fila,
         })
     autoria = sorted({f"{a.declarado_por or 'n/d'} em {a.declarado_em.date().isoformat()}"
