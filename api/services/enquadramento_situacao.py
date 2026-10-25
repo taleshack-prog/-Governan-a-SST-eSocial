@@ -164,6 +164,20 @@ ROTULO_ORIGEM = {
     ORIGEM_AMBAS: "grau e FAP",
 }
 
+# O QUE A ORIGEM SIGNIFICA, em uma frase, para quem le a tela e a peca (Carolina, 25/10).
+#
+# O rotulo sozinho ("FAP") diz pouco: e preciso dizer QUAL dos dois numeros bateu e qual nao. Sem
+# isso o leitor volta aos quadros para comparar a mao, e e exatamente essa conferencia manual que
+# a tela existe para poupar. Fica aqui, e nao no texto da tela, porque a memoria de calculo
+# precisa da mesma frase — e duas versoes da mesma explicacao divergem com o tempo, como ja
+# aconteceu com a citacao do § 3º.
+EXPLICACAO_ORIGEM = {
+    ORIGEM_GRAU: "O FAP aplicado coincide com o publicado; o RAT base difere do devido.",
+    ORIGEM_FAP: "O RAT base declarado coincide com o devido; o fator aplicado difere do publicado.",
+    ORIGEM_AMBAS: "O RAT base e o FAP aplicados diferem dos devidos — as duas origens.",
+    ORIGEM_NENHUMA: "RAT base e FAP aplicados coincidem com os devidos.",
+}
+
 # Como se corrige cada origem — e por que a pergunta importa (S-1005 / item 1 da revisão).
 DEFESA_ORIGEM = {
     ORIGEM_GRAU: "Reenquadramento, com memória de atividade preponderante.",

@@ -25,6 +25,7 @@ from api.models.usuario import Usuario
 from api.auth import get_current_user, require_perfil, require_papel
 from api.services.enquadramento_situacao import (
     situacao_de, divergencia_de, divergencia_confirmada, motivo_conferencia,
+    origem_divergencia, divergencia_amparada, ROTULO_ORIGEM, EXPLICACAO_ORIGEM,
 )
 
 router = APIRouter()
@@ -708,6 +709,13 @@ async def matriz_enquadramento(
         devida = float(apurada.aliquota_devida) if apurada.aliquota_devida is not None else None
         aplicada = float(apurada.aliquota_aplicada) if apurada.aliquota_aplicada is not None else None
         efetiva = float(apurada.aliquota_efetiva) if apurada.aliquota_efetiva is not None else None
+        # As duas origens APLICADAS e o FAP devido, uma vez so: entram em quatro lugares do
+        # payload abaixo, e repetir o float(... if ... else None) em cada um foi o que deixou o
+        # bloco ilegivel a ponto de 'origem_divergencia' passar despercebida ate 25/10.
+        rat_apl = float(apurada.rat_aplicado) if apurada.rat_aplicado is not None else None
+        fap_apl = float(apurada.fap_aplicado) if apurada.fap_aplicado is not None else None
+        fap_dev = float(apurada.fap) if apurada.fap is not None else None
+        orig = origem_divergencia(devida, fap_dev, rat_apl, fap_apl)
         # Resumo da SÉRIE INTEIRA (item 7): o espelho mostra uma competência de sessenta, e quem
         # olha a tela precisa saber disso antes de concluir qualquer coisa sobre o caso — na
         # mesma empresa a divergência de um ano pode ser crédito e a de outro, passivo.
@@ -764,7 +772,7 @@ async def matriz_enquadramento(
                 "grau_risco": apurada.grau_risco,
                 "grau_label": GRAU_LABEL.get(apurada.grau_risco or 0, ""),
                 "aliquota_rat": devida,
-                "fap": float(apurada.fap) if apurada.fap is not None else None,
+                "fap": fap_dev,
                 "aliquota_efetiva": efetiva,
                 "aliquota_aplicada": aplicada,
                 # AS DUAS ORIGENS DO APLICADO (colunas da migration 036, ate aqui nao
@@ -773,28 +781,32 @@ async def matriz_enquadramento(
                 # dois. Sao defesas diferentes — reenquadramento contra portaria do FAPWeb — e o
                 # S-1005 separa os campos (aliqRat, fap, aliqRatAjust). Nulas nas linhas antigas,
                 # que guardam so a efetiva: nesse caso a tela diz que nao sabe, e nao presume.
-                "rat_base_aplicado": float(apurada.rat_aplicado) if apurada.rat_aplicado is not None else None,
-                "fap_aplicado": float(apurada.fap_aplicado) if apurada.fap_aplicado is not None else None,
+                "rat_base_aplicado": rat_apl,
+                "fap_aplicado": fap_apl,
                 "divergencia_pp": divergencia_de(efetiva, aplicada),
+                # A ORIGEM DA DIVERGENCIA (Carolina, 25/10). O sistema ja a calculava e a listagem
+                # de Estabelecimentos ja a mostrava; este espelho — que e justamente a tela que
+                # vira memoria de calculo — nao a serializava. E a origem decide a TESE: fator
+                # divergente se defende pela publicacao do FAP e pelo prazo de contestacao; grau
+                # divergente se defende pela atividade preponderante e pela contagem de
+                # empregados. Sao provas diferentes, e o sistema sabe qual e desde a migration 036.
+                "origem_divergencia": orig,
+                "origem_label": ROTULO_ORIGEM.get(orig) if orig else None,
+                "origem_explicacao": EXPLICACAO_ORIGEM.get(orig) if orig else None,
+                "amparada": divergencia_amparada(orig, apurada.processo_rat, apurada.processo_fap),
                 # A divergencia existe como numero, mas so pode ser AFIRMADA com o aplicado
                 # desdobrado. Sem isso o mesmo valor admite duas leituras opostas — era a tela
                 # deste bloco que afirmava credito enquanto o quadro ao lado, no mesmo cartao,
                 # dizia que a origem nao podia ser afirmada.
-                "divergencia_confirmada": divergencia_confirmada(
-                    float(apurada.rat_aplicado) if apurada.rat_aplicado is not None else None,
-                    float(apurada.fap_aplicado) if apurada.fap_aplicado is not None else None),
+                "divergencia_confirmada": divergencia_confirmada(rat_apl, fap_apl),
                 "situacao": situacao_de(
                     rat_aplicavel=apurada.rat_aplicavel, em_fila=apurada.em_fila,
-                    aliquota_devida=devida,
-                    rat_aplicado=float(apurada.rat_aplicado) if apurada.rat_aplicado is not None else None,
-                    fap_aplicado=float(apurada.fap_aplicado) if apurada.fap_aplicado is not None else None,
+                    aliquota_devida=devida, rat_aplicado=rat_apl, fap_aplicado=fap_apl,
                     conferido_por=apurada.conferido_por),
                 "motivo_conferencia": motivo_conferencia(
-                    rat_aplicavel=apurada.rat_aplicavel,
-                    em_fila=apurada.em_fila, motivo_fila=apurada.motivo_fila,
-                    aliquota_devida=devida,
-                    rat_aplicado=float(apurada.rat_aplicado) if apurada.rat_aplicado is not None else None,
-                    fap_aplicado=float(apurada.fap_aplicado) if apurada.fap_aplicado is not None else None),
+                    rat_aplicavel=apurada.rat_aplicavel, em_fila=apurada.em_fila,
+                    motivo_fila=apurada.motivo_fila, aliquota_devida=devida,
+                    rat_aplicado=rat_apl, fap_aplicado=fap_apl),
                 # O CNAE PRINCIPAL DO CADASTRO viaja junto, com nome proprio. Quando o regime
                 # afasta a apuracao nao ha preponderante apurada — ela se apura pelo numero de
                 # segurados em cada estabelecimento, nao pelo cartao CNPJ —, e a tela precisa

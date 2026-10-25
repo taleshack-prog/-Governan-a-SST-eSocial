@@ -1184,7 +1184,12 @@ export function CadastroEmpresa() {
                       )}
                     </>
                   )}
-                  <p className="text-[10px] text-gray-500 mt-1">Origem: declarado no estabelecimento</p>
+                  {/* PROCEDÊNCIA, não "origem" (Carolina, 25/10). A palavra passou a significar
+                      duas coisas na mesma tela: aqui é DE ONDE O DADO VEIO; no quadro ao lado é
+                      a CAUSA da divergência — grau ou FAP —, que é o que decide a tese. Duas
+                      acepções lado a lado num documento que vira peça não se sustentam, e a
+                      acepção que importa juridicamente é a outra. */}
+                  <p className="text-[10px] text-gray-500 mt-1">Procedência: declarado no estabelecimento</p>
                 </div>
 
                 {/* Item 6: a divergência é o produto — é o número pelo qual o cliente paga.
@@ -1268,6 +1273,32 @@ export function CadastroEmpresa() {
                            : "Sem divergência."}
                         </p>
                       </div>
+                      {/* A ORIGEM DECIDE A TESE, e é por isso que ela aparece aqui e não só na
+                          listagem. Divergência de FAP se defende com a publicação do fator e o
+                          prazo de contestação; divergência de grau, com a atividade preponderante
+                          e a contagem de empregados. São provas diferentes — e esta é a tela que
+                          vira memória de cálculo.
+                          Não aparece quando a divergência é zero: ali não há causa a atribuir. */}
+                      {espelho.enquadramento.origem_divergencia
+                        && espelho.enquadramento.origem_divergencia !== "nenhuma" && (
+                        <div className="mt-2 pt-2 border-t border-blue-200/70">
+                          <span className="inline-block rounded border border-blue-300 bg-white/70 px-2 py-0.5 text-[11px] font-semibold text-blue-900">
+                            Origem da divergência: {espelho.enquadramento.origem_label || espelho.enquadramento.origem_divergencia}
+                          </span>
+                          {espelho.enquadramento.origem_explicacao && (
+                            <p className="text-[11px] text-gray-600 mt-1 leading-snug">
+                              {espelho.enquadramento.origem_explicacao}
+                            </p>
+                          )}
+                          {/* Processo informado afasta o achado: o leiaute do eSocial só aceita
+                              alíquota diversa da prevista havendo decisão que a ampare. */}
+                          {espelho.enquadramento.amparada && (
+                            <p className="text-[11px] text-gray-500 mt-1 leading-snug">
+                              Há processo informado amparando a alíquota aplicada nesta origem.
+                            </p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })()}
@@ -1316,8 +1347,13 @@ export function CadastroEmpresa() {
                 )}
               </p>
               <a href="/estabelecimentos" className="text-xs text-teal-700 hover:underline whitespace-nowrap">
+                {/* O LINK ACOMPANHA O ESTADO. No regime que afasta a apuração o texto ao lado diz
+                    "não há o que conferir" e o link dizia "Conferir no relatório" — uma linha
+                    contradizendo a outra, oferecendo um ato que não existe ali. */}
                 {espelho.enquadramento.motivo_conferencia
                   ? "Informar em Estabelecimentos →"
+                  : espelho.enquadramento.rat_aplicavel === false
+                  ? "Ver no relatório de enquadramento →"
                   : "Conferir no relatório de enquadramento →"}
               </a>
             </div>
