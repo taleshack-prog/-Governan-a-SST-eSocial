@@ -72,10 +72,10 @@ const mesesEntre = (a: string, b: string) => {
   return (yb - ya) * 12 + (mb - ma);
 };
 
-// declarado_por/declarado_em so existem no periodo de REGIME (migration 048); o mesmo tipo
-// serve aos periodos de CPRB, onde ficam ausentes — por isso opcionais.
+// Periodo de REGIME tributario. Servia tambem a CPRB ate 26/10, quando ela passou a se declarar
+// por ANO (ver AnoCprb) — e 'fim_aberto' saiu junto, porque opcao em aberto nao existe na CPRB.
 interface Periodo { regime?: string; anexo_simples?: string; inicio: string; fim: string;
-  fim_aberto?: boolean; declarado_por?: string | null; declarado_em?: string | null; }
+  declarado_por?: string | null; declarado_em?: string | null; }
 type CprbStatus = "nao_informado" | "nao_optante" | "optante";
 
 // Nomes legíveis dos campos rastreados, para a dica de procedência não mostrar nome de coluna.
@@ -189,23 +189,47 @@ const ESP_SIT: Record<string, string> = {
   nao_auditada: "não auditada quanto ao RAT",
 };
 
-// RF-0.164/0.165/0.166: valida um período de CPRB no front (espelho do backend). Devolve "" se ok.
-const CPRB_FIM_LIMITE = "2027-12";
-const validaCprbPeriodo = (p: Periodo, abertura: string, encerramento: string): string => {
-  if (!p.inicio) return "Informe o início do período de CPRB.";
-  const [ya, ma] = p.inicio.split("-").map(Number);
-  const abreComp = (abertura || "").slice(0, 7), encComp = (encerramento || "").slice(0, 7);
-  if (ma !== 1 && p.inicio !== abreComp)
-    return `Opção anual: o período deve iniciar em janeiro (ou na abertura da empresa). Início ${p.inicio}.`;
-  if (`${ya}-${String(ma).padStart(2, "0")}` > CPRB_FIM_LIMITE)
-    return "CPRB extinta em 2028: início não pode ultrapassar 12/2027.";
-  const fim = p.fim || (p.fim_aberto ? "" : `${ya}-12`);   // sem fim e sem "em aberto" → fecha em dez do ano
-  if (fim) {
-    if (fim < p.inicio) return "Fim anterior ao início.";
-    const [, mf] = fim.split("-").map(Number);
-    if (mf !== 12 && fim !== encComp)
-      return `Opção anual: o período deve terminar em dezembro (ou no encerramento da empresa). Fim ${fim}.`;
-    if (fim > CPRB_FIM_LIMITE) return "CPRB extinta em 2028: nenhum período pode ultrapassar 12/2027.";
+// A CPRB SE DECLARA POR ANO, NÃO POR PERÍODO (Carolina, 26/10, pontos 4, 5 e 6).
+//
+// A tela pedia mês de início e mês de fim, e oferecia "em aberto". Nenhuma das três coisas existe
+// na CPRB: pelo art. 9º, §13, da Lei 12.546/2011 a opção se manifesta no pagamento da contribuição
+// de JANEIRO e é irretratável para todo o ano-calendário. Cada ano exige um ato novo — propagar
+// uma opção "em aberto" faria o sistema afirmar opção em anos que a empresa nunca manifestou, e
+// essa afirmação vai para a memória de cálculo.
+//
+// A única exceção é o primeiro ano com receita apurada: empresa que inicia atividade no curso do
+// ano opta a partir daquele mês. Por isso o ano carrega um mês, e só nesse caso.
+type AnoCprb = { ano: number | null; parcial: boolean; mesInicio: string };
+
+const MESES_NUM = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"];
+
+// Converte o que o backend guarda (par de datas) no que a tela declara (ano).
+const periodosParaAnos = (periodos: any[]): AnoCprb[] =>
+  (periodos || []).map((p: any) => {
+    const ini = String(p.inicio || "");
+    const mes = ini.slice(5, 7) || "01";
+    return { ano: Number(ini.slice(0, 4)) || null, parcial: mes !== "01", mesInicio: mes };
+  }).filter((a) => a.ano);
+
+// E de volta: janeiro a dezembro do ano, salvo o primeiro ano com receita apurada.
+const anosParaPeriodos = (anos: AnoCprb[]) =>
+  anos.filter((a) => a.ano).map((a) => ({
+    inicio: `${a.ano}-${a.parcial ? a.mesInicio : "01"}-01`,
+    fim: `${a.ano}-12-01`,
+    fim_confirmado: false,     // não existe opção em aberto: o ano sempre fecha em dezembro
+  }));
+
+// Validação ao SALVAR, não ao nascer. A linha nova vinha com "Informe o início do período de
+// CPRB" em vermelho antes de a pessoa digitar qualquer coisa — erro antes do erro ensina a
+// ignorar o vermelho, e aí o aviso que importa passa despercebido.
+const validaAnosCprb = (anos: AnoCprb[]): string => {
+  if (anos.length === 0) return "Optante pela CPRB: informe ao menos um ano de opção.";
+  const vistos = new Set<number>();
+  for (const a of anos) {
+    if (!a.ano) return "Escolha o ano de cada opção.";
+    if (vistos.has(a.ano)) return `O ano ${a.ano} aparece duas vezes. Cada ano-calendário é uma opção só.`;
+    vistos.add(a.ano);
+    if (a.parcial && !a.mesInicio) return `Em ${a.ano}, informe o mês em que a opção começa.`;
   }
   return "";
 };
@@ -269,9 +293,13 @@ export function CadastroEmpresa() {
   const [cnaeDescricao, setCnaeDescricao] = useState<string>("");   // descrição da subclasse (Anexo I)
   const [secundarios, setSecundarios] = useState<any[]>([]);
   const [regimes, setRegimes] = useState<Periodo[]>([]);
-  const [cprb, setCprb] = useState<Periodo[]>([]);
+  const [cprb, setCprb] = useState<AnoCprb[]>([]);
   const [cprbStatus, setCprbStatus] = useState<CprbStatus>("nao_informado");
   const [cprbVerif, setCprbVerif] = useState<{ por?: string; em?: string }>({});
+  // A transição vem do backend: as proporções de cada ano e a ressalva do décimo terceiro são
+  // regra de lei, e viajam de lá para que esta tela e a memória de cálculo digam a mesma coisa.
+  const [cprbRegras, setCprbRegras] = useState<any[]>([]);
+  const [cprbAvisos, setCprbAvisos] = useState<{ decimo?: string; anoCalendario?: string }>({});
   const [espelho, setEspelho] = useState<any>(null);
   const [numEstab, setNumEstab] = useState<number>(0);
   const [cnpjErro, setCnpjErro] = useState("");
@@ -332,7 +360,9 @@ export function CadastroEmpresa() {
     apiClient.get(`/empresas/${empresaId}/cprb`).then((r) => {
       const d = r.data || {};
       setCprbStatus((d.status as CprbStatus) || "nao_informado");
-      setCprb((d.periodos || []).map((p: any) => ({ inicio: dateToYm(p.inicio), fim: dateToYm(p.fim), fim_aberto: !p.fim })));
+      setCprb(periodosParaAnos(d.periodos));
+      setCprbRegras((d.transicao || []).filter((r: any) => r.existe));
+      setCprbAvisos({ decimo: d.aviso_decimo_terceiro, anoCalendario: d.aviso_ano_calendario });
       setCprbVerif({ por: d.verificado_por, em: d.verificado_em });
     }).catch(() => {});
     carregarEspelho();
@@ -455,11 +485,8 @@ export function CadastroEmpresa() {
     if (errRegime) { setMsg(`Regime — ${errRegime}`); return; }
     // RF-0.163..0.166: valida o bloco CPRB antes de enviar
     if (cprbStatus === "optante") {
-      if (cprb.length === 0) { setMsg("Optante pela CPRB: informe ao menos um período."); return; }
-      for (const p of cprb) {
-        const err = validaCprbPeriodo(p, form.data_abertura, form.data_encerramento);
-        if (err) { setMsg(`CPRB — ${err}`); return; }
-      }
+      const errCprb = validaAnosCprb(cprb);
+      if (errCprb) { setMsg(`CPRB — ${errCprb}`); return; }
     }
     setSalvando(true); setMsg("");
     try {
@@ -493,13 +520,7 @@ export function CadastroEmpresa() {
       })));
       await apiClient.put(`/empresas/${empresaId}/cprb`, {
         status: cprbStatus,
-        periodos: cprbStatus === "optante"
-          ? cprb.filter((p) => p.inicio).map((p) => ({
-              inicio: ymToDate(p.inicio),
-              fim: p.fim_aberto ? null : (p.fim ? ymToDate(p.fim) : null),
-              fim_confirmado: !!p.fim_aberto,   // RF-0.166: "em aberto" é a confirmação explícita
-            }))
-          : [],
+        periodos: cprbStatus === "optante" ? anosParaPeriodos(cprb) : [],
       });
       setConsultaMsg("");   // transitório: cumpriu a função, sai de cena
       setMsg("Dados salvos. A matriz foi criada/atualizada e o enquadramento espelhado abaixo.");
@@ -1382,13 +1403,13 @@ export function CadastroEmpresa() {
       {/* CPRB — estado explícito de verificação (RF-0.163..0.166) */}
       <section className="bg-white rounded-xl border border-gray-100 p-5 mb-4">
         <h2 className="text-sm font-bold text-gray-800 mb-1">CPRB — desoneração da folha</h2>
+        {/* O § SAIU DESTA FRASE (Carolina, 26/10, ponto 1). O marcador indica valor que decorre
+            de norma; "não confundir com o período de apuração" é instrução de tela, e pendurar o
+            § nela sugere que a instrução tem fundamento legal. Os § passam a ficar onde há norma
+            de verdade: nas proporções de cada ano e na regra do ano-calendário. */}
         <p className="text-[11px] text-gray-400 mb-3">
           O estado precisa ser explícito: um bloco vazio não diz se a empresa <b>não optou</b> ou se
           <b> ninguém verificou</b>. Não confundir com o período de apuração.
-          {/* Item 3: a citação saiu daqui. Vem da tabela versionada — quando a lei mudar,
-              acrescenta-se linha na tabela e esta tela acompanha, em vez de exibir fundamento
-              revogado com aparência de vigente. */}
-          <Fundamentacao campo="cprb" em={ymToDate(form.periodo_fim) || hojeISO()} />
         </p>
 
         {/* seletor dos três estados */}
@@ -1405,51 +1426,113 @@ export function CadastroEmpresa() {
           ))}
         </div>
 
-        {cprbStatus === "nao_optante" && (cprbVerif.por || cprbVerif.em) && (
-          <p className="text-[11px] text-gray-500 mb-2">
-            Última verificação: {cprbVerif.por || "—"}{cprbVerif.em ? ` em ${new Date(cprbVerif.em).toLocaleDateString("pt-BR")}` : ""}.
-          </p>
-        )}
-
-        {cprbStatus === "optante" && (
+        {cprbStatus === "optante" && (() => {
+          // Só o ano MAIS ANTIGO pode começar fora de janeiro: é o primeiro ano com receita
+          // apurada, de empresa que inicia atividade no curso do ano. Nos anos seguintes a opção
+          // se manifesta no pagamento de janeiro, e não há o que escolher.
+          const anoMaisAntigo = cprb.reduce<number | null>(
+            (min, a) => (a.ano && (min === null || a.ano < min) ? a.ano : min), null);
+          const regraDe = (ano: number | null) => cprbRegras.find((r: any) => r.ano === ano);
+          return (
           <div className="border-t border-gray-100 pt-3">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-medium text-gray-600">Períodos de opção (janeiro a dezembro)</span>
-              <button type="button" onClick={() => setCprb((l) => [...l, { inicio: "", fim: "", fim_aberto: false }])}
-                className="text-[11px] text-teal-700 hover:underline">+ período</button>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-medium text-gray-600">Anos de opção</span>
+              <button type="button" disabled={cprbRegras.length === 0}
+                onClick={() => setCprb((l) => [...l, { ano: null, parcial: false, mesInicio: "01" }])}
+                className="text-[11px] text-teal-700 hover:underline disabled:opacity-40 disabled:no-underline">+ ano</button>
             </div>
-            <p className="text-[11px] text-gray-400 mb-2">
-              Coexistência com a patronal parcial a partir de 01/2025 (2025: 5% · 2026: 10% · 2027: 15%);
-              RAT e Terceiros sempre devidos.
+            {/* A REGRA DO ANO-CALENDÁRIO, com o § que saiu da frase de ajuda. */}
+            <p className="text-[11px] text-gray-500 mb-2 leading-snug">
+              {cprbAvisos.anoCalendario
+                || "A opção se manifesta no pagamento da CPRB de janeiro e é irretratável para todo o ano-calendário."}
+              <Fundamentacao campo="cprb" em={hojeISO()} />
             </p>
-            {cprb.length === 0 && <p className="text-xs text-gray-500">Nenhum período. Adicione ao menos um.</p>}
-            {cprb.map((p, i) => {
-              const err = validaCprbPeriodo(p, form.data_abertura, form.data_encerramento);
+
+            {cprbRegras.length === 0 && (
+              <p className="text-xs text-amber-700">
+                As regras de cada ano ainda não carregaram. Recarregue a página antes de declarar a opção.
+              </p>
+            )}
+            {cprbRegras.length > 0 && cprb.length === 0 && (
+              <p className="text-xs text-gray-500">Nenhum ano declarado. Adicione ao menos um.</p>
+            )}
+
+            {cprb.length > 0 && (
+              <div className="grid grid-cols-[7rem_1fr_1fr_auto] gap-2 text-[10px] font-semibold uppercase tracking-wide text-gray-500 px-1 mb-1">
+                <div>Ano</div><div>CPRB sobre a receita</div><div>Incisos I e III sobre a folha</div><div></div>
+              </div>
+            )}
+            {cprb.map((a, i) => {
+              const r = regraDe(a.ano);
+              const ehPrimeiro = a.ano !== null && a.ano === anoMaisAntigo;
               return (
                 <div key={i} className="mb-2">
-                  <div className="grid grid-cols-12 gap-2 items-center">
-                    <input type="month" max={CPRB_FIM_LIMITE} className={`${inputCls} col-span-4`} value={p.inicio || ""}
-                      onChange={(e) => setCprb((l) => l.map((x, j) => j === i ? { ...x, inicio: e.target.value } : x))} />
-                    <input type="month" max={CPRB_FIM_LIMITE} disabled={!!p.fim_aberto}
-                      className={`${inputCls} col-span-4 ${p.fim_aberto ? "opacity-40" : ""}`}
-                      value={p.fim_aberto ? "" : (p.fim || "")}
-                      placeholder={p.fim_aberto ? "vigente" : "fim (dez.)"}
-                      onChange={(e) => setCprb((l) => l.map((x, j) => j === i ? { ...x, fim: e.target.value } : x))} />
-                    <label className="col-span-3 flex items-center gap-1 text-[11px] text-gray-600">
-                      <input type="checkbox" checked={!!p.fim_aberto}
-                        onChange={(e) => setCprb((l) => l.map((x, j) => j === i ? { ...x, fim_aberto: e.target.checked, fim: e.target.checked ? "" : x.fim } : x))} />
-                      em aberto
-                    </label>
-                    <button type="button" className="col-span-1 text-red-400 text-sm" onClick={() => setCprb((l) => l.filter((_, j) => j !== i))}>✕</button>
+                  <div className="grid grid-cols-[7rem_1fr_1fr_auto] gap-2 items-center">
+                    <select className={inputCls} value={a.ano ?? ""}
+                      onChange={(e) => setCprb((l) => l.map((x, j) => j === i
+                        ? { ...x, ano: e.target.value ? Number(e.target.value) : null } : x))}>
+                      <option value="">— ano —</option>
+                      {[...cprbRegras].sort((x: any, y: any) => y.ano - x.ano).map((o: any) => (
+                        <option key={o.ano} value={o.ano}>{o.ano}</option>
+                      ))}
+                    </select>
+                    {/* As PROPORÇÕES são valor que decorre de norma, e é aqui que o § pertence.
+                        Resolvido na data daquele ano: a redação que governa 2025 não é
+                        necessariamente a que governa 2027. */}
+                    <div className="text-xs text-gray-700">
+                      {r ? <>{r.cprb_percentual.toLocaleString("pt-BR")}% da alíquota do setor
+                        <Fundamentacao campo="cprb" em={`${a.ano}-12-01`} /></> : "—"}
+                    </div>
+                    <div className="text-xs text-gray-700">
+                      {r ? (r.coexiste
+                        ? <>{r.folha_percentual.toLocaleString("pt-BR")}% dos incisos I e III — {fmt.pct(r.folha_efetiva)}
+                            <Fundamentacao campo="cprb" em={`${a.ano}-12-01`} /></>
+                        : <span className="text-gray-400">sem patronal parcial neste ano</span>) : "—"}
+                    </div>
+                    <button type="button" className="text-red-400 text-sm px-1"
+                      onClick={() => setCprb((l) => l.filter((_, j) => j !== i))}>✕</button>
                   </div>
-                  {err && <p className="text-[11px] text-red-500 mt-1">{err}</p>}
-                  {!err && !p.fim && !p.fim_aberto && p.inicio && (
-                    <p className="text-[11px] text-amber-600 mt-1">Fim em branco: sem marcar “em aberto”, fecha em 12/{p.inicio.slice(0, 4)}.</p>
+                  {/* O MÊS só existe no primeiro ano com receita apurada. */}
+                  {ehPrimeiro && (
+                    <label className="flex flex-wrap items-center gap-1 text-[11px] text-gray-600 mt-1 ml-1">
+                      <input type="checkbox" checked={a.parcial}
+                        onChange={(e) => setCprb((l) => l.map((x, j) => j === i
+                          ? { ...x, parcial: e.target.checked, mesInicio: e.target.checked ? x.mesInicio : "01" } : x))} />
+                      primeiro ano com receita apurada — a opção começa em
+                      <select className="border border-gray-300 rounded px-1 py-0.5 text-[11px] disabled:opacity-40"
+                        disabled={!a.parcial} value={a.mesInicio}
+                        onChange={(e) => setCprb((l) => l.map((x, j) => j === i ? { ...x, mesInicio: e.target.value } : x))}>
+                        {MESES_NUM.map((m, k) => <option key={m} value={m}>{MESES[k]}</option>)}
+                      </select>
+                    </label>
                   )}
                 </div>
               );
             })}
+
+            {/* A RESSALVA DO DÉCIMO TERCEIRO. Faltava, e sem ela quem calculasse a patronal pela
+                linha de apoio aplicaria 5% sobre uma folha que inclui o 13º — cobrando a mais em
+                três exercícios. O RAT não entra nessa regra, e dizer isso evita o erro inverso. */}
+            {cprb.some((a) => regraDe(a.ano)?.sem_decimo_terceiro) && (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 mt-2">
+                <p className="text-[11px] text-amber-900 leading-snug">
+                  {cprbAvisos.decimo}
+                  <Fundamentacao campo="cprb" em={hojeISO()} />
+                </p>
+              </div>
+            )}
           </div>
+          );
+        })()}
+
+        {/* AUTORIA NO PADRÃO DO REGIME (ponto 2): nome e hora, nos dois estados verificados.
+            Saía "Última verificação: talhack@yahoo.com em 26/10/2026" — e-mail e sem hora —
+            enquanto o bloco de Regime, na mesma página, já mostrava nome e hora. */}
+        {cprbStatus !== "nao_informado" && cprbVerif.por && (
+          <p className="text-[11px] text-gray-500 mt-3">
+            Verificado por <b>{cprbVerif.por}</b>
+            {cprbVerif.em ? <> em {fmt.dataHora(cprbVerif.em)}</> : null}.
+          </p>
         )}
       </section>
 

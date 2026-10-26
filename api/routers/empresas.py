@@ -23,6 +23,7 @@ from api.models.cnae_enquadramento import CnaeEnquadramento
 from api.models.cnae_fpas_sugestao import CnaeFpasSugestao
 from api.models.usuario import Usuario
 from api.auth import get_current_user, require_perfil, require_papel
+from api.services import cprb_transicao
 from api.services.enquadramento_situacao import (
     situacao_de, divergencia_de, divergencia_confirmada, motivo_conferencia,
     origem_divergencia, divergencia_amparada, ROTULO_ORIGEM, EXPLICACAO_ORIGEM,
@@ -1006,6 +1007,15 @@ async def listar_cprb(
         "verificado_por": empresa.cprb_verificado_por,
         "verificado_em": empresa.cprb_verificado_em.isoformat() if empresa.cprb_verificado_em else None,
         "periodos": [{"inicio": r.inicio.isoformat(), "fim": r.fim.isoformat() if r.fim else None} for r in rows],
+        # A TRANSICAO VEM DO BACKEND (Carolina, 26/10, pontos 3 e 4). As proporcoes de cada ano e
+        # a ressalva do decimo terceiro sao regra de lei, nao texto de tela: viajam daqui para que
+        # o bloco do cadastro e a memoria de calculo digam a mesma coisa, hoje e quando a lei
+        # mudar. A tela trazia "2025: 5% · 2026: 10% · 2027: 15%" escrito a mao, sem dizer de onde
+        # os numeros vinham nem sobre o que deixavam de incidir.
+        "transicao": cprb_transicao.tabela(),
+        "aviso_decimo_terceiro": cprb_transicao.TEXTO_DECIMO_TERCEIRO,
+        "aviso_ano_calendario": cprb_transicao.TEXTO_ANO_CALENDARIO,
+        "ano_extincao": cprb_transicao.ANO_EXTINCAO,
     }
 
 
@@ -1047,7 +1057,12 @@ async def salvar_cprb(
 
     # estado + autoria (RF-0.163): carimba autor/data só numa marcação explícita (nao_optante/optante);
     # mantém o carimbo anterior se o estado não mudou; limpa no nao_informado.
-    declarante = getattr(current_user, "email", None) or getattr(current_user, "nome", None)
+    #
+    # AUTORIA PELO NOME (Carolina, 26/10, ponto 2). Gravava o e-mail, e a tela exibia "Última
+    # verificação: talhack@yahoo.com em 26/10/2026" enquanto o bloco de Regime, logo acima,
+    # mostrava "Tales Hack em 24/10/2026 às 22:27". A mesma pessoa aparecia de duas formas na
+    # mesma página — a terceira rotina com a autoria escrita por conta própria.
+    declarante = _autor_declaracao(current_user)
     if data.status == "nao_informado":
         empresa.cprb_status = "nao_informado"
         empresa.cprb_verificado_por = None
