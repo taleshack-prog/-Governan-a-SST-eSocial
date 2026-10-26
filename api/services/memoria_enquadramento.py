@@ -24,6 +24,14 @@ from api.services.enquadramento_situacao import (
     ORIGEM_GRAU, ORIGEM_FAP, ORIGEM_AMBAS,
 )
 from api.services.fundamentacao import TEXTO_CRITERIO_VIGENCIA
+# A transicao da CPRB vem do modulo, nao de texto escrito aqui: e a mesma regra que o bloco do
+# cadastro mostra, e duas copias divergem com o tempo. Alias para que "TRANSICAO", sozinho, nao
+# fique ambiguo no meio de um gerador que fala de RAT, FAP e fundamentacao.
+from api.services.cprb_transicao import (
+    TRANSICAO as TRANSICAO_CPRB,
+    ALIQUOTA_INCISOS_I_III,
+    TEXTO_DECIMO_TERCEIRO as TEXTO_DECIMO_TERCEIRO_CPRB,
+)
 
 # Rotulo curto para a coluna Origem (a tabela ja tem treze colunas).
 ORIGEM_CURTO = {
@@ -454,14 +462,46 @@ def gerar_memoria_pdf(d: dict) -> bytes:
     st = cprb.get("status") or "nao_informado"
     el.append(_p("Contribuição previdenciária sobre a receita bruta (CPRB)", h2))
     if st == "optante":
+        # ANOS, NAO PERIODOS (Carolina, 26/10, ponto 4). A opcao e por ano-calendario e
+        # irretratavel; imprimir "2025-01 a 2025-12" descreve com dois meses o que a lei trata
+        # como um ato unico, e sugere que o periodo poderia ter sido outro.
         pers = cprb.get("periodos") or []
-        linhas = "; ".join(f"{(p.get('inicio') or '')[:7]} a {(p.get('fim') or '')[:7] or 'vigente'}" for p in pers) or "sem períodos informados"
-        verif = f" Verificado por {cprb['verificado_por']}" + (f" em {cprb['verificado_em']}" if cprb.get("verificado_em") else "") + "." if cprb.get("verificado_por") else ""
-        el.append(_p(f"<b>Optante</b> pela desoneração da folha nos períodos: {linhas}. "
-                     f"A partir de 01/2025 a CPRB coexiste com a cota patronal parcial (Lei 14.973/2024); "
-                     f"RAT e Terceiros permanecem devidos.{verif}", body))
+        # isdigit() de proposito: este gerador nao pode levantar excecao: a unica coisa que o
+        # usuario ve e "erro ao emitir", sem o documento. Periodo com data ilegivel sai da lista
+        # em vez de derrubar o int() tres linhas abaixo.
+        anos = sorted({(p.get("inicio") or "")[:4] for p in pers
+                       if (p.get("inicio") or "")[:4].isdigit()})
+        # Ano que comeca fora de janeiro e o primeiro com receita apurada — a unica excecao
+        # admitida, e que precisa constar justamente por ser excecao.
+        parciais = {(p.get("inicio") or "")[:4]: (p.get("inicio") or "")[5:7]
+                    for p in pers if p.get("inicio") and (p.get("inicio") or "")[5:7] != "01"}
+        lista = "; ".join(a + (f" (a partir de {parciais[a]}/{a}, primeiro ano com receita apurada)"
+                               if a in parciais else "") for a in anos) or "sem anos informados"
+        verif = (f" Verificado por {_esc(cprb['verificado_por'])}"
+                 + (f" em {_esc(cprb['verificado_em'])}" if cprb.get("verificado_em") else "") + "."
+                 ) if cprb.get("verificado_por") else ""
+        el.append(_p(f"<b>Optante</b> pela desoneração da folha nos anos-calendário: {lista}.{verif}", body))
+
+        # A TRANSICAO E A RESSALVA DO DECIMO TERCEIRO (ponto 3 da revisao, que valia tambem aqui).
+        # O texto dizia apenas que "a CPRB coexiste com a cota patronal parcial", sem as
+        # proporcoes e sem a regra do 13º — e esta e a peca que o cliente usa para calcular.
+        anos_transicao = [a for a in anos if int(a) in TRANSICAO_CPRB]
+        if anos_transicao:
+            detalhe = "; ".join(
+                f"{a}: CPRB a {_n(TRANSICAO_CPRB[int(a)][0], 0)}% da alíquota do setor e "
+                f"{_n(TRANSICAO_CPRB[int(a)][1], 0)}% dos incisos I e III sobre a folha "
+                f"({_n(TRANSICAO_CPRB[int(a)][1] * ALIQUOTA_INCISOS_I_III / 100, 2)}%)"
+                for a in anos_transicao)
+            el.append(_p(f"Coexistência com a contribuição patronal parcial — {detalhe}.", small))
+            el.append(_p(TEXTO_DECIMO_TERCEIRO_CPRB, small))
+        else:
+            el.append(_p("RAT e Terceiros são sempre devidos, inclusive nos anos de opção pela CPRB.", small))
     elif st == "nao_optante":
-        verif = f"Verificado por {cprb['verificado_por']}" + (f" em {cprb['verificado_em']}" if cprb.get("verificado_em") else "") + "." if cprb.get("verificado_por") else "Marcação explícita."
+        # _esc tambem aqui: o reportlab le estes paragrafos como XML, e um nome com "&" derrubava
+        # a emissao. O ramo optante ja escapava; este nao, por esquecimento meu.
+        verif = ((f"Verificado por {_esc(cprb['verificado_por'])}"
+                  + (f" em {_esc(cprb['verificado_em'])}" if cprb.get("verificado_em") else "") + ".")
+                 if cprb.get("verificado_por") else "Marcação explícita.")
         el.append(_p(f"<b>Não optante</b> pela CPRB. {verif} O cálculo da contribuição patronal "
                      f"roda com a alíquota integral sobre a folha.", body))
     else:

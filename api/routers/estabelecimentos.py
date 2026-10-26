@@ -1118,8 +1118,19 @@ async def memoria_enquadramento(
         "autoria": autoria,
         "cprb": {
             "status": (empresa.cprb_status if empresa else None) or "nao_informado",
-            "verificado_por": empresa.cprb_verificado_por if empresa else None,
-            "verificado_em": empresa.cprb_verificado_em.strftime("%d/%m/%Y") if (empresa and empresa.cprb_verificado_em) else None,
+            # AUTOR PELO NOME, como a autoria das atividades logo acima (ponto 2 da revisao de
+            # 26/10). O mapa _nomes ja estava montado algumas linhas acima e servia a um bloco so:
+            # a memoria imprimia "Tales Hack" na declaracao dos quantitativos e o e-mail aqui, na
+            # mesma pagina. Autor que nao corresponda a usuario algum sai como esta gravado.
+            "verificado_por": (_nomes.get(empresa.cprb_verificado_por, empresa.cprb_verificado_por)
+                               if empresa else None),
+            # HORA, e de Brasilia. O campo e gravado com timezone.utc; imprimir %H:%M cru mostraria
+            # 13:51 onde foram 10:51 — o item 8 da revisao de 25/10, repetido neste bloco. Mesmo
+            # offset fixo do gerado_em, logo abaixo, e pela mesma razao.
+            "verificado_em": (empresa.cprb_verificado_em
+                              .astimezone(timezone(timedelta(hours=-3)))
+                              .strftime("%d/%m/%Y às %H:%M")
+                              if (empresa and empresa.cprb_verificado_em) else None),
             "periodos": [{"inicio": c.inicio.isoformat(), "fim": c.fim.isoformat() if c.fim else None} for c in cprb_rows],
         },
         # HORARIO DE BRASILIA, nao UTC (Carolina, 25/10, item 8). "13:51 UTC" num documento que o
