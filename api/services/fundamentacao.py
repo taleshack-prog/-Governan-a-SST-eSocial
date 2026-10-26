@@ -25,6 +25,18 @@ from api.models.fundamentacao_campo import FundamentacaoCampo
 from api.models.fundamentacao_dispositivo import FundamentacaoDispositivo
 
 
+def _mais_de_um(valor: str) -> bool:
+    """O campo traz mais de um dispositivo: '7º e 8º', '3º, 4º', '3º e 4º'.
+
+    A praxe forense dobra o sinal no plural — "arts. 7º e 8º", "§§ 3º e 4º" —, e o montador
+    escrevia sempre no singular, produzindo "art. 7º e 8º". O projeto ja tinha "§§ 3º e 4º"
+    escrito a mao dentro das strings legadas; quando aquelas linhas forem decompostas, sairiam
+    com o sinal errado sem este teste.
+    """
+    v = valor.strip()
+    return " e " in v or "," in v
+
+
 def _texto_dispositivo(d: FundamentacaoDispositivo) -> str:
     """Monta UM dispositivo a partir das partes separadas.
 
@@ -34,11 +46,14 @@ def _texto_dispositivo(d: FundamentacaoDispositivo) -> str:
     """
     partes = [d.ato]
     if d.artigo:
-        partes.append(f"art. {d.artigo}")
+        partes.append(f"{'arts.' if _mais_de_um(d.artigo) else 'art.'} {d.artigo.strip()}")
     if d.paragrafo:
         p = d.paragrafo.strip()
         # "unico" nao leva o sinal: escreve-se "parágrafo único".
-        partes.append("parágrafo único" if p.lower().rstrip(".") in ("unico", "único") else f"§ {p}")
+        if p.lower().rstrip(".") in ("unico", "único"):
+            partes.append("parágrafo único")
+        else:
+            partes.append(f"{'§§' if _mais_de_um(p) else '§'} {p}")
     if d.inciso:
         partes.append(d.inciso)                      # numeral romano, como na praxe: "art. 22, II"
     if d.alinea:

@@ -1433,6 +1433,15 @@ export function CadastroEmpresa() {
           const anoMaisAntigo = cprb.reduce<number | null>(
             (min, a) => (a.ano && (min === null || a.ano < min) ? a.ano : min), null);
           const regraDe = (ano: number | null) => cprbRegras.find((r: any) => r.ano === ano);
+          // O ANO QUE FUNDAMENTA A RESSALVA DO 13º. O § daquele quadro perguntava pela data de
+          // HOJE, e a regra do décimo terceiro vale de 2025 a 2027: em 2028 o aviso continuaria
+          // aparecendo — porque os anos declarados não mudam — e o § desapareceria, deixando a
+          // frase sem fundamento dentro da própria tela. Resolve-se no ano mais antigo de
+          // transição que a empresa declarou, que é o fato que a frase descreve.
+          const anoRessalva = cprb
+            .map((a) => a.ano)
+            .filter((n): n is number => n !== null && !!regraDe(n)?.sem_decimo_terceiro)
+            .sort((x, y) => x - y)[0];
           return (
           <div className="border-t border-gray-100 pt-3">
             <div className="flex items-center justify-between mb-1">
@@ -1478,15 +1487,21 @@ export function CadastroEmpresa() {
                     </select>
                     {/* As PROPORÇÕES são valor que decorre de norma, e é aqui que o § pertence.
                         Resolvido na data daquele ano: a redação que governa 2025 não é
-                        necessariamente a que governa 2027. */}
+                        necessariamente a que governa 2027.
+
+                        CAMPO PRÓPRIO (Carolina, 26/10). Os dois citavam `cprb`, que é a regra da
+                        OPÇÃO ANUAL — o art. 9º, §13. As proporções não saem de lá: saem do
+                        art. 9º-A, caput. Em ano até 2024 esta coluna mostra 100%, que também não
+                        decorre do 9º-A; como não há decisão sobre a citação daquele período, lá o
+                        § não aparece, em vez de exibir fundamento que não governa o número. */}
                     <div className="text-xs text-gray-700">
                       {r ? <>{r.cprb_percentual.toLocaleString("pt-BR")}% da alíquota do setor
-                        <Fundamentacao campo="cprb" em={`${a.ano}-12-01`} /></> : "—"}
+                        <Fundamentacao campo="cprb_proporcao" em={`${a.ano}-12-01`} /></> : "—"}
                     </div>
                     <div className="text-xs text-gray-700">
                       {r ? (r.coexiste
                         ? <>{r.folha_percentual.toLocaleString("pt-BR")}% dos incisos I e III — {fmt.pct(r.folha_efetiva)}
-                            <Fundamentacao campo="cprb" em={`${a.ano}-12-01`} /></>
+                            <Fundamentacao campo="cprb_proporcao" em={`${a.ano}-12-01`} /></>
                         : <span className="text-gray-400">sem patronal parcial neste ano</span>) : "—"}
                     </div>
                     <button type="button" className="text-red-400 text-sm px-1"
@@ -1513,11 +1528,16 @@ export function CadastroEmpresa() {
             {/* A RESSALVA DO DÉCIMO TERCEIRO. Faltava, e sem ela quem calculasse a patronal pela
                 linha de apoio aplicaria 5% sobre uma folha que inclui o 13º — cobrando a mais em
                 três exercícios. O RAT não entra nessa regra, e dizer isso evita o erro inverso. */}
-            {cprb.some((a) => regraDe(a.ano)?.sem_decimo_terceiro) && (
+            {anoRessalva !== undefined && (
               <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 mt-2">
                 <p className="text-[11px] text-amber-900 leading-snug">
                   {cprbAvisos.decimo}
-                  <Fundamentacao campo="cprb" em={hojeISO()} />
+                  {/* DUAS CITAÇÕES, não uma (Carolina, 26/10). A frase afirma duas coisas de
+                      origem distinta: a não incidência dos incisos I e III sobre o 13º, que é o
+                      art. 9º-A, §1º, e a permanência do RAT e dos Terceiros, que não está lá —
+                      decorre dos arts. 7º e 8º, que fazem a CPRB substituir apenas os incisos I
+                      e III do art. 22 da Lei 8.212/91. O campo traz os dois dispositivos. */}
+                  <Fundamentacao campo="cprb_decimo_terceiro" em={`${anoRessalva}-12-01`} />
                 </p>
               </div>
             )}

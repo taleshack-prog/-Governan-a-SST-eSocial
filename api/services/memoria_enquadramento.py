@@ -509,6 +509,29 @@ def gerar_memoria_pdf(d: dict) -> bytes:
                      "item pendente de conferência. Enquanto não verificada, não é afirmada "
                      "desoneração da folha.", body))
 
+    # A FUNDAMENTACAO DAS FRASES ACIMA (Carolina, 26/10). As mesmas frases saem na tela, e la cada
+    # uma ganhou o seu §: a opcao anual, as proporcoes e a regra do 13º tem dispositivos
+    # diferentes. O documento imprimia as tres afirmacoes sem citar nenhuma — e e ele, nao a tela,
+    # que vai assinado.
+    #
+    # A linha do 13º costuma trazer DUAS citacoes, e e o ponto da revisao: a frase afirma que os
+    # incisos I e III nao alcancam o decimo terceiro (art. 9º-A, §1º) e que RAT e Terceiros
+    # continuam devidos — o que nao esta la, e decorre dos arts. 7º e 8º. Com uma citacao so,
+    # metade da frase fica sem fundamento.
+    fund_cprb = cprb.get("fundamentacao") or []
+    if fund_cprb:
+        el.append(Spacer(1, 3))
+        for b in fund_cprb:
+            anos = _esc(b.get("anos"))
+            # SO A CITACAO, sem a observacao da linha. A observacao existe para o popover da tela,
+            # onde o § e um icone e o texto ao redor nao esta visivel; aqui ela repetiria o que o
+            # corpo do bloco acabou de dizer — a observacao de 'cprb_proporcao' reproduz
+            # literalmente os percentuais impressos tres linhas acima. Repeticao dentro de peca
+            # assinada e ruido que esconde a unica coisa que a linha precisa mostrar: o dispositivo.
+            el.append(_p(f"<b>{_esc(b.get('rotulo'))}</b>"
+                         + (f" (anos {anos})" if anos else "")
+                         + f" — {_esc(b.get('dispositivo'))}", small))
+
     aut = d.get("autoria") or []
     if aut:
         el.append(_p("Declaração dos quantitativos: " + "; ".join(aut) + ".", small))

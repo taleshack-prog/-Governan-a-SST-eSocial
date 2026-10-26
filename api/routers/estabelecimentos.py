@@ -25,7 +25,7 @@ from api.services.enquadramento_situacao import (
     situacao_de, divergencia_de, origem_divergencia, divergencia_amparada, ROTULO_ORIGEM,
     divergencia_confirmada, motivo_conferencia,
 )
-from api.services.fundamentacao import citacoes_do_periodo
+from api.services.fundamentacao import citacoes_do_periodo, citacao_de
 from api.models.enquadramento_evento import EnquadramentoEvento, ROTULO_EVENTO
 from api.services.enquadramento_eventos import registrar_ato_humano, retrato
 
@@ -1085,6 +1085,45 @@ async def memoria_enquadramento(
             for b in lista
         ]
 
+    # AS CITACOES DO BLOCO CPRB (Carolina, 26/10). A tela passou a ter um campo por regra:
+    # 'cprb' fundamenta a opcao anual, 'cprb_proporcao' as proporcoes da transicao e
+    # 'cprb_decimo_terceiro' a ressalva do 13º junto da permanencia do RAT e dos Terceiros. A
+    # memoria imprime as MESMAS frases, e o pedido foi explicito: "a mesma frase sai na memoria de
+    # calculo, entao confere que la tambem aparecem as duas citacoes".
+    #
+    # Resolve no FECHAMENTO do ano-calendario, pelo mesmo criterio que governa os demais cortes de
+    # vigencia do documento (ver TEXTO_CRITERIO_VIGENCIA). Ano sem linha cadastrada sai da lista em
+    # silencio — e a mesma regra da tela: sem citacao, nao se exibe citacao. E por isso que este
+    # agrupamento nao precisa saber quais anos sao de transicao: quem decide e a vigencia da linha.
+    _anos_cprb = sorted({c.inicio.year for c in cprb_rows})
+
+    async def _fund_cprb(campo: str, rotulo: str) -> list[dict]:
+        """Uma entrada por REDACAO, com os anos que ela governa — nao uma por ano.
+
+        Empresa optante desde 2021 tem seis ou sete anos declarados; repetir a mesma citacao
+        sete vezes dentro de peca assinada e ruido que esconde a unica coisa que importa ali,
+        que e onde a redacao mudou.
+        """
+        agrupado: dict[str, dict] = {}
+        for ano in _anos_cprb:
+            c = await citacao_de(campo, date(ano, 12, 31), db)
+            if not c:
+                continue
+            bloco = agrupado.setdefault(c["dispositivo"], {
+                "rotulo": rotulo,
+                "dispositivo": c["dispositivo"],
+                "observacao": c["observacao"],
+                "anos": [],
+            })
+            bloco["anos"].append(str(ano))
+        return [{**b, "anos": ", ".join(b["anos"])} for b in agrupado.values()]
+
+    fund_cprb = (
+        await _fund_cprb("cprb", "Opção anual")
+        + await _fund_cprb("cprb_proporcao", "Proporções da transição")
+        + await _fund_cprb("cprb_decimo_terceiro", "Décimo terceiro, RAT e Terceiros")
+    )
+
     dados = {
         # CNPJ DA MATRIZ INTEIRO, nao a raiz (Carolina, 25/10, item 3). Era truncado em [:8] de
         # quando o rotulo dizia "CNPJ raiz"; o rotulo mudou em 23/10 e o truncamento ficou, entao
@@ -1132,6 +1171,7 @@ async def memoria_enquadramento(
                               .strftime("%d/%m/%Y às %H:%M")
                               if (empresa and empresa.cprb_verificado_em) else None),
             "periodos": [{"inicio": c.inicio.isoformat(), "fim": c.fim.isoformat() if c.fim else None} for c in cprb_rows],
+            "fundamentacao": fund_cprb,
         },
         # HORARIO DE BRASILIA, nao UTC (Carolina, 25/10, item 8). "13:51 UTC" num documento que o
         # cliente le obriga quem o le a converter de cabeca, e convida a erro de uma hora em
