@@ -1130,8 +1130,8 @@ export function EstabelecimentoPagina() {
         <span className="inline-block bg-gray-100 text-gray-700 rounded px-1.5 py-0.5 mr-2 uppercase tracking-wide text-[10px] font-semibold">
           {estab.posicao || "—"}
         </span>
-        <span className="font-mono">{estab.cnpj || estab.cno || "—"}</span>
-        {estab.municipio ? ` · ${estab.municipio}/${estab.uf || ""}` : ""}
+        <span className="font-mono">{estab.cnpj || estab.identificador || "—"}</span>
+        {estab.cidade ? ` · ${estab.cidade}/${estab.uf || ""}` : ""}
         {estab.data_abertura ? ` · ativa desde ${fmt.data(estab.data_abertura)}` : ""}
       </p>
 
@@ -1189,8 +1189,8 @@ export function EstabelecimentoPagina() {
 
       <Bloco ancora="identificacao" titulo="Identificação">
         <div className="bg-white rounded-xl border border-gray-100 p-5 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-          <div><p className="text-[11px] text-gray-500">Natureza</p><p>{estab.natureza || "—"}</p></div>
-          <div><p className="text-[11px] text-gray-500">CNPJ / CNO</p><p className="font-mono">{estab.cnpj || estab.cno || "—"}</p></div>
+          <div><p className="text-[11px] text-gray-500">Natureza</p><p>{estab.tipo_estabelecimento || "—"}</p></div>
+          <div><p className="text-[11px] text-gray-500">CNPJ / CNO</p><p className="font-mono">{estab.cnpj || estab.identificador || "—"}</p></div>
           <div><p className="text-[11px] text-gray-500">Abertura</p><p>{estab.data_abertura ? fmt.data(estab.data_abertura) : "—"}</p></div>
           <div><p className="text-[11px] text-gray-500">Situação</p><p>{estab.status || "—"}</p></div>
         </div>
