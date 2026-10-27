@@ -5,7 +5,7 @@ import re
 from uuid import UUID
 from datetime import date, datetime, timezone
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete
 from sqlalchemy.exc import IntegrityError
@@ -70,6 +70,14 @@ CAMPOS_RASTREADOS = (
     "cnae_principal", "data_abertura",          # entram em cálculo
     "razao_social", "nome_fantasia", "data_encerramento",
     "tipo_logradouro", "endereco", "numero", "complemento", "bairro", "cidade", "uf", "cep",
+)
+
+
+from api.models.memoria_emitida import MemoriaEmitida
+from api.services.memoria_registro import listar_emitidas
+from api.services.empresa_ciclo_vida import (
+    registrar_ato, situacao_exclusao, historico_arquivamento,
+    EVENTO_ARQUIVADA, EVENTO_RESTAURADA, EVENTO_EXCLUIDA,
 )
 
 
@@ -504,6 +512,14 @@ async def obter_empresa(
         "situacao_cadastral_em": empresa.situacao_cadastral_em.isoformat() if empresa.situacao_cadastral_em else None,
         "arquivada": bool(empresa.arquivada),
         "arquivada_em": empresa.arquivada_em.isoformat() if empresa.arquivada_em else None,
+        # O BLOCO "ARQUIVAR OU EXCLUIR" (Carolina, 22/10). A tela precisa saber se a exclusao esta
+        # disponivel ANTES de oferecer o caminho: um botao que so recusa depois de a pessoa digitar
+        # a razao social e pior do que um botao que explica por que nao esta ali. As contagens vao
+        # junto porque a tarja as cita — "nao pode" sem dizer quanto nem do que nao se confere.
+        "exclusao": await situacao_exclusao(db, empresa.id),
+        # Quem arquivou e quem restaurou, por ultimo. Vem da trilha do escritorio, nao de colunas:
+        # os dois atos se repetem, e coluna guarda o ultimo e perde os anteriores.
+        "historico_arquivamento": await historico_arquivamento(db, empresa.id),
         "tipo_logradouro": empresa.tipo_logradouro,
         "endereco": empresa.endereco,
         "numero": empresa.numero,
@@ -593,6 +609,13 @@ async def arquivar_empresa(
         raise HTTPException(status_code=404, detail="Empresa não encontrada")
     empresa.arquivada = True
     empresa.arquivada_em = datetime.now(timezone.utc)
+    # ARQUIVAR E UM ATO, e ato tem autor e data (Carolina, 22/10): "pela mesma regra da conferencia
+    # e da declaracao do regime". 'arquivada_em' ja existia e dizia QUANDO, nunca QUEM — e o bloco
+    # nao mostrava nem uma coisa nem outra. O historico vai para a trilha do escritorio, e nao
+    # para colunas na empresa, porque arquivar e restaurar se repetem: coluna guarda o ultimo e
+    # perde os anteriores.
+    await registrar_ato(db, evento=EVENTO_ARQUIVADA, empresa=empresa,
+                        autor=_autor_declaracao(current_user))
     await db.commit()
     return {"id": str(empresa.id), "arquivada": True,
             "mensagem": "Empresa arquivada. Os dados seguem íntegros e podem ser restaurados."}
@@ -611,6 +634,8 @@ async def desarquivar_empresa(
         raise HTTPException(status_code=404, detail="Empresa não encontrada")
     empresa.arquivada = False
     empresa.arquivada_em = None
+    await registrar_ato(db, evento=EVENTO_RESTAURADA, empresa=empresa,
+                        autor=_autor_declaracao(current_user))
     await db.commit()
     return {"id": str(empresa.id), "arquivada": False}
 
@@ -624,7 +649,8 @@ async def excluir_empresa(
 ):
     """Apaga a empresa e tudo que pende dela. IRREVERSIVEL.
 
-    Duas travas, porque o que se perde aqui e enquadramento apurado:
+    TRES travas, porque o que se perde aqui e enquadramento apurado:
+      - a empresa nao pode ter competencia conferida nem memoria emitida (Carolina, 22/10);
       - exige a RAZAO SOCIAL digitada e identica (nao e um clique);
       - restrita ao papel TITULAR do escritorio.
     """
@@ -634,6 +660,18 @@ async def excluir_empresa(
     if not empresa:
         raise HTTPException(status_code=404, detail="Empresa não encontrada")
 
+    # A EXCLUSAO DEIXA DE SER INCONDICIONAL (Carolina, 22/10). Nas palavras dela: "num sistema que
+    # produz prova, isso so pode valer enquanto nada foi assinado nem emitido. Se uma competencia
+    # foi conferida por uma pessoa e a memoria de calculo foi para uma peca protocolada, excluir a
+    # empresa apaga o registro que sustenta o que foi apresentado. Esse registro pode ser pedido
+    # anos depois, dentro do prazo de cinco anos do pedido de restituicao."
+    #
+    # A verificacao vem ANTES da razao social de proposito: nao se pede a alguem que digite o nome
+    # da empresa para so entao dizer que a exclusao nao era possivel.
+    situacao = await situacao_exclusao(db, empresa_id)
+    if not situacao["pode_excluir"]:
+        raise HTTPException(status_code=409, detail=situacao["motivo"])
+
     informada = (confirmacao.razao_social or "").strip()
     if informada.casefold() != (empresa.razao_social or "").strip().casefold():
         raise HTTPException(
@@ -641,7 +679,19 @@ async def excluir_empresa(
             detail=(f"Para excluir, digite a razão social exatamente como cadastrada: "
                     f"\"{empresa.razao_social}\"."),
         )
+    # Lidos ANTES do delete: depois do commit o objeto esta expirado, e a propria linha sumiu.
+    razao_social = empresa.razao_social
     try:
+        # O REGISTRO ENTRA ANTES DE APAGAR, na mesma transacao. Nao e ordem de conveniencia: a
+        # razao social e o CNPJ sao copiados da empresa, e depois do delete nao ha de onde le-los.
+        # Como escritorio_evento nao tem chave estrangeira para empresas, a linha sobrevive ao
+        # delete; se a transacao falhar, as duas coisas voltam juntas e a trilha nao fica
+        # afirmando uma exclusao que nao houve.
+        await registrar_ato(
+            db, evento=EVENTO_EXCLUIDA, empresa=empresa,
+            autor=_autor_declaracao(current_user),
+            detalhe=("Sem competência conferida e sem memória emitida no momento da exclusão."),
+        )
         await db.execute(delete(Estabelecimento).where(Estabelecimento.empresa_id == empresa_id))
         await db.execute(delete(EmpresaRegime).where(EmpresaRegime.empresa_id == empresa_id))
         await db.execute(delete(EmpresaCprb).where(EmpresaCprb.empresa_id == empresa_id))
@@ -653,7 +703,59 @@ async def excluir_empresa(
         raise HTTPException(status_code=409, detail=(
             "Não foi possível excluir: há dados vinculados (trabalhador, documento ou vínculo). "
             "Remova-os antes, ou use Arquivar, que preserva tudo."))
-    return {"ok": True, "excluida": True, "razao_social": empresa.razao_social}
+    return {"ok": True, "excluida": True, "razao_social": razao_social}
+
+
+# ---- As memorias emitidas, como elas sairam (migration 054) ----
+# Guardar a copia so serve se houver como VE-LA. Ela: "se um dia questionarem o que constava numa
+# memoria que foi para uma peca, o registro precisa conseguir mostrar o documento exatamente como
+# saiu". Por isso estes dois endpoints nascem junto com o registro, e nao depois: cadastro de
+# prova sem leitura e arquivo morto.
+@router.get("/{empresa_id}/memorias")
+async def listar_memorias_emitidas(
+    empresa_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """As versoes distintas de memoria emitidas para a empresa, sem o binario."""
+    if str(empresa_id) != str(current_user.empresa_id):
+        raise HTTPException(status_code=403, detail="Sem permissão para esta empresa")
+    return {"memorias": await listar_emitidas(db, empresa_id)}
+
+
+@router.get("/{empresa_id}/memorias/{memoria_id}/pdf")
+async def baixar_memoria_emitida(
+    empresa_id: UUID,
+    memoria_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """O PDF COMO ELE SAIU — nao uma memoria gerada agora.
+
+    E a diferenca que motiva a tabela: gerar de novo hoje produz o documento com os dados de
+    hoje. Este endpoint devolve os bytes guardados no ato da emissao, cujo SHA-256 esta no
+    cabecalho da resposta para quem precisar conferir que a copia nao foi trocada.
+    """
+    if str(empresa_id) != str(current_user.empresa_id):
+        raise HTTPException(status_code=403, detail="Sem permissão para esta empresa")
+    m = (await db.execute(
+        select(MemoriaEmitida).where(MemoriaEmitida.id == memoria_id,
+                                     MemoriaEmitida.empresa_id == empresa_id)
+    )).scalars().first()
+    if not m:
+        raise HTTPException(status_code=404, detail="Memória não encontrada")
+    if m.pdf is None:
+        # Registro existe, copia nao. Dizer isso e melhor do que devolver um PDF gerado agora
+        # fingindo ser o de entao — que e precisamente o erro que esta tabela existe para evitar.
+        raise HTTPException(status_code=410, detail=(
+            f"O registro desta emissão existe, mas a cópia do arquivo não foi guardada "
+            f"(tinha {m.bytes_} bytes). A impressão digital SHA-256 é {m.sha256}."))
+    emitida = m.emitida_em.strftime("%Y-%m-%d") if m.emitida_em else "sem-data"
+    return Response(
+        content=m.pdf, media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="memoria_{emitida}_{m.sha256[:8]}.pdf"',
+                 "X-Memoria-SHA256": m.sha256},
+    )
 
 
 # ---- Espelho do enquadramento da matriz (RF-0.155) ----

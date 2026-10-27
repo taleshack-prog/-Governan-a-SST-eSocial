@@ -3,6 +3,7 @@
 # e DERIVADO da atividade preponderante (RN-20) — não é campo escolhido. A entrada do motor é a
 # lista de atividades com quantitativo por periodo (RF-0.173).
 import re
+import logging
 from datetime import date, datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,6 +28,7 @@ from api.services.enquadramento_situacao import (
 )
 from api.services.fundamentacao import citacoes_do_periodo, citacao_de
 from api.services.cprb_transicao import ANO_INICIO_TRANSICAO as ANO_INICIO_TRANSICAO_CPRB
+from api.services.memoria_registro import registrar_emissao, sha256_do_conteudo
 from api.models.enquadramento_evento import EnquadramentoEvento, ROTULO_EVENTO
 from api.services.enquadramento_eventos import registrar_ato_humano, retrato
 
@@ -36,6 +38,9 @@ TIPOS_ESTABELECIMENTO = ("CNPJ", "CNO", "CAEPF")   # RF-0.171
 POSICOES = ("matriz", "filial", "obra")
 STATUS_VALIDOS = ("ativa", "paralisada", "encerrada")
 GRAU_LABEL = {1: "leve", 2: "médio", 3: "grave"}
+
+
+logger = logging.getLogger(__name__)
 
 
 def _autor(u: Usuario) -> str:
@@ -1228,5 +1233,33 @@ async def memoria_enquadramento(
         "gerado_em": datetime.now(timezone(timedelta(hours=-3))).strftime("%d/%m/%Y às %H:%M"),
     }
     pdf = gerar_memoria_pdf(dados)
+
+    # A EMISSAO PASSA A SER REGISTRADA, COM O DOCUMENTO (Carolina, 27/10). "Os dados mudam e a
+    # memoria gerada depois sai diferente. Se um dia questionarem o que constava numa memoria que
+    # foi para uma peca, o registro precisa conseguir mostrar o documento exatamente como saiu."
+    #
+    # A chave e o CONTEUDO, nao o arquivo: o PDF imprime a hora de geracao e muda a cada clique.
+    # Reemitir o mesmo caso atualiza a ultima emissao; dados diferentes viram registro novo, com
+    # a sua propria copia — que e o fato a provar.
+    #
+    # ESTE REGISTRO NAO PODE DERRUBAR A EMISSAO. Recusar o documento a quem pediu porque o
+    # arquivamento falhou seria trocar um problema por um pior; a falha vai para o log e o PDF
+    # segue. O commit e explicito porque este endpoint, ate aqui, so lia.
+    try:
+        await registrar_emissao(
+            db,
+            empresa_id=estab.empresa_id,
+            estabelecimento_id=estab.id,
+            pdf=pdf,
+            chave_conteudo=sha256_do_conteudo(dados),
+            autor=_autor(current_user),
+            competencia_inicio=_comps[0] if _comps else None,
+            competencia_fim=_comps[-1] if _comps else None,
+        )
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        logger.exception("Falha ao registrar a emissão da memória do estabelecimento %s", estab.id)
+
     return Response(content=pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f"inline; filename=memoria_enquadramento_{estab.codigo}.pdf"})

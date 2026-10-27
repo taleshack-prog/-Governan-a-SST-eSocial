@@ -21,6 +21,8 @@ from api.models.estabelecimento_atividade import EstabelecimentoAtividade
 from api.models.estabelecimento_rat_aplicado import EstabelecimentoRatAplicado
 from api.models.estabelecimento_fpas_periodo import EstabelecimentoFpasPeriodo
 from api.models.enquadramento_evento import EnquadramentoEvento
+from api.models.escritorio_evento import EscritorioEvento
+from api.models.memoria_emitida import MemoriaEmitida
 from api.models.fundamentacao_campo import FundamentacaoCampo
 from api.models.fundamentacao_dispositivo import FundamentacaoDispositivo
 from api.models.empresa_regime import EmpresaRegime
@@ -40,7 +42,7 @@ __all__ = [
     "Escritorio",
     "Empresa", "EmpresaCnaeSecundario", "Estabelecimento", "EstabelecimentoFAP", "EstabelecimentoEnquadramento",
     "EstabelecimentoAtividade", "EstabelecimentoRatAplicado", "EstabelecimentoFpasPeriodo",
-    "EnquadramentoEvento",
+    "EnquadramentoEvento", "EscritorioEvento", "MemoriaEmitida",
     "FundamentacaoCampo", "FundamentacaoDispositivo",
     "EmpresaRegime", "EmpresaCprb", "CprbTransicao", "Trabalhador", "Vinculo",
     "Usuario", "DocumentoTecnico", "AgenteNocivo", "ExameMedico",

@@ -287,6 +287,18 @@ export function CadastroEmpresa() {
   const [resumoOrigem, setResumoOrigem] = useState<any>(null);   // composição real, vinda do backend
   const [camposOrigem, setCamposOrigem] = useState<any>({});     // procedência campo a campo
   const [arquivada, setArquivada] = useState(false);
+  // O BLOCO "ARQUIVAR OU EXCLUIR" (Carolina, 22/10). Quem decide se a exclusão está disponível é
+  // o backend, não a tela: a regra é a mesma que ele aplica ao receber o DELETE, e duplicá-la aqui
+  // criaria duas versões que divergem. Enquanto não carregar, `null` — e o botão não aparece, que
+  // é o lado seguro de errar num ato irreversível.
+  const [exclusao, setExclusao] = useState<{
+    pode_excluir: boolean; motivo: string | null;
+    competencias_conferidas: number; memorias_emitidas: number;
+  } | null>(null);
+  const [histArquivo, setHistArquivo] = useState<{
+    arquivada: { autor: string; em: string | null } | null;
+    restaurada: { autor: string; em: string | null } | null;
+  }>({ arquivada: null, restaurada: null });
   const [mostrarExclusao, setMostrarExclusao] = useState(false);
   const [confirmaExclusao, setConfirmaExclusao] = useState("");
   const [consultadoEm, setConsultadoEm] = useState<string>("");
@@ -339,6 +351,8 @@ export function CadastroEmpresa() {
       setResumoOrigem(d.resumo_origem ?? null);
       setCamposOrigem(d.campos_origem ?? {});
       setArquivada(!!d.arquivada);
+      setExclusao(d.exclusao ?? null);
+      setHistArquivo(d.historico_arquivamento ?? { arquivada: null, restaurada: null });
       setConsultadoEm(d.consultado_em ?? "");
       setCnaeDescricao(d.cnae_principal_descricao ?? "");
       setSecundarios(d.cnaes_secundarios ?? []);
@@ -541,12 +555,25 @@ export function CadastroEmpresa() {
   // RF-0.207: arquivar é REVERSÍVEL e preserva tudo; excluir é IRREVERSÍVEL e exige a razão
   // social digitada. A ação antiga ("Zerar empresa") apagava enquadramento apurado a um clique,
   // sem volta — saiu do sistema junto com o endpoint.
+  // Relê autoria e disponibilidade da exclusão depois de um ato. Quem escreve o histórico é o
+  // backend, com o nome de quem está autenticado lá; montá-lo aqui a partir do que a tela "acha"
+  // que aconteceu seria inventar assinatura, que é justamente o que este bloco existe para evitar.
+  const recarregarCicloVida = async () => {
+    if (!empresaId) return;
+    try {
+      const r = await apiClient.get(`/empresas/${empresaId}`);
+      setExclusao(r.data?.exclusao ?? null);
+      setHistArquivo(r.data?.historico_arquivamento ?? { arquivada: null, restaurada: null });
+    } catch { /* o ato já aconteceu; não mostrar o histórico atualizado não o desfaz */ }
+  };
+
   const arquivar = async () => {
     if (!empresaId) return;
     setSalvando(true); setMsg("");
     try {
       const r = await apiClient.post(`/empresas/${empresaId}/arquivar`);
       setArquivada(true);
+      await recarregarCicloVida();
       setMsg(r.data?.mensagem || "Empresa arquivada.");
     } catch (e: any) {
       setMsg(e?.response?.data?.detail || "Não foi possível arquivar.");
@@ -559,6 +586,7 @@ export function CadastroEmpresa() {
     try {
       await apiClient.post(`/empresas/${empresaId}/desarquivar`);
       setArquivada(false);
+      await recarregarCicloVida();
       setMsg("Empresa restaurada à lista principal.");
     } catch (e: any) {
       setMsg(e?.response?.data?.detail || "Não foi possível restaurar.");
@@ -1617,9 +1645,20 @@ export function CadastroEmpresa() {
             Exige digitar a razão social e é restrita ao titular do escritório. Se a intenção é
             só tirar da lista, use Arquivar.
           </p>
-          {!mostrarExclusao ? (
+          {/* A EXCLUSÃO DEIXA DE SER INCONDICIONAL (Carolina, 22/10). "Num sistema que produz
+              prova, isso só pode valer enquanto nada foi assinado nem emitido." A tarja ocupa o
+              lugar do botão: oferecer o caminho e recusar depois que a pessoa digitou a razão
+              social é pior do que explicar antes por que ele não está ali. */}
+          {exclusao && !exclusao.pode_excluir ? (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+              <p className="text-[11px] text-red-900 leading-snug">
+                <b>Exclusão indisponível.</b> {exclusao.motivo}
+              </p>
+            </div>
+          ) : !mostrarExclusao ? (
             <button onClick={() => setMostrarExclusao(true)}
-              className="text-xs text-red-700 hover:underline">
+              disabled={!exclusao}
+              className="text-xs text-red-700 hover:underline disabled:text-gray-400 disabled:no-underline">
               Quero excluir esta empresa
             </button>
           ) : (
@@ -1641,6 +1680,23 @@ export function CadastroEmpresa() {
                 </button>
               </div>
             </div>
+          )}
+
+          {/* ARQUIVAR E RESTAURAR SÃO ATOS, e ato tem autor e data (Carolina, 22/10): "pela mesma
+              regra da conferência e da declaração do regime". O bloco não registrava nem quem nem
+              quando — `arquivada_em` existia no banco e nunca chegou à tela. */}
+          {(histArquivo.arquivada || histArquivo.restaurada) && (
+            <p className="mt-3 text-[11px] text-gray-500">
+              {histArquivo.arquivada && (
+                <>Arquivada por <b>{histArquivo.arquivada.autor}</b>
+                  {histArquivo.arquivada.em && <> em {fmt.dataHora(histArquivo.arquivada.em)}</>}</>
+              )}
+              {histArquivo.arquivada && histArquivo.restaurada && " · "}
+              {histArquivo.restaurada && (
+                <>Restaurada por <b>{histArquivo.restaurada.autor}</b>
+                  {histArquivo.restaurada.em && <> em {fmt.dataHora(histArquivo.restaurada.em)}</>}</>
+              )}
+            </p>
           )}
         </div>
       </section>
