@@ -919,9 +919,9 @@ export function Estabelecimentos() {
                 {visiveis.map((e: any) => {
                   const a = e.enquadramento_atual;
                   const comp = a?.competencia ? `competência ${fmt.competencia(a.competencia)}` : "série não apurada";
+                  // A LINHA ABRE A PÁGINA (etapa B). As ações continuam onde estavam até a
+                  // etapa C reescrever a lista; clicar fora delas leva ao estabelecimento.
                   return (
-                  {/* A LINHA ABRE A PÁGINA (etapa B). As ações continuam onde estavam até a
-                      etapa C reescrever a lista; clicar fora delas leva ao estabelecimento. */}
                   <tr key={e.id} className="hover:bg-gray-50 cursor-pointer"
                     onClick={(ev) => {
                       // Só navega quando o clique não foi num botão ou link da própria linha:
