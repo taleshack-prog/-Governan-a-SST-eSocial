@@ -24,6 +24,9 @@ from api.services.enquadramento_situacao import (
     ORIGEM_GRAU, ORIGEM_FAP, ORIGEM_AMBAS,
 )
 from api.services.fundamentacao import TEXTO_CRITERIO_VIGENCIA
+# A contagem da janela e compartilhada com a lista e com a pagina do estabelecimento. Ver o
+# cabecalho de resumo_enquadramento.py para o porque de ela nao viver mais aqui dentro.
+from api.services.resumo_enquadramento import posicao_na_janela
 # A transicao da CPRB vem do modulo, nao de texto escrito aqui: e a mesma regra que o bloco do
 # cadastro mostra, e duas copias divergem com o tempo. Alias para que "TRANSICAO", sozinho, nao
 # fique ambiguo no meio de um gerador que fala de RAT, FAP e fundamentacao.
@@ -267,10 +270,15 @@ def gerar_memoria_pdf(d: dict) -> bytes:
             anos = sorted({c[3:] for c in comps})
             return ", ".join(anos)
 
-        _cred = [r for r in serie if (r.get("divergencia_pp") or 0) > 0]
-        _deb = [r for r in serie if (r.get("divergencia_pp") or 0) < 0]
-        _zero = [r for r in serie if r.get("divergencia_pp") == 0]
-        _sem = [r for r in serie if r.get("divergencia_pp") is None]
+        # A CONTAGEM VEM DO MODULO DE RESUMO, nao e feita aqui (Carolina, 27/10): "a lista e a
+        # pagina tem que usar a MESMA funcao, nao uma conta nova, para a tela e o documento nunca
+        # mostrarem numeros diferentes." Era aqui que ela vivia, e copiar para as duas telas
+        # criaria tres implementacoes da mesma regra.
+        #
+        # A classificacao e a mesma de antes, linha por linha — o que muda e so onde ela mora.
+        _pos = posicao_na_janela(serie)
+        _cred, _deb = _pos["com_credito"], _pos["com_debito"]
+        _zero, _sem = _pos["sem_divergencia"], _pos["nao_apuradas"]
         _partes = []
         if _cred:
             _partes.append(f"<b>{len(_cred)} com crédito</b> ({_onde(_cred)})")

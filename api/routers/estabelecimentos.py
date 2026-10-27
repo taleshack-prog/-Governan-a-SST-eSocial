@@ -29,6 +29,11 @@ from api.services.enquadramento_situacao import (
 from api.services.fundamentacao import citacoes_do_periodo, citacao_de
 from api.services.cprb_transicao import ANO_INICIO_TRANSICAO as ANO_INICIO_TRANSICAO_CPRB
 from api.services.memoria_registro import registrar_emissao, sha256_do_conteudo
+# As agregacoes da serie. Fonte UNICA, compartilhada com a memoria de calculo — ver o cabecalho
+# de resumo_enquadramento.py.
+from api.services.resumo_enquadramento import (
+    estado_na_janela, contagem_posicao, resumo_por_ano, o_que_falta,
+)
 from api.models.enquadramento_evento import EnquadramentoEvento, ROTULO_EVENTO
 from api.services.enquadramento_eventos import registrar_ato_humano, retrato
 
@@ -250,13 +255,53 @@ async def listar_estabelecimentos(
     ids = [e.id for e in estabs]
     corrente = await _enquadramento_corrente(ids, db)
     completo = await _completude(ids, db)
+    resumos = await _resumos_da_janela(ids, db)
     saida = []
     for e in estabs:
         d = _to_dict(e)
         d["enquadramento_atual"] = corrente.get(str(e.id))   # None = serie ainda nao apurada
         d["completude"] = completo.get(str(e.id))
+        # O QUE A LISTA-ÍNDICE MOSTRA (revisão de 27/10): o estado das competências, quantas têm
+        # crédito ou débito, e o que falta escrito por extenso. Sai dela a divergência de um mês
+        # só, que dizia pouco sobre uma janela de cinco anos.
+        d["resumo"] = resumos.get(str(e.id))
         saida.append(d)
     return saida
+
+
+async def _resumos_da_janela(estab_ids: list, db: AsyncSession) -> dict:
+    """O resumo da janela de CADA estabelecimento, numa consulta só.
+
+    Uma consulta por estabelecimento seria N+1 — com trinta estabelecimentos, trinta idas ao
+    banco para desenhar uma lista. Aqui as competências de todos vêm juntas e são agrupadas em
+    memória; a agregação em si fica nas funções compartilhadas, que é o que garante que estes
+    números sejam os mesmos da página e os mesmos do documento.
+    """
+    if not estab_ids:
+        return {}
+    rows = (await db.execute(
+        select(EstabelecimentoEnquadramento)
+        .where(EstabelecimentoEnquadramento.estabelecimento_id.in_(estab_ids))
+        .order_by(EstabelecimentoEnquadramento.estabelecimento_id,
+                  EstabelecimentoEnquadramento.competencia)
+    )).scalars().all()
+
+    por_estab: dict[str, list] = {}
+    comps: dict[str, list] = {}
+    for r in rows:
+        k = str(r.estabelecimento_id)
+        por_estab.setdefault(k, []).append(_linha_enquadramento(r))
+        comps.setdefault(k, []).append(r.competencia)
+
+    return {
+        k: {
+            "janela": {"inicio": comps[k][0].isoformat(), "fim": comps[k][-1].isoformat()},
+            "estado": estado_na_janela(serie),
+            "posicao": contagem_posicao(serie),
+            "o_que_falta": o_que_falta(serie),
+        }
+        for k, serie in por_estab.items()
+    }
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
@@ -761,55 +806,99 @@ async def serie_enquadramento(
         select(EstabelecimentoEnquadramento).where(EstabelecimentoEnquadramento.estabelecimento_id == estab_id)
         .order_by(EstabelecimentoEnquadramento.competencia)
     )).scalars().all()
-    out = []
-    for r in rows:
-        devida = float(r.aliquota_devida) if r.aliquota_devida is not None else None
-        apl = float(r.aliquota_aplicada) if r.aliquota_aplicada is not None else None
-        efet = float(r.aliquota_efetiva) if r.aliquota_efetiva is not None else None
-        fap_dev = float(r.fap) if r.fap is not None else None
-        rat_apl = float(r.rat_aplicado) if r.rat_aplicado is not None else None
-        fap_apl = float(r.fap_aplicado) if r.fap_aplicado is not None else None
-        orig = origem_divergencia(devida, fap_dev, rat_apl, fap_apl)
-        out.append({
-            "competencia": r.competencia.isoformat(),
-            "cnae_preponderante": r.cnae_preponderante,
-            "criterio": r.criterio,
-            "grau_risco": r.grau_risco,
-            "grau_label": GRAU_LABEL.get(r.grau_risco or 0, ""),
-            "aliquota_devida": devida,
-            "fap": fap_dev,
-            "aliquota_efetiva": efet,
-            "aliquota_aplicada": apl,
-            # As duas origens aplicadas + de qual veio a divergência (item 1 da revisão)
-            "rat_aplicado": rat_apl,
-            "fap_aplicado": fap_apl,
-            "origem_divergencia": orig,
-            "origem_label": ROTULO_ORIGEM.get(orig) if orig else None,
-            "amparada": divergencia_amparada(orig, r.processo_rat, r.processo_fap),
-            "processo_rat": r.processo_rat,
-            "processo_fap": r.processo_fap,
-            "divergencia_pp": divergencia_de(efet, apl),
-            "divergencia_confirmada": divergencia_confirmada(rat_apl, fap_apl),
-            "situacao": situacao_de(rat_aplicavel=r.rat_aplicavel, em_fila=r.em_fila,
-                                    aliquota_devida=devida, rat_aplicado=rat_apl,
-                                    fap_aplicado=fap_apl, conferido_por=r.conferido_por),
-            "motivo_conferencia": motivo_conferencia(
-                rat_aplicavel=r.rat_aplicavel, em_fila=r.em_fila, motivo_fila=r.motivo_fila,
-                aliquota_devida=devida, rat_aplicado=rat_apl, fap_aplicado=fap_apl),
-            "rat_aplicavel": bool(r.rat_aplicavel),
-            "motivo_inaplicavel": r.motivo_inaplicavel,
-            "conferido_por": r.conferido_por,
-            "conferido_em": r.conferido_em.isoformat() if r.conferido_em else None,
-            "revogado_em": r.revogado_em.isoformat() if r.revogado_em else None,
-            "revogado_de": r.revogado_de,
-            "em_fila": r.em_fila,
-            "motivo_fila": r.motivo_fila,
-            # SEM 'fundamentacao' na linha. A citacao nao e dado da competencia: a tela pergunta
-            # a /fundamentacao/{campo}?em=<competencia>, que le a tabela versionada na data certa.
-            # Enquanto vinha daqui, o rodape da tela mostrava o texto congelado na primeira linha
-            # da serie — sem data — como se valesse para todos os anos exibidos.
-        })
+    return [_linha_enquadramento(r) for r in rows]
+
+
+def _linha_enquadramento(r) -> dict:
+    """UMA competência serializada. Extraída do corpo do endpoint da série (27/10).
+
+    Existe como função porque três lugares precisam da mesma linha: a série mensal, o resumo do
+    estabelecimento e a lista. Repetir a conversão em cada um faria a divergência ser calculada
+    de três formas — e é exatamente o que a revisão da estrutura mandou evitar.
+    """
+    devida = float(r.aliquota_devida) if r.aliquota_devida is not None else None
+    apl = float(r.aliquota_aplicada) if r.aliquota_aplicada is not None else None
+    efet = float(r.aliquota_efetiva) if r.aliquota_efetiva is not None else None
+    fap_dev = float(r.fap) if r.fap is not None else None
+    rat_apl = float(r.rat_aplicado) if r.rat_aplicado is not None else None
+    fap_apl = float(r.fap_aplicado) if r.fap_aplicado is not None else None
+    orig = origem_divergencia(devida, fap_dev, rat_apl, fap_apl)
+    return {
+        "competencia": r.competencia.isoformat(),
+        "cnae_preponderante": r.cnae_preponderante,
+        "criterio": r.criterio,
+        "grau_risco": r.grau_risco,
+        "grau_label": GRAU_LABEL.get(r.grau_risco or 0, ""),
+        "aliquota_devida": devida,
+        "fap": fap_dev,
+        "aliquota_efetiva": efet,
+        "aliquota_aplicada": apl,
+        # As duas origens aplicadas + de qual veio a divergência (item 1 da revisão)
+        "rat_aplicado": rat_apl,
+        "fap_aplicado": fap_apl,
+        "origem_divergencia": orig,
+        "origem_label": ROTULO_ORIGEM.get(orig) if orig else None,
+        "amparada": divergencia_amparada(orig, r.processo_rat, r.processo_fap),
+        "processo_rat": r.processo_rat,
+        "processo_fap": r.processo_fap,
+        "divergencia_pp": divergencia_de(efet, apl),
+        "divergencia_confirmada": divergencia_confirmada(rat_apl, fap_apl),
+        "situacao": situacao_de(rat_aplicavel=r.rat_aplicavel, em_fila=r.em_fila,
+                                aliquota_devida=devida, rat_aplicado=rat_apl,
+                                fap_aplicado=fap_apl, conferido_por=r.conferido_por),
+        "motivo_conferencia": motivo_conferencia(
+            rat_aplicavel=r.rat_aplicavel, em_fila=r.em_fila, motivo_fila=r.motivo_fila,
+            aliquota_devida=devida, rat_aplicado=rat_apl, fap_aplicado=fap_apl),
+        "rat_aplicavel": bool(r.rat_aplicavel),
+        "motivo_inaplicavel": r.motivo_inaplicavel,
+        "conferido_por": r.conferido_por,
+        "conferido_em": r.conferido_em.isoformat() if r.conferido_em else None,
+        "revogado_em": r.revogado_em.isoformat() if r.revogado_em else None,
+        "revogado_de": r.revogado_de,
+        "em_fila": r.em_fila,
+        "motivo_fila": r.motivo_fila,
+        # SEM 'fundamentacao' na linha. A citacao nao e dado da competencia: a tela pergunta
+        # a /fundamentacao/{campo}?em=<competencia>, que le a tabela versionada na data certa.
+        # Enquanto vinha daqui, o rodape da tela mostrava o texto congelado na primeira linha
+        # da serie — sem data — como se valesse para todos os anos exibidos.
+    }
     return out
+
+
+# ---- Resumo da janela: o que a página do estabelecimento lê no topo (revisão de 27/10) ----
+#
+# Endpoint PRÓPRIO, e não campos a mais em /enquadramento, porque aquele devolve uma lista pura e
+# transformá-la em objeto quebraria quem já a consome. A série mensal continua como está; quem
+# quer o resumo pede o resumo.
+#
+# Todos os números saem de api/services/resumo_enquadramento.py — as MESMAS funções que a memória
+# de cálculo usa. Nas palavras dela: "a lista e a página têm que usar a mesma função, não uma
+# conta nova, para a tela e o documento nunca mostrarem números diferentes."
+@router.get("/{estab_id}/enquadramento/resumo")
+async def resumo_enquadramento_estab(
+    estab_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Estado das competências, posição na janela, resumo por ano e o que falta."""
+    await _tenant_estab(estab_id, current_user, db)
+    rows = (await db.execute(
+        select(EstabelecimentoEnquadramento)
+        .where(EstabelecimentoEnquadramento.estabelecimento_id == estab_id)
+        .order_by(EstabelecimentoEnquadramento.competencia)
+    )).scalars().all()
+    serie = [_linha_enquadramento(r) for r in rows]
+    comps = [r.competencia for r in rows]
+    return {
+        # A janela é o período efetivamente apurado, lido da própria série — e não o período
+        # cadastrado na empresa. Quando os dois divergem, é a série que diz o que existe.
+        "janela": {"inicio": comps[0].isoformat() if comps else None,
+                   "fim": comps[-1].isoformat() if comps else None},
+        "estado": estado_na_janela(serie),
+        "posicao": contagem_posicao(serie),
+        "resumo_ano": resumo_por_ano(serie),
+        "o_que_falta": o_que_falta(serie),
+    }
 
 
 # ---- Conferência: o ato humano (itens 1 e 2 da revisão de 19/10) ----
