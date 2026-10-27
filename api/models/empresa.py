@@ -85,5 +85,10 @@ class Empresa(Base):
     contato_nome: Mapped[str | None] = mapped_column(String(200))
     contato_email: Mapped[str | None] = mapped_column(String(200))
     contato_telefone: Mapped[str | None] = mapped_column(String(20))
+    # PAPEL DO CONTATO (migration 055): contador, socio, rh ou outro. Nome e telefone nao dizem
+    # para que serve aquela pessoa, e e o papel que decide a quem se pede cada coisa — documento
+    # ao contador, quantitativo a quem responde pelo RH, decisao ao socio. Vocabulario fechado por
+    # CHECK no banco e por Literal no schema.
+    contato_papel: Mapped[str | None] = mapped_column(String(30))
     documentos = relationship("DocumentoTecnico", back_populates="empresa")
     usuarios = relationship("Usuario", back_populates="empresa")

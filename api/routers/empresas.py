@@ -4,7 +4,7 @@
 import re
 from uuid import UUID
 from datetime import date, datetime, timezone
-from typing import List, Optional
+from typing import List, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete
@@ -339,6 +339,10 @@ class EmpresaUpdate(BaseModel):
     contato_nome: str | None = None
     contato_email: str | None = None
     contato_telefone: str | None = None
+    # VOCABULARIO FECHADO tambem aqui, e nao so no CHECK do banco. Sem o Literal, um valor fora da
+    # lista chegaria ao INSERT e voltaria como erro 500 de integridade — mensagem de banco para
+    # quem preencheu um formulario. Com ele, volta 422 dizendo quais sao os valores aceitos.
+    contato_papel: Literal["contador", "socio", "rh", "outro"] | None = None
 
 
 class RegimeItem(BaseModel):
@@ -530,6 +534,7 @@ async def obter_empresa(
         "cep": empresa.cep,
         "num_estabelecimentos": int(num_estab),
         "contato_nome": empresa.contato_nome,
+        "contato_papel": empresa.contato_papel,
         "contato_email": empresa.contato_email,
         "contato_telefone": empresa.contato_telefone,
     }

@@ -278,7 +278,7 @@ export function CadastroEmpresa() {
     periodo_inicio: ymMinus(59), periodo_fim: ymToday(),
     data_abertura: "", data_encerramento: "",
     tipo_logradouro: "", endereco: "", numero: "", complemento: "", bairro: "", cidade: "", uf: "", cep: "",
-    contato_nome: "", contato_email: "", contato_telefone: "",
+    contato_nome: "", contato_papel: "", contato_email: "", contato_telefone: "",
   });
   // Indice do periodo de regime aguardando confirmacao de remocao, ou null.
   const [removerRegime, setRemoverRegime] = useState<number | null>(null);
@@ -313,12 +313,18 @@ export function CadastroEmpresa() {
   const [cprbRegras, setCprbRegras] = useState<any[]>([]);
   const [cprbAvisos, setCprbAvisos] = useState<{ decimo?: string; anoCalendario?: string }>({});
   const [espelho, setEspelho] = useState<any>(null);
-  const [numEstab, setNumEstab] = useState<number>(0);
   const [cnpjErro, setCnpjErro] = useState("");
   const [consultaMsg, setConsultaMsg] = useState("");
   const [cepMsg, setCepMsg] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [msg, setMsg] = useState("");
+  // O TOM DA MENSAGEM É DECLARADO POR QUEM A EMITE, não deduzido do texto. Antes a cor saía de
+  // `msg.includes("salvos")`, e "Empresa arquivada" — que é sucesso — aparecia em vermelho.
+  // Adivinhar pelo conteúdo obriga a lembrar de cadastrar cada frase nova, e esquecer significa
+  // dizer ao usuário que deu errado uma coisa que deu certo.
+  const [msgOk, setMsgOk] = useState(false);
+  const aviso = (texto: string) => { setMsg(texto); setMsgOk(false); };   // erro ou impedimento
+  const avisoOk = (texto: string) => { setMsg(texto); setMsgOk(true); };  // o ato aconteceu
 
   const set = (k: string, v: any) => setForm((f: any) => ({ ...f, [k]: v }));
 
@@ -345,7 +351,8 @@ export function CadastroEmpresa() {
         tipo_logradouro: d.tipo_logradouro ?? "",
         endereco: d.endereco ?? "", numero: d.numero ?? "", complemento: d.complemento ?? "",
         bairro: d.bairro ?? "", cidade: d.cidade ?? "", uf: d.uf ?? "", cep: d.cep ?? "",
-        contato_nome: d.contato_nome ?? "", contato_email: d.contato_email ?? "", contato_telefone: d.contato_telefone ?? "",
+        contato_nome: d.contato_nome ?? "", contato_papel: d.contato_papel ?? "",
+        contato_email: d.contato_email ?? "", contato_telefone: d.contato_telefone ?? "",
       }));
       setOrigem(d.origem_cadastro ?? "");
       setResumoOrigem(d.resumo_origem ?? null);
@@ -356,7 +363,6 @@ export function CadastroEmpresa() {
       setConsultadoEm(d.consultado_em ?? "");
       setCnaeDescricao(d.cnae_principal_descricao ?? "");
       setSecundarios(d.cnaes_secundarios ?? []);
-      setNumEstab(d.num_estabelecimentos ?? 0);
     }).catch(() => {});
   };
 
@@ -492,17 +498,17 @@ export function CadastroEmpresa() {
 
   const salvar = async () => {
     if (!empresaId) return;
-    if (form.cnpj && !validaCnpj(form.cnpj)) { setCnpjErro("CNPJ inválido (dígito verificador)."); setMsg("Corrija o CNPJ antes de salvar."); return; }
-    if (mesesEntre(form.periodo_inicio, form.periodo_fim) < 0) { setMsg("Período de apuração: início depois do fim."); return; }
+    if (form.cnpj && !validaCnpj(form.cnpj)) { setCnpjErro("CNPJ inválido (dígito verificador)."); aviso("Corrija o CNPJ antes de salvar."); return; }
+    if (mesesEntre(form.periodo_inicio, form.periodo_fim) < 0) { aviso("Período de apuração: início depois do fim."); return; }
     // RF-0.156: regime sem lacuna no período de apuração
     const errRegime = validaRegime(regimes, form.periodo_inicio, form.periodo_fim);
-    if (errRegime) { setMsg(`Regime — ${errRegime}`); return; }
+    if (errRegime) { aviso(`Regime — ${errRegime}`); return; }
     // RF-0.163..0.166: valida o bloco CPRB antes de enviar
     if (cprbStatus === "optante") {
       const errCprb = validaAnosCprb(cprb);
-      if (errCprb) { setMsg(`CPRB — ${errCprb}`); return; }
+      if (errCprb) { aviso(`CPRB — ${errCprb}`); return; }
     }
-    setSalvando(true); setMsg("");
+    setSalvando(true); aviso("");
     try {
       await apiClient.put(`/empresas/${empresaId}`, {
         razao_social: form.razao_social, nome_fantasia: form.nome_fantasia, cnpj: form.cnpj,
@@ -526,7 +532,8 @@ export function CadastroEmpresa() {
         tipo_logradouro: form.tipo_logradouro || null,
         endereco: form.endereco, numero: form.numero, complemento: form.complemento,
         bairro: form.bairro, cidade: form.cidade, uf: form.uf, cep: form.cep,
-        contato_nome: form.contato_nome, contato_email: form.contato_email, contato_telefone: form.contato_telefone,
+        contato_nome: form.contato_nome, contato_papel: form.contato_papel || null,
+        contato_email: form.contato_email, contato_telefone: form.contato_telefone,
       });
       await apiClient.put(`/empresas/${empresaId}/regime`, regimes.filter((p) => p.regime && p.inicio).map((p) => ({
         regime: p.regime, anexo_simples: p.regime === "simples" ? (p.anexo_simples || null) : null,
@@ -537,7 +544,7 @@ export function CadastroEmpresa() {
         periodos: cprbStatus === "optante" ? anosParaPeriodos(cprb) : [],
       });
       setConsultaMsg("");   // transitório: cumpriu a função, sai de cena
-      setMsg("Dados salvos. A matriz foi criada/atualizada e o enquadramento espelhado abaixo.");
+      avisoOk("Dados salvos. A matriz foi criada/atualizada e o enquadramento espelhado abaixo.");
       carregarEspelho();
       // Relê a empresa INTEIRA: procedência por campo, resumo, consultado_em e descrição do CNAE
       // passam a refletir o que foi gravado. Antes esta chamada existia e aproveitava só a
@@ -548,7 +555,7 @@ export function CadastroEmpresa() {
       setConsultaBruta(null);
       apiClient.get(`/empresas/${empresaId}/cprb`).then((r) => setCprbVerif({ por: r.data?.verificado_por, em: r.data?.verificado_em })).catch(() => {});
     } catch {
-      setMsg("Não foi possível salvar. Verifique os campos (períodos não podem se sobrepor).");
+      aviso("Não foi possível salvar. Verifique os campos (períodos não podem se sobrepor).");
     } finally { setSalvando(false); }
   };
 
@@ -569,42 +576,42 @@ export function CadastroEmpresa() {
 
   const arquivar = async () => {
     if (!empresaId) return;
-    setSalvando(true); setMsg("");
+    setSalvando(true); aviso("");
     try {
       const r = await apiClient.post(`/empresas/${empresaId}/arquivar`);
       setArquivada(true);
       await recarregarCicloVida();
-      setMsg(r.data?.mensagem || "Empresa arquivada.");
+      avisoOk(r.data?.mensagem || "Empresa arquivada.");
     } catch (e: any) {
-      setMsg(e?.response?.data?.detail || "Não foi possível arquivar.");
+      aviso(e?.response?.data?.detail || "Não foi possível arquivar.");
     } finally { setSalvando(false); }
   };
 
   const desarquivar = async () => {
     if (!empresaId) return;
-    setSalvando(true); setMsg("");
+    setSalvando(true); aviso("");
     try {
       await apiClient.post(`/empresas/${empresaId}/desarquivar`);
       setArquivada(false);
       await recarregarCicloVida();
-      setMsg("Empresa restaurada à lista principal.");
+      avisoOk("Empresa restaurada à lista principal.");
     } catch (e: any) {
-      setMsg(e?.response?.data?.detail || "Não foi possível restaurar.");
+      aviso(e?.response?.data?.detail || "Não foi possível restaurar.");
     } finally { setSalvando(false); }
   };
 
   const excluir = async () => {
     if (!empresaId) return;
-    setSalvando(true); setMsg("");
+    setSalvando(true); aviso("");
     try {
       // A razão social digitada vai no corpo; o backend compara com a cadastrada e recusa se
       // não for idêntica. A confirmação é do servidor, não da tela.
       await apiClient.delete(`/empresas/${empresaId}`, { data: { razao_social: confirmaExclusao } });
-      setMsg("Empresa excluída. Cadastre a próxima pelo CNPJ.");
+      avisoOk("Empresa excluída. Cadastre a próxima pelo CNPJ.");
       setConfirmaExclusao(""); setMostrarExclusao(false);
       window.location.reload();
     } catch (e: any) {
-      setMsg(e?.response?.data?.detail || "Não foi possível excluir.");
+      aviso(e?.response?.data?.detail || "Não foi possível excluir.");
     } finally { setSalvando(false); }
   };
 
@@ -1597,15 +1604,39 @@ export function CadastroEmpresa() {
       {/* Contato + estabelecimentos */}
       <section className="bg-white rounded-xl border border-gray-100 p-5 mb-4">
         <h2 className="text-sm font-bold text-gray-800 mb-3">Contato</h2>
-        <div className="grid grid-cols-3 gap-4">
+        {/* O PAPEL ENTRA NO BLOCO. Nome, e-mail e telefone não dizem QUEM é aquela pessoa em
+            relação à empresa, e é o papel que decide a quem se pede cada coisa: documento ao
+            contador, confirmação de quantitativo a quem responde pelo RH, decisão sobre o
+            enquadramento ao sócio. Lista fechada — texto livre produziria "contadora",
+            "Contador(a)" e "cont.", e nenhuma consulta possível depois.
+
+            A CONTAGEM DE ESTABELECIMENTOS SAIU daqui: era informação de estrutura dentro do bloco
+            de contato, e nada tinha a ver com a pessoa com quem se fala. */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div><label className={labelCls}>Nome</label><input className={inputCls} value={form.contato_nome} onChange={(e) => set("contato_nome", e.target.value)} /></div>
+          <div>
+            <label className={labelCls}>Papel</label>
+            <select className={inputCls} value={form.contato_papel}
+              onChange={(e) => set("contato_papel", e.target.value)}>
+              <option value="">— selecione —</option>
+              <option value="contador">Contador</option>
+              <option value="socio">Sócio</option>
+              <option value="rh">Responsável pelo RH</option>
+              <option value="outro">Outro</option>
+            </select>
+          </div>
           <div><label className={labelCls}>E-mail</label><input className={inputCls} value={form.contato_email} onChange={(e) => set("contato_email", e.target.value)} /></div>
           <div><label className={labelCls}>Telefone</label><input className={inputCls} value={form.contato_telefone} onChange={(e) => set("contato_telefone", e.target.value)} /></div>
         </div>
-        <p className="text-[11px] text-gray-400 mt-3">Estabelecimentos ativos: <b>{numEstab}</b> (contagem automática).</p>
       </section>
 
-      {msg && <p className={`text-sm mb-3 ${msg.includes("salvos") || msg.includes("zerado") ? "text-emerald-600" : "text-red-600"}`}>{msg}</p>}
+      {/* A COR VEM DO ATO, não de palavra dentro do texto (Carolina, 27/10: "Empresa arquivada" e
+          "Empresa restaurada" saíam em vermelho, que é cor de erro). A regra anterior pintava de
+          verde se a mensagem contivesse "salvos" ou "zerado", e de vermelho todo o resto — então
+          toda mensagem nova nascia vermelha até alguém lembrar de cadastrar a sua palavra. Pior:
+          "zerado" era resto do "Zerar empresa", que saiu do sistema na RF-0.207; a regra testava
+          uma palavra que não existe mais e não testava as que existem. */}
+      {msg && <p className={`text-sm mb-3 ${msgOk ? "text-emerald-600" : "text-red-600"}`}>{msg}</p>}
       <button onClick={salvar} disabled={salvando}
         className="bg-indigo-600 text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
         {salvando ? "Salvando…" : "Salvar dados da empresa"}
