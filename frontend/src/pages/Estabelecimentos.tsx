@@ -184,7 +184,9 @@ function AtividadesModal({ estab, onFechar, embutido = false }: { estab: any; on
       <div className={embutido
             ? "bg-white rounded-xl border border-gray-100 p-5"
             : "bg-white rounded-2xl p-6 w-full max-w-3xl shadow-xl max-h-[90vh] overflow-y-auto"}>
+        {!embutido && (
         <h2 className="text-lg font-bold text-gray-900">Atividades — {estab.nome}</h2>
+        )}
         <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-800 my-3">
           <b>Quem conta:</b> empregados CLT (inclui aprendiz) e trabalhadores avulsos.
           <b> Não contam:</b> contribuintes individuais (sócios/diretores sem vínculo, autônomos), estagiários, e terceirizados (contam na folha do prestador).
@@ -301,7 +303,9 @@ function PainelModal({ estab, onFechar, embutido = false }: { estab: any; onFech
             ? "bg-white rounded-xl border border-gray-100 p-5"
             : "bg-white rounded-2xl p-6 w-full max-w-5xl shadow-xl max-h-[90vh] overflow-y-auto"}>
         <div className="flex items-center justify-between">
+          {!embutido && (
           <h2 className="text-lg font-bold text-gray-900">Enquadramento apurado — {estab.nome}</h2>
+          )}
           <div className="flex gap-2">
             <button onClick={async () => {
               try {
@@ -527,7 +531,9 @@ function RatAplicadoModal({ estab, onFechar, embutido = false }: { estab: any; o
       <div className={embutido
             ? "bg-white rounded-xl border border-gray-100 p-5"
             : "bg-white rounded-2xl p-6 w-full max-w-4xl shadow-xl max-h-[90vh] overflow-y-auto"}>
+        {!embutido && (
         <h2 className="text-lg font-bold text-gray-900">RAT aplicado pela empresa — {estab.nome}</h2>
+        )}
         <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-800 my-3">
           Informe o que a empresa <b>efetivamente declarou</b>, como está no eSocial (evento S-1005):
           a <b>alíquota RAT</b> (<code>aliqRat</code>) e o <b>FAP</b> (<code>fap</code>). A alíquota efetiva
@@ -641,7 +647,9 @@ function FpasModal({ estab, onFechar, embutido = false }: { estab: any; onFechar
       <div className={embutido
             ? "bg-white rounded-xl border border-gray-100 p-5"
             : "bg-white rounded-2xl p-6 w-full max-w-3xl shadow-xl max-h-[90vh] overflow-y-auto"}>
+        {!embutido && (
         <h2 className="text-lg font-bold text-gray-900">FPAS — {estab.nome}</h2>
+        )}
         <p className="text-[11px] text-gray-400 mt-1 mb-3">
           O FPAS determina a composição das contribuições a Terceiros. Como essa composição muda
           dentro da janela de apuração, o código é informado <b>por período</b>. Opções:
@@ -1078,6 +1086,20 @@ export function EstabelecimentoPagina() {
     queryFn: async () => (await apiClient.get(`/estabelecimentos/${id}/enquadramento/resumo`)).data,
   });
 
+  const { data: ativs } = useQuery({
+    enabled: !!id,
+    queryKey: ["estab-ativ", id],
+    queryFn: async () => (await apiClient.get(`/estabelecimentos/${id}/atividades`)).data,
+  });
+  const { data: ratApl } = useQuery({
+    enabled: !!id,
+    queryKey: ["estab-rat", id],
+    queryFn: async () => (await apiClient.get(`/estabelecimentos/${id}/rat-aplicado`)).data,
+  });
+
+  // A série mensal e a conferência ficam a um clique, fechadas por padrão (item 7).
+  const [serieAberta, setSerieAberta] = useState(false);
+
   const ABAS = [
     ["identificacao", "Identificação"],
     ["atividades", "Atividades"],
@@ -1112,11 +1134,34 @@ export function EstabelecimentoPagina() {
     ? `${fmt.competencia(janela.inicio)} a ${fmt.competencia(janela.fim)}`
     : "sem competências apuradas";
 
-  const Bloco = ({ ancora, titulo, children }: { ancora: string; titulo: string; children: any }) => (
+  const Bloco = ({ ancora, titulo, children, acao }: {
+    ancora: string; titulo: string; children: any; acao?: any;
+  }) => (
     <section id={`bloco-${ancora}`} className="scroll-mt-24 mb-4">
-      <h2 className="text-sm font-bold text-gray-800 mb-2">{titulo}</h2>
+      <div className="flex items-baseline justify-between mb-2">
+        <h2 className="text-sm font-bold text-gray-800">{titulo}</h2>
+        {acao}
+      </div>
       {children}
     </section>
+  );
+
+  // ITEM 6: OS BLOCOS ABREM EM LEITURA. Ela: "hoje a página é um formulário inteiro aberto, o que
+  // tira a visão ampla e deixa alterar dado sem querer." Em leitura o bloco mostra o que está
+  // valendo; "editar" troca aquele bloco — e só aquele — pelo formulário, que continua sendo o
+  // componente já revisado da janela antiga.
+  const [editando, setEditando] = useState<string | null>(null);
+  const BotaoEditar = ({ bloco }: { bloco: string }) => (
+    <button onClick={() => setEditando((v) => (v === bloco ? null : bloco))}
+      className="text-xs text-indigo-700 hover:underline">
+      {editando === bloco ? "fechar" : "editar"}
+    </button>
+  );
+
+  // O cartão de leitura de um bloco que ainda não tem resumo próprio: diz o que há, sem abrir
+  // formulário. Some assim que o bloco ganhar a sua própria leitura.
+  const Leitura = ({ children }: { children: any }) => (
+    <div className="bg-white rounded-xl border border-gray-100 p-5 text-xs text-gray-600">{children}</div>
   );
 
   return (
@@ -1130,7 +1175,7 @@ export function EstabelecimentoPagina() {
         <span className="inline-block bg-gray-100 text-gray-700 rounded px-1.5 py-0.5 mr-2 uppercase tracking-wide text-[10px] font-semibold">
           {estab.posicao || "—"}
         </span>
-        <span className="font-mono">{estab.cnpj || estab.identificador || "—"}</span>
+        <span className="font-mono">{estab.cnpj ? fmt.cnpj(estab.cnpj) : (estab.identificador || "—")}</span>
         {estab.cidade ? ` · ${estab.cidade}/${estab.uf || ""}` : ""}
         {estab.data_abertura ? ` · ativa desde ${fmt.data(estab.data_abertura)}` : ""}
       </p>
@@ -1189,8 +1234,8 @@ export function EstabelecimentoPagina() {
 
       <Bloco ancora="identificacao" titulo="Identificação">
         <div className="bg-white rounded-xl border border-gray-100 p-5 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-          <div><p className="text-[11px] text-gray-500">Natureza</p><p>{estab.tipo_estabelecimento || "—"}</p></div>
-          <div><p className="text-[11px] text-gray-500">CNPJ / CNO</p><p className="font-mono">{estab.cnpj || estab.identificador || "—"}</p></div>
+          <div><p className="text-[11px] text-gray-500">Natureza</p><p>{fmt.natureza(estab.posicao, estab.tipo_estabelecimento)}</p></div>
+          <div><p className="text-[11px] text-gray-500">CNPJ / CNO</p><p className="font-mono">{estab.cnpj ? fmt.cnpj(estab.cnpj) : (estab.identificador || "—")}</p></div>
           <div><p className="text-[11px] text-gray-500">Abertura</p><p>{estab.data_abertura ? fmt.data(estab.data_abertura) : "—"}</p></div>
           <div><p className="text-[11px] text-gray-500">Situação</p><p>{estab.status || "—"}</p></div>
         </div>
@@ -1198,8 +1243,44 @@ export function EstabelecimentoPagina() {
 
       {/* Os quatro blocos abaixo são as antigas janelas, agora embutidas. O conteúdo e a gravação
           são os mesmos; some só a moldura flutuante. */}
-      <Bloco ancora="atividades" titulo="Atividades — quantitativo de segurados empregados e avulsos">
-        <AtividadesModal estab={estab} onFechar={() => {}} embutido />
+      <Bloco ancora="atividades" titulo="Atividades — quantitativo de segurados empregados e avulsos"
+        acao={<BotaoEditar bloco="atividades" />}>
+        {editando === "atividades" ? (
+          <AtividadesModal estab={estab} onFechar={() => setEditando(null)} embutido />
+        ) : (
+          <div className="bg-white rounded-xl border border-gray-100 p-5">
+            {(ativs || []).length === 0 ? (
+              <p className="text-xs text-gray-500">Nenhuma atividade declarada.</p>
+            ) : (
+              <>
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-[10px] uppercase tracking-wide text-gray-500 text-left">
+                      <th className="py-1">CNAE</th><th>Descrição</th><th>Nº trab.</th><th>Vigência</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {(ativs || []).map((a: any, i: number) => (
+                      <tr key={i} className="text-gray-700">
+                        <td className="py-2 font-mono">{fmt.cnae(a.cnae)}</td>
+                        <td className="pr-3">{a.descricao || "—"}</td>
+                        <td>{a.quantitativo}</td>
+                        <td>{fmt.competencia(a.inicio)} a {a.fim ? fmt.competencia(a.fim) : "vigente"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {/* A autoria fica na leitura, não dentro do formulário: é informação de quem lê,
+                    não de quem edita. */}
+                {(ativs || []).some((a: any) => a.declarado_por) && (
+                  <p className="text-[11px] text-gray-500 mt-3">
+                    Declarado por {(ativs || []).find((a: any) => a.declarado_por)?.declarado_por}.
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </Bloco>
 
       {/* O FAP ainda não é um componente próprio: hoje ele vive dentro do componente da lista,
@@ -1214,16 +1295,106 @@ export function EstabelecimentoPagina() {
         </div>
       </Bloco>
 
-      <Bloco ancora="rat" titulo="RAT aplicado pela empresa">
-        <RatAplicadoModal estab={estab} onFechar={() => {}} embutido />
+      <Bloco ancora="rat" titulo="RAT aplicado pela empresa" acao={<BotaoEditar bloco="rat" />}>
+        {editando === "rat" ? (
+          <RatAplicadoModal estab={estab} onFechar={() => setEditando(null)} embutido />
+        ) : (
+          <div className="bg-white rounded-xl border border-gray-100 p-5">
+            {(ratApl || []).length === 0 ? (
+              <p className="text-xs text-gray-500">Nada declarado — é o número que a empresa usou na folha.</p>
+            ) : (
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-[10px] uppercase tracking-wide text-gray-500 text-left">
+                    <th className="py-1">Período</th><th>RAT</th><th>FAP</th><th>Efetiva</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {(ratApl || []).map((x: any, i: number) => (
+                    <tr key={i} className="text-gray-700">
+                      <td className="py-2">{fmt.competencia(x.inicio)} {x.fim ? `a ${fmt.competencia(x.fim)}` : "em diante"}</td>
+                      <td>{x.aliquota_rat == null ? "—" : fmt.pct(x.aliquota_rat)}</td>
+                      <td>{x.fap_aplicado == null ? "—" : fmt.num(x.fap_aplicado, 4)}</td>
+                      <td>{x.aliquota == null ? "—" : fmt.pct(x.aliquota)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
       </Bloco>
 
-      <Bloco ancora="enquadramento" titulo="Enquadramento">
-        <PainelModal estab={estab} onFechar={() => {}} embutido />
+      {/* ITEM 7: O RESULTADO APARECE POR ANO, NAO POR MES. Seis linhas em vez de sessenta, e a
+          inversao de crédito para débito fica visível de relance. A série mensal, a conferência
+          e a memória continuam a um clique — a janela antiga vira um painel que abre sob demanda,
+          e não o conteúdo padrão do bloco.
+
+          Os números vêm do resumo do servidor (etapa A), as mesmas funções que a memória de
+          cálculo usa: a tela não soma nada por conta própria. */}
+      <Bloco ancora="enquadramento" titulo="Enquadramento — resumo por ano">
+        <div className="bg-white rounded-xl border border-gray-100 p-5">
+          <div className="flex justify-end mb-2">
+            <button onClick={() => setSerieAberta((v) => !v)}
+              className="text-xs text-indigo-700 hover:underline">
+              {serieAberta ? "fechar a série mensal" : "abrir série mensal e conferência"}
+            </button>
+          </div>
+          {(r.resumo_ano || []).length === 0 ? (
+            <p className="text-xs text-gray-500">Nenhuma competência apurada nesta janela.</p>
+          ) : (
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-[10px] uppercase tracking-wide text-gray-500 text-left">
+                  <th className="py-1">Ano</th><th>Comp.</th><th>Preponderante</th>
+                  <th>Devida</th><th>Aplicada</th><th>Divergência</th><th>Situação</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {(r.resumo_ano || []).map((l: any) => {
+                  // "varia" quando as competências do ano não concordam: resumir doze valores
+                  // numa célula só é honesto enquanto eles forem o mesmo valor.
+                  const cel = (v: any, varia: boolean, fmtv: (x: any) => string) =>
+                    varia ? <span className="text-gray-400">varia</span> : (v == null ? "—" : fmtv(v));
+                  const d = l.divergencia_pp;
+                  return (
+                    <tr key={l.ano} className="text-gray-700">
+                      <td className="py-2 font-medium">{l.ano}</td>
+                      <td>{l.competencias}</td>
+                      <td className="font-mono">{cel(l.cnae_preponderante, l.cnae_preponderante_varia, (x) => fmt.cnae(x))}</td>
+                      <td>{cel(l.aliquota_devida, l.aliquota_devida_varia, (x) => fmt.pct(x))}</td>
+                      <td>{cel(l.aliquota_aplicada, l.aliquota_aplicada_varia, (x) => fmt.pct(x))}</td>
+                      <td>
+                        {l.divergencia_pp_varia ? <span className="text-gray-400">varia</span>
+                          : d == null ? <span className="text-gray-400">não apurada</span>
+                          : d === 0 ? "0,00"
+                          : <b className={d > 0 ? "text-indigo-700" : "text-red-700"}>
+                              {fmt.pp(d)} {d > 0 ? "crédito" : "débito"}
+                            </b>}
+                      </td>
+                      <td>{l.situacao === "conferencia" ? "em conferência"
+                          : l.situacao === "nao_auditada" ? "não auditada"
+                          : l.situacao === "conferido" ? "conferida" : "apurada"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+        {serieAberta && (
+          <div className="mt-3">
+            <PainelModal estab={estab} onFechar={() => setSerieAberta(false)} embutido />
+          </div>
+        )}
       </Bloco>
 
-      <Bloco ancora="fpas" titulo="FPAS e Terceiros">
-        <FpasModal estab={estab} onFechar={() => {}} embutido />
+      <Bloco ancora="fpas" titulo="FPAS e Terceiros" acao={<BotaoEditar bloco="fpas" />}>
+        {editando === "fpas" ? (
+          <FpasModal estab={estab} onFechar={() => setEditando(null)} embutido />
+        ) : (
+          <Leitura>Clique em “editar” para ver e alterar os períodos de FPAS e Terceiros.</Leitura>
+        )}
       </Bloco>
     </div>
   );

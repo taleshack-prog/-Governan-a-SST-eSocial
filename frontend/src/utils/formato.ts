@@ -64,3 +64,21 @@ export const dataHora = (iso?: string | null): string => {
   if (Number.isNaN(d.getTime())) return "—";
   return `${d.toLocaleDateString("pt-BR")} às ${d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
 };
+
+// CNPJ com pontuação: 90244278000105 -> 90.244.278/0001-05 (Carolina, 27/10).
+// Só formata o que tem 14 dígitos. CNO e CAEPF têm outros formatos e passam inteiros: inventar
+// pontuação em documento que não é CNPJ seria pior do que não formatar.
+export const cnpj = (v?: string | null): string => {
+  const d = (v || "").replace(/\D/g, "");
+  if (d.length !== 14) return v || "—";
+  return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
+};
+
+// "matriz" -> "Matriz". A natureza do estabelecimento é a posição dele na empresa; o tipo de
+// documento vai entre parênteses, como na folha: "Matriz (CNPJ)".
+export const natureza = (posicao?: string | null, tipo?: string | null): string => {
+  const p = (posicao || "").trim();
+  const rotulo = p ? p.charAt(0).toUpperCase() + p.slice(1) : "";
+  if (rotulo && tipo) return `${rotulo} (${tipo})`;
+  return rotulo || tipo || "—";
+};
