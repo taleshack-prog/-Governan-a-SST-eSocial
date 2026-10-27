@@ -1502,7 +1502,17 @@ export function CadastroEmpresa() {
                       {r ? (r.coexiste
                         ? <>{r.folha_percentual.toLocaleString("pt-BR")}% dos incisos I e III — {fmt.pct(r.folha_efetiva)}
                             <Fundamentacao campo="cprb_proporcao" em={`${a.ano}-12-01`} /></>
-                        : <span className="text-gray-400">sem patronal parcial neste ano</span>) : "—"}
+                        /* ATÉ 2024 A COLUNA AFIRMA, não registra ausência (Carolina, 26/10).
+                           Dizia "sem patronal parcial neste ano", em cinza claro: a frase nega a
+                           patronal PARCIAL e cala sobre a integral, e pode ser lida exatamente ao
+                           contrário do que é — como se a cota cheia fosse devida ao lado da CPRB.
+                           É o oposto: até 31/12/2024 os incisos I e III não são devidos, porque a
+                           CPRB os substitui por inteiro (arts. 7º e 8º, "substituição total").
+                           Sem o cinza, porque isto é conteúdo, não campo vazio, e com § como
+                           qualquer outro valor que decorra de norma. `coexiste` é falso só nos
+                           anos até 2024: o seletor não oferece 2028 em diante. */
+                        : <>Não devidos — substituição integral pela CPRB
+                            <Fundamentacao campo="cprb_proporcao" em={`${a.ano}-12-01`} /></>) : "—"}
                     </div>
                     <button type="button" className="text-red-400 text-sm px-1"
                       onClick={() => setCprb((l) => l.filter((_, j) => j !== i))}>✕</button>
