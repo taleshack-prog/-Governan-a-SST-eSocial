@@ -12,7 +12,7 @@ from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from api.config import settings
 from api.database import get_db, set_escritorio_ctx, aplicar_escritorio_agora
@@ -65,7 +65,18 @@ async def get_current_user(
     except JWTError:
         raise credentials_exception
 
-    result = await db.execute(select(Usuario).where(Usuario.id == UUID(user_id)))
+    # PELA FUNCAO, nao pela tabela (migration 059). Esta leitura roda em TODA requisicao
+    # autenticada e, como a do login, acontece ANTES de o contexto de escritorio existir — o
+    # escritorio que filtraria vem justamente do usuario que estamos procurando.
+    #
+    # Foi o que derrubou a trava as 19h: a policy estrita fazia esta consulta nao encontrar nada,
+    # toda requisicao respondia 401 e o aplicativo deslogava. O login funcionava e o token saia;
+    # morria a chamada seguinte.
+    result = await db.execute(
+        select(Usuario).from_statement(
+            text("SELECT * FROM auth_usuario_por_id(:id)")
+        ).params(id=UUID(user_id))
+    )
     user = result.scalar_one_or_none()
     if user is None or not user.ativo:
         raise credentials_exception
