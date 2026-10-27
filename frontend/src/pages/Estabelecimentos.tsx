@@ -446,7 +446,10 @@ function PainelModal({ estab, onFechar, embutido = false }: { estab: any; onFech
             vários anos — sem data, sem dizer de quando era. Agora pergunta à tabela versionada
             pela PRIMEIRA competência da série, e o rodapé diz em que data resolveu. Se a norma
             mudou dentro do período, quem mostra competência por competência é a memória. */}
-        {rows.length > 0 && rows[0].competencia && (
+        {/* Embutido, quem mostra a fundamentação é a página — e mostra TODAS as vigências que a
+            série atravessa, não só a da primeira competência. Esta linha afirmava uma redação só
+            sobre anos inteiros de competências (Carolina, 27/10, item 10). */}
+        {!embutido && rows.length > 0 && rows[0].competencia && (
           <p className="text-[11px] text-gray-400 mt-3">
             Fundamentação vigente em {mesBR(rows[0].competencia)}, início da série
             <Fundamentacao campo="rat_devido" em={rows[0].competencia} />
@@ -816,6 +819,114 @@ function EstabModal({ form, setForm, onSalvar, onFechar, isPending, erro, embuti
   );
 }
 
+// ---------- FAP publicado, por ano (item 5 da etapa C) ----------
+// Era um modal escrito DENTRO do componente da lista, usando o estado dela (fapValores,
+// fapSalvando). Por isso nao podia ser aproveitado pela pagina do estabelecimento, e o bloco
+// "FAP publicado" ficou vazio na etapa B, anunciando que entraria depois. Agora e componente,
+// com estado proprio, e serve aos dois lugares.
+//
+// Em leitura mostra os anos como a folha pede, com o nao informado destacado: e o que trava
+// competencias em conferencia, e some num campo em branco dentro de um formulario.
+const ANOS_FAP = [2021, 2022, 2023, 2024, 2025, 2026];
+
+function FapBloco({ estab, embutido = false, onFechar, editando = false, onEditar }: {
+  estab: any; embutido?: boolean; onFechar?: () => void; editando?: boolean; onEditar?: () => void;
+}) {
+  const [valores, setValores] = useState<Record<number, string>>({});
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState("");
+
+  const carregar = () => {
+    apiClient.get(`/estabelecimentos/${estab.id}/fap`).then((r) => {
+      const m: Record<number, string> = {};
+      (r.data || []).forEach((x: any) => { m[x.ano] = fmt.num(x.fap, 4); });
+      setValores(m);
+    }).catch(() => setValores({}));
+  };
+  useEffect(carregar, [estab.id]);
+
+  const salvar = async () => {
+    setSalvando(true); setErro("");
+    try {
+      const faps = ANOS_FAP
+        .filter((a) => valores[a] !== undefined && valores[a] !== "")
+        .map((a) => ({ ano: a, fap: Number(String(valores[a]).replace(".", "").replace(",", ".")) }));
+      await apiClient.put(`/estabelecimentos/${estab.id}/fap`, faps);
+      onFechar?.();
+    } catch { setErro("Não foi possível salvar o FAP."); } finally { setSalvando(false); }
+  };
+
+  const campos = (
+    <>
+      <p className="text-xs text-gray-500 mb-3">
+        O cálculo usa o FAP de cada ano. Campo vazio não é 1,0 — fica em branco e vai à conferência.
+      </p>
+      <div className="space-y-2">
+        {ANOS_FAP.map((ano) => (
+          <div key={ano} className="flex items-center gap-3">
+            <label className="w-16 text-sm text-gray-600">{ano}</label>
+            <input type="text" inputMode="decimal"
+              className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm tabular-nums"
+              value={valores[ano] ?? ""}
+              onChange={(ev) => setValores((v) => ({ ...v, [ano]: ev.target.value }))}
+              onBlur={(ev) => {
+                // Quatro casas, com vírgula: é assim que a norma define o FAP.
+                const n = Number(String(ev.target.value).replace(",", "."));
+                setValores((v) => ({ ...v, [ano]: ev.target.value === "" || Number.isNaN(n) ? "" : fmt.num(n, 4) }));
+              }}
+              placeholder="não informado" />
+          </div>
+        ))}
+      </div>
+      {erro && <p className="text-xs text-red-600 mt-2">{erro}</p>}
+      <div className="flex justify-end gap-2 mt-5">
+        <button onClick={() => { carregar(); onFechar?.(); }} className="px-4 py-2 text-sm text-gray-600">Cancelar</button>
+        <button onClick={salvar} disabled={salvando}
+          className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
+          {salvando ? "Salvando…" : "Salvar FAP"}
+        </button>
+      </div>
+    </>
+  );
+
+  // Como bloco da página: leitura por padrão, formulário quando o "editar" pedir.
+  if (embutido) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-100 p-5">
+        {editando ? campos : (
+          <div className="grid grid-cols-3 gap-2">
+            {ANOS_FAP.map((ano) => {
+              const v = valores[ano];
+              return (
+                <div key={ano}
+                  className={`rounded-lg border px-3 py-2 text-center ${v ? "border-gray-200" : "border-amber-300 bg-amber-50"}`}>
+                  <p className="text-[11px] text-gray-500">{ano}</p>
+                  <p className={`text-sm tabular-nums ${v ? "text-gray-800" : "text-amber-800"}`}>
+                    {v || "não informado"}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {!editando && onEditar === undefined && null}
+      </div>
+    );
+  }
+
+  // Como janela, enquanto a lista antiga ainda existir.
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl p-6 w-full max-w-md">
+        <h2 className="text-lg font-bold text-gray-900">
+          FAP por ano — {estab.nome}<Fundamentacao campo="fap_publicado" em={hojeISO()} />
+        </h2>
+        {campos}
+      </div>
+    </div>
+  );
+}
+
 export function Estabelecimentos() {
   const qc = useQueryClient();
   const [modal, setModal] = useState(false);
@@ -827,11 +938,8 @@ export function Estabelecimentos() {
   const [fpasPeriodoEstab, setFpasPeriodoEstab] = useState<any>(null);
   const navegar = useNavigate();
   const [fapEstab, setFapEstab] = useState<any>(null);
-  const [fapValores, setFapValores] = useState<Record<number, string>>({});
-  const [fapSalvando, setFapSalvando] = useState(false);
   const [busca, setBusca] = useState("");
   const [ordem, setOrdem] = useState("codigo");
-  const ANOS_FAP = [2021, 2022, 2023, 2024, 2025, 2026];
 
   const { data: estabs = [], isLoading } = useQuery({
     queryKey: ["estabelecimentos"],
@@ -872,18 +980,8 @@ export function Estabelecimentos() {
     salvar.mutate(p);
   };
 
-  const abrirFap = async (e: any) => {
-    setFapEstab(e);
-    try { const r = await apiClient.get(`/estabelecimentos/${e.id}/fap`); const m: Record<number, string> = {}; (r.data || []).forEach((x: any) => { m[x.ano] = fmt.num(x.fap, 4); }); setFapValores(m); }
-    catch { setFapValores({}); }
-  };
-  const salvarFap = async () => {
-    if (!fapEstab) return; setFapSalvando(true);
-    try {
-      const faps = ANOS_FAP.filter((a) => fapValores[a] !== undefined && fapValores[a] !== "").map((a) => ({ ano: a, fap: Number(String(fapValores[a]).replace(".", "").replace(",", ".")) }));
-      await apiClient.put(`/estabelecimentos/${fapEstab.id}/fap`, faps); setFapEstab(null);
-    } catch { alert("Não foi possível salvar o FAP."); } finally { setFapSalvando(false); }
-  };
+  // Abrir o FAP virou só escolher o estabelecimento: o componente carrega os próprios valores.
+  const abrirFap = (e: any) => setFapEstab(e);
 
   return (
     <div className="p-6 space-y-6">
@@ -1019,34 +1117,7 @@ export function Estabelecimentos() {
       {/* Reapura a série ao fechar: grau/RAT da listagem precisam refletir o que acabou de mudar */}
       {ratEstab && <RatAplicadoModal estab={ratEstab} onFechar={() => { setRatEstab(null); qc.invalidateQueries({ queryKey: ["estabelecimentos"] }); }} />}
       {fpasPeriodoEstab && <FpasModal estab={fpasPeriodoEstab} onFechar={() => setFpasPeriodoEstab(null)} />}
-      {fapEstab && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-6 w-full max-w-md">
-            <h2 className="text-lg font-bold text-gray-900">FAP por ano — {fapEstab.nome}<Fundamentacao campo="fap_publicado" em={hojeISO()} /></h2>
-            <p className="text-xs text-gray-500 mt-1 mb-4">O cálculo usa o FAP de cada ano. Campo vazio não é 1,0 — fica em branco e vai à conferência.</p>
-            <div className="space-y-2">
-              {ANOS_FAP.map((ano) => (
-                <div key={ano} className="flex items-center gap-3">
-                  <label className="w-16 text-sm text-gray-600">{ano}</label>
-                  <input type="text" inputMode="decimal" className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm tabular-nums"
-                    value={fapValores[ano] ?? ""}
-                    onChange={(ev) => setFapValores((v) => ({ ...v, [ano]: ev.target.value }))}
-                    onBlur={(ev) => {
-                      // Quatro casas, com vírgula: é assim que a norma define o FAP.
-                      const n = Number(String(ev.target.value).replace(",", "."));
-                      setFapValores((v) => ({ ...v, [ano]: ev.target.value === "" || Number.isNaN(n) ? "" : fmt.num(n, 4) }));
-                    }}
-                    placeholder="não informado" />
-                </div>
-              ))}
-            </div>
-            <div className="flex justify-end gap-2 mt-5">
-              <button onClick={() => setFapEstab(null)} className="px-4 py-2 text-sm text-gray-600">Cancelar</button>
-              <button onClick={salvarFap} disabled={fapSalvando} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">{fapSalvando ? "Salvando…" : "Salvar FAP"}</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {fapEstab && <FapBloco estab={fapEstab} onFechar={() => setFapEstab(null)} />}
     </div>
   );
 }
@@ -1283,16 +1354,12 @@ export function EstabelecimentoPagina() {
         )}
       </Bloco>
 
-      {/* O FAP ainda não é um componente próprio: hoje ele vive dentro do componente da lista,
-          usando o estado dela (fapValores, fapSalvando). Extraí-lo é a primeira coisa da etapa C,
-          quando a lista for reescrita. Declarar a ausência aqui é melhor do que uma página que
-          simplesmente não mostra o FAP e deixa quem lê procurando. */}
-      <Bloco ancora="fap" titulo="FAP publicado">
-        <div className="bg-white rounded-xl border border-gray-100 p-5">
-          <p className="text-xs text-gray-500">
-            Bloco ainda na lista — entra aqui na etapa C, junto com a reescrita dela.
-          </p>
-        </div>
+      {/* ITEM 5: O FAP SAIU DA LISTA e virou bloco. Em leitura, um cartão por ano, com o não
+          informado destacado — é ele que trava competências em conferência, e num campo em branco
+          dentro de um formulário isso não se vê. */}
+      <Bloco ancora="fap" titulo="FAP publicado" acao={<BotaoEditar bloco="fap" />}>
+        <FapBloco estab={estab} embutido editando={editando === "fap"}
+          onFechar={() => setEditando(null)} />
       </Bloco>
 
       <Bloco ancora="rat" titulo="RAT aplicado pela empresa" acao={<BotaoEditar bloco="rat" />}>
@@ -1382,6 +1449,33 @@ export function EstabelecimentoPagina() {
             </table>
           )}
         </div>
+        {/* ITEM 10: AS VIGENCIAS QUE A SERIE ATRAVESSA. Ela: "a fundamentação da série diz
+            'vigente em 11/2021, início da série', mas a série atravessa a IN 971/2009 (até
+            09/2022) e a IN 2.110/2022 (de 10/2022 em diante). Tem que mostrar as duas vigências,
+            como a memória de cálculo já faz."
+
+            Os blocos vêm resolvidos do servidor, pela mesma função que a memória usa: cada
+            competência no seu fechamento, e meses consecutivos com a mesma redação colapsados
+            num bloco. A tela não decide nada sobre vigência. */}
+        {(r.fundamentacao_blocos || []).length > 0 && (
+          <div className="mt-3 text-[11px] text-gray-500 space-y-1">
+            {(r.fundamentacao_blocos || []).map((b: any, i: number) => (
+              <p key={i}>
+                <span className="text-gray-400">
+                  {fmt.competencia(b.de)} a {fmt.competencia(b.ate)} —{" "}
+                </span>
+                {b.dispositivo || <span className="text-amber-700">sem fundamentação cadastrada</span>}
+                {b.vigencia_inicio && (
+                  <span className="text-gray-400">
+                    {" "}(redação vigente desde {fmt.data(b.vigencia_inicio)}
+                    {b.vigencia_fim ? ` até ${fmt.data(b.vigencia_fim)}` : ""})
+                  </span>
+                )}
+              </p>
+            ))}
+          </div>
+        )}
+
         {serieAberta && (
           <div className="mt-3">
             <PainelModal estab={estab} onFechar={() => setSerieAberta(false)} embutido />

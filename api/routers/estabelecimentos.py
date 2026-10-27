@@ -898,6 +898,26 @@ async def resumo_enquadramento_estab(
         "posicao": contagem_posicao(serie),
         "resumo_ano": resumo_por_ano(serie),
         "o_que_falta": o_que_falta(serie),
+        # AS VIGENCIAS QUE A SERIE ATRAVESSA (Carolina, 27/10, item 10 da etapa C).
+        #
+        # A tela dizia "Fundamentação vigente em 11/2021, início da série" e citava UMA redacao
+        # para cinco anos de competencias. A serie da KRETA atravessa duas: a IN 971/2009 ate
+        # 09/2022 e a IN 2.110/2022 de 10/2022 em diante. Afirmar uma so e dizer, sobre tres anos
+        # de competencias, que valia uma norma que ja tinha sido substituida.
+        #
+        # E o mesmo defeito que a memoria de calculo corrigiu em 25/10, e a correcao e a mesma
+        # funcao: citacoes_do_periodo resolve competencia por competencia, no FECHAMENTO de cada
+        # uma, e colapsa em blocos de redacao igual. A tela passa a mostrar o que o documento
+        # mostra, porque le do mesmo lugar.
+        "fundamentacao_blocos": [
+            {"de": b["de"].isoformat(), "ate": b["ate"].isoformat(),
+             "dispositivo": (b["citacao"] or {}).get("dispositivo"),
+             "ato": (b["citacao"] or {}).get("ato_normativo"),
+             "observacao": (b["citacao"] or {}).get("observacao"),
+             "vigencia_inicio": (b["citacao"] or {}).get("vigencia_inicio"),
+             "vigencia_fim": (b["citacao"] or {}).get("vigencia_fim")}
+            for b in await citacoes_do_periodo("rat_devido", comps, db)
+        ],
     }
 
 
