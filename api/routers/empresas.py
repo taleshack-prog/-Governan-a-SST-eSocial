@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete
 from sqlalchemy.exc import IntegrityError
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from api.database import get_db
 from api.models.empresa import Empresa
@@ -343,6 +343,27 @@ class EmpresaUpdate(BaseModel):
     # lista chegaria ao INSERT e voltaria como erro 500 de integridade — mensagem de banco para
     # quem preencheu um formulario. Com ele, volta 422 dizendo quais sao os valores aceitos.
     contato_papel: Literal["contador", "socio", "rh", "outro"] | None = None
+    contato_papel_outro: str | None = None
+
+    @model_validator(mode="after")
+    def _papel_outro_coerente(self):
+        """'Outro' exige o detalhe; os demais papeis nao o carregam (Carolina, 27/10).
+
+        A mesma regra esta no CHECK do banco. Aqui ela existe para que a recusa chegue como 422
+        com uma frase legivel, e nao como erro 500 de integridade — mensagem de banco para quem
+        preencheu um formulario. Normalizar antes de validar evita o espaco em branco passando
+        por preenchimento.
+        """
+        detalhe = (self.contato_papel_outro or "").strip() or None
+        if self.contato_papel == "outro":
+            if not detalhe:
+                raise ValueError('Informe qual é o papel do contato quando a opção for "Outro".')
+        elif detalhe:
+            # Trocar de "Outro" para "Contador" sem limpar o campo deixaria um detalhe orfao
+            # descrevendo um papel que nao e mais aquele. Some junto com a escolha.
+            detalhe = None
+        self.contato_papel_outro = detalhe
+        return self
 
 
 class RegimeItem(BaseModel):
@@ -535,6 +556,7 @@ async def obter_empresa(
         "num_estabelecimentos": int(num_estab),
         "contato_nome": empresa.contato_nome,
         "contato_papel": empresa.contato_papel,
+        "contato_papel_outro": empresa.contato_papel_outro,
         "contato_email": empresa.contato_email,
         "contato_telefone": empresa.contato_telefone,
     }

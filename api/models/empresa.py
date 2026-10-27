@@ -90,5 +90,8 @@ class Empresa(Base):
     # ao contador, quantitativo a quem responde pelo RH, decisao ao socio. Vocabulario fechado por
     # CHECK no banco e por Literal no schema.
     contato_papel: Mapped[str | None] = mapped_column(String(30))
+    # O detalhe, quando o papel e 'outro' (migration 056). Obrigatorio nesse caso e proibido nos
+    # demais, por CHECK: 'outro' sozinho diz "nao e nenhuma das tres" e cala sobre o que e.
+    contato_papel_outro: Mapped[str | None] = mapped_column(String(100))
     documentos = relationship("DocumentoTecnico", back_populates="empresa")
     usuarios = relationship("Usuario", back_populates="empresa")

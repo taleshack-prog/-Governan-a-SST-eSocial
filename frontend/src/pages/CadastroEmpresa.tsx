@@ -278,7 +278,7 @@ export function CadastroEmpresa() {
     periodo_inicio: ymMinus(59), periodo_fim: ymToday(),
     data_abertura: "", data_encerramento: "",
     tipo_logradouro: "", endereco: "", numero: "", complemento: "", bairro: "", cidade: "", uf: "", cep: "",
-    contato_nome: "", contato_papel: "", contato_email: "", contato_telefone: "",
+    contato_nome: "", contato_papel: "", contato_papel_outro: "", contato_email: "", contato_telefone: "",
   });
   // Indice do periodo de regime aguardando confirmacao de remocao, ou null.
   const [removerRegime, setRemoverRegime] = useState<number | null>(null);
@@ -352,6 +352,7 @@ export function CadastroEmpresa() {
         endereco: d.endereco ?? "", numero: d.numero ?? "", complemento: d.complemento ?? "",
         bairro: d.bairro ?? "", cidade: d.cidade ?? "", uf: d.uf ?? "", cep: d.cep ?? "",
         contato_nome: d.contato_nome ?? "", contato_papel: d.contato_papel ?? "",
+        contato_papel_outro: d.contato_papel_outro ?? "",
         contato_email: d.contato_email ?? "", contato_telefone: d.contato_telefone ?? "",
       }));
       setOrigem(d.origem_cadastro ?? "");
@@ -502,6 +503,9 @@ export function CadastroEmpresa() {
     if (mesesEntre(form.periodo_inicio, form.periodo_fim) < 0) { aviso("Período de apuração: início depois do fim."); return; }
     // RF-0.156: regime sem lacuna no período de apuração
     const errRegime = validaRegime(regimes, form.periodo_inicio, form.periodo_fim);
+    if (form.contato_papel === "outro" && !form.contato_papel_outro.trim()) {
+      aviso('Contato — informe qual é o papel quando a opção for "Outro".'); return;
+    }
     if (errRegime) { aviso(`Regime — ${errRegime}`); return; }
     // RF-0.163..0.166: valida o bloco CPRB antes de enviar
     if (cprbStatus === "optante") {
@@ -533,6 +537,7 @@ export function CadastroEmpresa() {
         endereco: form.endereco, numero: form.numero, complemento: form.complemento,
         bairro: form.bairro, cidade: form.cidade, uf: form.uf, cep: form.cep,
         contato_nome: form.contato_nome, contato_papel: form.contato_papel || null,
+        contato_papel_outro: form.contato_papel === "outro" ? (form.contato_papel_outro.trim() || null) : null,
         contato_email: form.contato_email, contato_telefone: form.contato_telefone,
       });
       await apiClient.put(`/empresas/${empresaId}/regime`, regimes.filter((p) => p.regime && p.inicio).map((p) => ({
@@ -1603,7 +1608,14 @@ export function CadastroEmpresa() {
 
       {/* Contato + estabelecimentos */}
       <section className="bg-white rounded-xl border border-gray-100 p-5 mb-4">
-        <h2 className="text-sm font-bold text-gray-800 mb-3">Contato</h2>
+        <h2 className="text-sm font-bold text-gray-800 mb-1">Contato</h2>
+        {/* A FRASE DIZ DE QUEM É O CAMPO (Carolina, 27/10). Sem ela, quem preenche põe o próprio
+            nome — foi o que aconteceu na KRETA. O bloco pedia "Nome" sem dizer nome de quem, e a
+            leitura natural de quem está cadastrando é que o campo é dele. */}
+        <p className="text-[11px] text-gray-500 mb-3 leading-snug">
+          Quem responde pela folha da empresa — a pessoa que o escritório procura quando a
+          apuração levanta divergência.
+        </p>
         {/* O PAPEL ENTRA NO BLOCO. Nome, e-mail e telefone não dizem QUEM é aquela pessoa em
             relação à empresa, e é o papel que decide a quem se pede cada coisa: documento ao
             contador, confirmação de quantitativo a quem responde pelo RH, decisão sobre o
@@ -1625,6 +1637,18 @@ export function CadastroEmpresa() {
               <option value="outro">Outro</option>
             </select>
           </div>
+          {/* "OUTRO" ABRE O "QUAL?", OBRIGATÓRIO (Carolina, 27/10). "Outro" sozinho diz que não é
+              nenhuma das três e cala sobre o que é — procurador, síndico, preposto mudam a quem
+              se pede o quê. O campo só existe quando a opção está escolhida: deixá-lo sempre
+              visível e vazio convida a preencher o que não se aplica. */}
+          {form.contato_papel === "outro" && (
+            <div>
+              <label className={labelCls}>Qual?</label>
+              <input className={inputCls} value={form.contato_papel_outro}
+                onChange={(e) => set("contato_papel_outro", e.target.value)}
+                placeholder="Procurador, síndico…" maxLength={100} />
+            </div>
+          )}
           <div><label className={labelCls}>E-mail</label><input className={inputCls} value={form.contato_email} onChange={(e) => set("contato_email", e.target.value)} /></div>
           <div><label className={labelCls}>Telefone</label><input className={inputCls} value={form.contato_telefone} onChange={(e) => set("contato_telefone", e.target.value)} /></div>
         </div>
