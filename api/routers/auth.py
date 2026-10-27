@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from api.database import get_db, set_escritorio_ctx, aplicar_escritorio_agora
 from api.models.usuario import Usuario
@@ -42,7 +42,24 @@ async def login(
     # vazasse, a policy de leitura filtraria pelo escritorio ERRADO e o usuario receberia
     # "email ou senha incorretos" sem que houvesse nada de errado com a senha dele.
     set_escritorio_ctx(None)
-    result = await db.execute(select(Usuario).where(Usuario.email == form_data.username))
+    # A BUSCA PASSA PELA FUNCAO, nao pela tabela (migration 057; passo 2 de 3 do isolamento).
+    #
+    # Enquanto a leitura era direta, ela dependia do ramo permissivo da policy de usuarios — o
+    # "contexto vazio ve todo mundo". Esse ramo e o que sai no passo 3, e com ele a consulta
+    # direta deixaria de encontrar qualquer linha: o sistema responderia "email ou senha
+    # incorretos" para credenciais corretas, para todos os usuarios de uma vez.
+    #
+    # auth_usuario_por_email() atravessa a RLS pelos privilegios do dono, exige o e-mail EXATO e
+    # devolve no maximo uma linha. E o UNICO ponto do sistema autorizado a ler usuarios sem
+    # contexto de escritorio; qualquer outra leitura continua passando pela policy.
+    #
+    # from_statement() porque o ORM precisa da ENTIDADE, e nao de uma tupla: o codigo abaixo grava
+    # ultimo_login neste mesmo objeto, e isso exige que ele esteja gerenciado pela sessao.
+    result = await db.execute(
+        select(Usuario).from_statement(
+            text("SELECT * FROM auth_usuario_por_email(:email)")
+        ).params(email=form_data.username)
+    )
     user = result.scalar_one_or_none()
 
     if not user or not verify_password(form_data.password, user.senha_hash):
