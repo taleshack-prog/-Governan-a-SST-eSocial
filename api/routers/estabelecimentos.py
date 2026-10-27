@@ -1098,20 +1098,48 @@ async def memoria_enquadramento(
     # agrupamento nao precisa saber quais anos sao de transicao: quem decide e a vigencia da linha.
     _anos_cprb = sorted({c.inicio.year for c in cprb_rows})
 
-    async def _fund_cprb(campo: str, rotulo: str) -> list[dict]:
+    def _rotulo_cprb(campo: str, c: dict) -> str:
+        """O rotulo descreve a REGRA daquela redacao, nao o campo (Carolina, 26/10, à noite).
+
+        Ela: "'Proporcoes da transicao (anos 2023, 2024)' deve se chamar 'Substituicao integral'.
+        Transicao e so de 2025 a 2027."
+
+        O rotulo era fixo por campo, e 'cprb_proporcao' tem duas vigencias de naturezas opostas:
+        ate 2024 a CPRB substitui os incisos I e III por INTEIRO, e de 2025 a 2027 convive com
+        eles em proporcao. Chamar as duas de "transicao" dava ao periodo antigo o nome do regime
+        que o sucedeu — e e o tipo de rotulo que, lido depressa, faz supor patronal parcial onde
+        nao havia nenhuma.
+
+        O corte vem de ANO_INICIO_TRANSICAO, a mesma constante que governa o resto do bloco, e
+        nao de um ano escrito aqui.
+        """
+        if campo == "cprb":
+            return "Opção anual"
+        if campo == "cprb_proporcao":
+            return ("Proporções da transição"
+                    if c["vigencia_inicio"] >= f"{ANO_INICIO_TRANSICAO_CPRB}-01-01"
+                    else "Substituição integral")
+        return "Décimo terceiro, RAT e Terceiros"
+
+    async def _fund_cprb(campo: str) -> list[dict]:
         """Uma entrada por REDACAO, com os anos que ela governa — nao uma por ano.
 
         Empresa optante desde 2021 tem seis ou sete anos declarados; repetir a mesma citacao
         sete vezes dentro de peca assinada e ruido que esconde a unica coisa que importa ali,
         que e onde a redacao mudou.
+
+        Agrupa por (dispositivo, rotulo), e nao so pelo dispositivo: desde que o rotulo passou a
+        depender da vigencia, duas redacoes com o mesmo texto de citacao e nomes diferentes
+        precisam sair em linhas separadas, cada uma com os seus anos.
         """
-        agrupado: dict[str, dict] = {}
+        agrupado: dict[tuple, dict] = {}
         for ano in _anos_cprb:
             c = await citacao_de(campo, date(ano, 12, 31), db)
             if not c:
                 continue
-            bloco = agrupado.setdefault(c["dispositivo"], {
-                "rotulo": rotulo,
+            rot = _rotulo_cprb(campo, c)
+            bloco = agrupado.setdefault((c["dispositivo"], rot), {
+                "rotulo": rot,
                 "dispositivo": c["dispositivo"],
                 "observacao": c["observacao"],
                 "anos": [],
@@ -1120,9 +1148,9 @@ async def memoria_enquadramento(
         return [{**b, "anos": ", ".join(b["anos"])} for b in agrupado.values()]
 
     fund_cprb = (
-        await _fund_cprb("cprb", "Opção anual")
-        + await _fund_cprb("cprb_proporcao", "Proporções da transição")
-        + await _fund_cprb("cprb_decimo_terceiro", "Décimo terceiro, RAT e Terceiros")
+        await _fund_cprb("cprb")
+        + await _fund_cprb("cprb_proporcao")
+        + await _fund_cprb("cprb_decimo_terceiro")
     )
 
     # A CITACAO DA SUBSTITUICAO INTEGRAL, para dentro da frase (Carolina, 26/10, à noite).
