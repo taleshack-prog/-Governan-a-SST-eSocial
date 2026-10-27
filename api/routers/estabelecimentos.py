@@ -26,6 +26,7 @@ from api.services.enquadramento_situacao import (
     divergencia_confirmada, motivo_conferencia,
 )
 from api.services.fundamentacao import citacoes_do_periodo, citacao_de
+from api.services.cprb_transicao import ANO_INICIO_TRANSICAO as ANO_INICIO_TRANSICAO_CPRB
 from api.models.enquadramento_evento import EnquadramentoEvento, ROTULO_EVENTO
 from api.services.enquadramento_eventos import registrar_ato_humano, retrato
 
@@ -1124,6 +1125,23 @@ async def memoria_enquadramento(
         + await _fund_cprb("cprb_decimo_terceiro", "Décimo terceiro, RAT e Terceiros")
     )
 
+    # A CITACAO DA SUBSTITUICAO INTEGRAL, para dentro da frase (Carolina, 26/10, à noite).
+    #
+    # A frase que ela redigiu cita o dispositivo no meio do texto — "a CPRB as substitui
+    # integralmente (Lei 12.546/2011, arts. 7º e 8º)". A citacao vem da TABELA, e nao escrita no
+    # gerador: literal de citacao dentro do codigo da memoria foi uma das tres fontes que a
+    # decisao de 21/10 eliminou, e e justamente o documento assinado que ela atingia.
+    #
+    # Resolve no ano de opcao mais recente ate 2024, que e o fim do periodo que a frase descreve.
+    # Vem sem as notas do dispositivo: a nota desta linha diz "substituicao total das
+    # contribuicoes dos incisos I e III do art. 22 da Lei 8.212/91", que e exatamente o que a
+    # frase acabou de dizer — repeti-la entre parenteses dentro de parenteses nao se le.
+    _anos_integrais = [a for a in _anos_cprb if a < ANO_INICIO_TRANSICAO_CPRB]
+    _cit_integral = None
+    if _anos_integrais:
+        _c = await citacao_de("cprb_proporcao", date(max(_anos_integrais), 12, 31), db)
+        _cit_integral = _c["dispositivo_curto"] if _c else None
+
     dados = {
         # CNPJ DA MATRIZ INTEIRO, nao a raiz (Carolina, 25/10, item 3). Era truncado em [:8] de
         # quando o rotulo dizia "CNPJ raiz"; o rotulo mudou em 23/10 e o truncamento ficou, entao
@@ -1172,6 +1190,7 @@ async def memoria_enquadramento(
                               if (empresa and empresa.cprb_verificado_em) else None),
             "periodos": [{"inicio": c.inicio.isoformat(), "fim": c.fim.isoformat() if c.fim else None} for c in cprb_rows],
             "fundamentacao": fund_cprb,
+            "citacao_substituicao_integral": _cit_integral,
         },
         # HORARIO DE BRASILIA, nao UTC (Carolina, 25/10, item 8). "13:51 UTC" num documento que o
         # cliente le obriga quem o le a converter de cabeca, e convida a erro de uma hora em

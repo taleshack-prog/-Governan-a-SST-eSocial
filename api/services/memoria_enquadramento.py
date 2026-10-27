@@ -30,6 +30,7 @@ from api.services.fundamentacao import TEXTO_CRITERIO_VIGENCIA
 from api.services.cprb_transicao import (
     TRANSICAO as TRANSICAO_CPRB,
     ALIQUOTA_INCISOS_I_III,
+    ANO_INICIO_TRANSICAO as ANO_INICIO_TRANSICAO_CPRB,
     TEXTO_DECIMO_TERCEIRO as TEXTO_DECIMO_TERCEIRO_CPRB,
 )
 
@@ -485,6 +486,25 @@ def gerar_memoria_pdf(d: dict) -> bytes:
         # A TRANSICAO E A RESSALVA DO DECIMO TERCEIRO (ponto 3 da revisao, que valia tambem aqui).
         # O texto dizia apenas que "a CPRB coexiste com a cota patronal parcial", sem as
         # proporcoes e sem a regra do 13º — e esta e a peca que o cliente usa para calcular.
+        # OS ANOS DE OPCAO ATE 2024, e a frase presa a eles (Carolina, 26/10, à noite).
+        #
+        # Ela: "a frase entra na memoria, mas presa aos anos de opcao, senao ela afirma isso
+        # tambem para anos em que a empresa nao optou e pagou a patronal cheia."
+        #
+        # E o mesmo silencio que ela corrigiu na tela horas antes: o documento dizia apenas que
+        # RAT e Terceiros permanecem devidos, e calava sobre os incisos I e III — deixando o
+        # leitor supor que a cota cheia correria ao lado da CPRB. Aqui pesa mais do que na tela,
+        # porque e a peca que vai assinada.
+        anos_integrais = [a for a in anos if int(a) < ANO_INICIO_TRANSICAO_CPRB]
+        if anos_integrais:
+            _cit = cprb.get("citacao_substituicao_integral")
+            el.append(_p(
+                f"Nos anos de opção até {ANO_INICIO_TRANSICAO_CPRB - 1} "
+                f"({', '.join(anos_integrais)}), as contribuições dos incisos I e III do art. 22 "
+                f"da Lei 8.212/91 não são devidas: a CPRB as substitui integralmente"
+                + (f" ({_esc(_cit)})" if _cit else "")
+                + ". RAT e Terceiros permanecem devidos.", small))
+
         anos_transicao = [a for a in anos if int(a) in TRANSICAO_CPRB]
         if anos_transicao:
             detalhe = "; ".join(
@@ -494,7 +514,10 @@ def gerar_memoria_pdf(d: dict) -> bytes:
                 for a in anos_transicao)
             el.append(_p(f"Coexistência com a contribuição patronal parcial — {detalhe}.", small))
             el.append(_p(TEXTO_DECIMO_TERCEIRO_CPRB, small))
-        else:
+        elif not anos_integrais:
+            # So quando nenhuma das duas frases acima saiu: ambas ja terminam dizendo que RAT e
+            # Terceiros permanecem devidos, e repetir a trava logo abaixo seria dize-lo duas vezes
+            # no mesmo paragrafo. Este ramo cobre o caso de nao haver ano algum legivel.
             el.append(_p("RAT e Terceiros são sempre devidos, inclusive nos anos de opção pela CPRB.", small))
     elif st == "nao_optante":
         # _esc tambem aqui: o reportlab le estes paragrafos como XML, e um nome com "&" derrubava

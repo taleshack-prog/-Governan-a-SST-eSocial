@@ -37,7 +37,7 @@ def _mais_de_um(valor: str) -> bool:
     return " e " in v or "," in v
 
 
-def _texto_dispositivo(d: FundamentacaoDispositivo) -> str:
+def _texto_dispositivo(d: FundamentacaoDispositivo, com_nota: bool = True) -> str:
     """Monta UM dispositivo a partir das partes separadas.
 
     A montagem vive aqui, na leitura, e nunca no banco: e a string montada que faz os dois
@@ -61,7 +61,11 @@ def _texto_dispositivo(d: FundamentacaoDispositivo) -> str:
     if d.anexo:
         partes.append(d.anexo)
     texto = ", ".join(partes)
-    return f"{texto} ({d.nota})" if d.nota else texto
+    # com_nota=False devolve so o ENDERECO do dispositivo. Serve a quem cita dentro de uma frase
+    # corrida: a nota qualifica o dispositivo e costuma repetir o que a frase ja disse, e entre
+    # parenteses dentro de outro parentese fica ilegivel. O popover e a lista de fundamentacao
+    # seguem com a nota, que e onde ela ajuda.
+    return f"{texto} ({d.nota})" if (com_nota and d.nota) else texto
 
 
 async def citacao_de(campo: str, em: date, db: AsyncSession) -> dict | None:
@@ -90,9 +94,12 @@ async def citacao_de(campo: str, em: date, db: AsyncSession) -> dict | None:
     # Nenhuma das duas formas e inventada aqui: ou veio decomposta, ou veio como foi cadastrada.
     if disp:
         montado = "; ".join(_texto_dispositivo(d) for d in disp)
+        curto = "; ".join(_texto_dispositivo(d, com_nota=False) for d in disp)
         estruturado = True
     else:
         montado = (f.dispositivo or "").strip() or None
+        # A linha legada e uma string so: nao ha nota separada para omitir.
+        curto = montado
         estruturado = False
 
     if not montado:
@@ -101,6 +108,7 @@ async def citacao_de(campo: str, em: date, db: AsyncSession) -> dict | None:
     return {
         "campo": f.campo,
         "dispositivo": montado,
+        "dispositivo_curto": curto,     # sem as notas: para citar dentro de frase corrida
         "estruturado": estruturado,
         "dispositivos": [
             {"ordem": d.ordem, "ato": d.ato, "artigo": d.artigo, "paragrafo": d.paragrafo,
