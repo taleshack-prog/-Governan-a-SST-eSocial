@@ -70,7 +70,8 @@ async def login(
         )
 
     # Adendo 05 / RN-24: a busca acima roda SEM contexto de escritorio (ainda nao sabemos qual e —
-    # e por isso que a policy de SELECT da 'usuarios' tolera a GUC vazia). Agora que o usuario esta
+    # e por isso ela passa pela funcao, e nao pela tabela; desde a migration 058 a policy de
+    # SELECT de 'usuarios' NAO tolera mais a GUC vazia). Agora que o usuario esta
     # autenticado, FIXA o contexto ANTES de gravar: sem isso o UPDATE de ultimo_login nao casa com
     # a policy, atinge zero linhas e o ORM derruba o login inteiro.
     set_escritorio_ctx(user.escritorio_id)
