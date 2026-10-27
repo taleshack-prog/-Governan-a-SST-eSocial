@@ -12,7 +12,7 @@ import { Trabalhadores } from "./pages/Trabalhadores";
 import { Diagnostico } from "./pages/Diagnostico";
 import { Home } from "./pages/Home";
 import { Achados } from "./pages/Achados";
-import { Estabelecimentos } from "./pages/Estabelecimentos";
+import { Estabelecimentos, EstabelecimentoPagina } from "./pages/Estabelecimentos";
 import { FilaClassificacao } from "./pages/FilaClassificacao";
 import { Folha } from "./pages/Folha";
 import { CadastroEmpresa } from "./pages/CadastroEmpresa";
@@ -52,6 +52,10 @@ export const router = createBrowserRouter([
       { path: "empresa", element: <CadastroEmpresa /> },
       { path: "classificacao", element: <FilaClassificacao /> },
       { path: "estabelecimentos", element: <Estabelecimentos /> },
+      // A página do estabelecimento (revisão de 27/10). Rota própria, e não estado da
+      // lista: abrir um estabelecimento passa a ter endereço, voltar funciona e o link
+      // pode ser mandado para alguém.
+      { path: "estabelecimentos/:id", element: <EstabelecimentoPagina /> },
       { path: "folha", element: <Folha /> },
       { path: "agentes",        element: <AgentesNocivos /> },
       { path: "exames",         element: <ExamesMedicos /> },

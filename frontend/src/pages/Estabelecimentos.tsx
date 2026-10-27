@@ -8,6 +8,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "../api/client";
 import * as fmt from "../utils/formato";
 import { Fundamentacao, hojeISO } from "../components/Fundamentacao";
+import { useParams, useNavigate } from "react-router-dom";
 
 const NATUREZAS = ["CNPJ", "CNO", "CAEPF"];
 const POSICOES = ["matriz", "filial", "obra"];
@@ -120,7 +121,7 @@ function CnaeAutocomplete({ value, onPick }: { value: string; onPick: (c: any) =
 }
 
 // ---------- Modal de atividades ----------
-function AtividadesModal({ estab, onFechar }: { estab: any; onFechar: () => void }) {
+function AtividadesModal({ estab, onFechar, embutido = false }: { estab: any; onFechar: () => void; embutido?: boolean }) {
   const [rows, setRows] = useState<any[]>([]);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
@@ -179,8 +180,10 @@ function AtividadesModal({ estab, onFechar }: { estab: any; onFechar: () => void
     finally { setSalvando(false); }
   };
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl p-6 w-full max-w-3xl shadow-xl max-h-[90vh] overflow-y-auto">
+    <div className={embutido ? "" : "fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"}>
+      <div className={embutido
+            ? "bg-white rounded-xl border border-gray-100 p-5"
+            : "bg-white rounded-2xl p-6 w-full max-w-3xl shadow-xl max-h-[90vh] overflow-y-auto"}>
         <h2 className="text-lg font-bold text-gray-900">Atividades — {estab.nome}</h2>
         <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-800 my-3">
           <b>Quem conta:</b> empregados CLT (inclui aprendiz) e trabalhadores avulsos.
@@ -217,7 +220,7 @@ function AtividadesModal({ estab, onFechar }: { estab: any; onFechar: () => void
 
 // ---------- Painel de enquadramento apurado (RF-0.155/série) ----------
 const CRIT: Record<string, string> = { maior_quantitativo: "maior quantitativo", desempate_grau: "empate → grau", fila_conferencia: "—" };
-function PainelModal({ estab, onFechar }: { estab: any; onFechar: () => void }) {
+function PainelModal({ estab, onFechar, embutido = false }: { estab: any; onFechar: () => void; embutido?: boolean }) {
   const qc = useQueryClient();
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -293,8 +296,10 @@ function PainelModal({ estab, onFechar }: { estab: any; onFechar: () => void }) 
     (r) => r.situacao === "conferencia" && !r.em_fila && r.aliquota_devida != null).length;
   const conferidas = rows.filter((r) => r.conferido_por).length;
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl p-6 w-full max-w-5xl shadow-xl max-h-[90vh] overflow-y-auto">
+    <div className={embutido ? "" : "fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"}>
+      <div className={embutido
+            ? "bg-white rounded-xl border border-gray-100 p-5"
+            : "bg-white rounded-2xl p-6 w-full max-w-5xl shadow-xl max-h-[90vh] overflow-y-auto"}>
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold text-gray-900">Enquadramento apurado — {estab.nome}</h2>
           <div className="flex gap-2">
@@ -443,7 +448,11 @@ function PainelModal({ estab, onFechar }: { estab: any; onFechar: () => void }) 
             <Fundamentacao campo="rat_devido" em={rows[0].competencia} />
           </p>
         )}
-        <div className="flex justify-end mt-4"><button onClick={onFechar} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Fechar</button></div>
+        {/* "Fechar" só existe enquanto isto é uma janela. Embutido na página do
+            estabelecimento não há o que fechar, e o botão viraria um beco. */}
+        {!embutido && (
+          <div className="flex justify-end mt-4"><button onClick={onFechar} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Fechar</button></div>
+        )}
       </div>
     </div>
   );
@@ -452,7 +461,7 @@ function PainelModal({ estab, onFechar }: { estab: any; onFechar: () => void }) 
 // ---------- RAT aplicado pela empresa (item 1) ----------
 // O único número do enquadramento que o sistema não calcula. É o que a empresa usou na folha —
 // a diferença entre ele e a alíquota efetiva é o achado. Nunca preencher automaticamente.
-function RatAplicadoModal({ estab, onFechar }: { estab: any; onFechar: () => void }) {
+function RatAplicadoModal({ estab, onFechar, embutido = false }: { estab: any; onFechar: () => void; embutido?: boolean }) {
   const [rows, setRows] = useState<any[]>([]);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
@@ -514,8 +523,10 @@ function RatAplicadoModal({ estab, onFechar }: { estab: any; onFechar: () => voi
   const pendentes = rows.filter((r) => r.sem_desdobramento && (r.aliquota_rat === "" || r.aliquota_rat == null)).length;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl p-6 w-full max-w-4xl shadow-xl max-h-[90vh] overflow-y-auto">
+    <div className={embutido ? "" : "fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"}>
+      <div className={embutido
+            ? "bg-white rounded-xl border border-gray-100 p-5"
+            : "bg-white rounded-2xl p-6 w-full max-w-4xl shadow-xl max-h-[90vh] overflow-y-auto"}>
         <h2 className="text-lg font-bold text-gray-900">RAT aplicado pela empresa — {estab.nome}</h2>
         <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-800 my-3">
           Informe o que a empresa <b>efetivamente declarou</b>, como está no eSocial (evento S-1005):
@@ -588,7 +599,7 @@ function RatAplicadoModal({ estab, onFechar }: { estab: any; onFechar: () => voi
 }
 
 // ---------- FPAS por período (item 4) ----------
-function FpasModal({ estab, onFechar }: { estab: any; onFechar: () => void }) {
+function FpasModal({ estab, onFechar, embutido = false }: { estab: any; onFechar: () => void; embutido?: boolean }) {
   const [rows, setRows] = useState<any[]>([]);
   const [opcoes, setOpcoes] = useState<any[]>([]);
   // Item 3: período novo nasce cobrindo a janela de apuração inteira. Nascendo com um mês só,
@@ -626,8 +637,10 @@ function FpasModal({ estab, onFechar }: { estab: any; onFechar: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl p-6 w-full max-w-3xl shadow-xl max-h-[90vh] overflow-y-auto">
+    <div className={embutido ? "" : "fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"}>
+      <div className={embutido
+            ? "bg-white rounded-xl border border-gray-100 p-5"
+            : "bg-white rounded-2xl p-6 w-full max-w-3xl shadow-xl max-h-[90vh] overflow-y-auto"}>
         <h2 className="text-lg font-bold text-gray-900">FPAS — {estab.nome}</h2>
         <p className="text-[11px] text-gray-400 mt-1 mb-3">
           O FPAS determina a composição das contribuições a Terceiros. Como essa composição muda
@@ -680,12 +693,14 @@ function FpasModal({ estab, onFechar }: { estab: any; onFechar: () => void }) {
 }
 
 // ---------- Modal de estabelecimento ----------
-function EstabModal({ form, setForm, onSalvar, onFechar, isPending, erro }: any) {
+function EstabModal({ form, setForm, onSalvar, onFechar, isPending, erro, embutido = false }: any) {
   const editando = !!form.id;
   const cnpjInvalido = form.tipo_estabelecimento === "CNPJ" && form.cnpj && !validaCnpj(form.cnpj);
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
+    <div className={embutido ? "" : "fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"}>
+      <div className={embutido
+            ? "bg-white rounded-xl border border-gray-100 p-5"
+            : "bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto"}>
         <h2 className="text-lg font-bold text-gray-900 mb-4">{editando ? "Editar" : "Novo"} Estabelecimento</h2>
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
@@ -802,6 +817,7 @@ export function Estabelecimentos() {
   const [painelEstab, setPainelEstab] = useState<any>(null);
   const [ratEstab, setRatEstab] = useState<any>(null);
   const [fpasPeriodoEstab, setFpasPeriodoEstab] = useState<any>(null);
+  const navegar = useNavigate();
   const [fapEstab, setFapEstab] = useState<any>(null);
   const [fapValores, setFapValores] = useState<Record<number, string>>({});
   const [fapSalvando, setFapSalvando] = useState(false);
@@ -904,7 +920,15 @@ export function Estabelecimentos() {
                   const a = e.enquadramento_atual;
                   const comp = a?.competencia ? `competência ${fmt.competencia(a.competencia)}` : "série não apurada";
                   return (
-                  <tr key={e.id} className="hover:bg-gray-50">
+                  {/* A LINHA ABRE A PÁGINA (etapa B). As ações continuam onde estavam até a
+                      etapa C reescrever a lista; clicar fora delas leva ao estabelecimento. */}
+                  <tr key={e.id} className="hover:bg-gray-50 cursor-pointer"
+                    onClick={(ev) => {
+                      // Só navega quando o clique não foi num botão ou link da própria linha:
+                      // senão "Atividades" abriria a janela e a página ao mesmo tempo.
+                      if ((ev.target as HTMLElement).closest("button,a,input,select")) return;
+                      navegar(`/estabelecimentos/${e.id}`);
+                    }}>
                     <td className="px-3 py-3 font-mono text-gray-600 text-xs">{e.codigo}</td>
                     <td className="px-3 py-3 font-medium text-gray-900">
                       {e.nome}
@@ -1015,6 +1039,192 @@ export function Estabelecimentos() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+
+// ==============================================================================================
+// A PÁGINA DO ESTABELECIMENTO (revisão da Carolina, 27/10 — etapa B)
+//
+// "Tudo de um estabelecimento num lugar só. Abre ao clicar na linha da lista. No topo, o resumo
+// da janela e o que falta. Embaixo, os blocos na ordem em que o cálculo depende deles."
+//
+// POR QUE A ORDEM DOS BLOCOS É ESTA: quem é o estabelecimento, que atividades tem, qual FAP foi
+// publicado, o que a empresa aplicou, e só então o resultado. Quem lê de cima para baixo entende
+// de onde veio cada número — era o que a sequência de janelas empilhadas impedia, porque não
+// havia como ver duas ao mesmo tempo.
+//
+// OS BLOCOS SÃO OS MESMOS COMPONENTES das antigas janelas, com `embutido`: o conteúdo e a lógica
+// de gravação já estavam certos e revisados; o que mudou foi a moldura. Reescrevê-los do zero
+// significaria reintroduzir defeitos que já foram corrigidos uma vez.
+// ==============================================================================================
+export function EstabelecimentoPagina() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+
+  const { data: estabs } = useQuery({
+    queryKey: ["estabelecimentos"],
+    queryFn: async () => (await apiClient.get("/estabelecimentos/")).data,
+  });
+  const estab = (estabs || []).find((e: any) => String(e.id) === String(id));
+
+  // O resumo vem do backend, das mesmas funções que a memória de cálculo usa (etapa A). A tela
+  // não soma nada por conta própria: é o que garante que este topo, a lista e o documento nunca
+  // mostrem números diferentes.
+  const { data: resumo } = useQuery({
+    enabled: !!id,
+    queryKey: ["estab-resumo", id],
+    queryFn: async () => (await apiClient.get(`/estabelecimentos/${id}/enquadramento/resumo`)).data,
+  });
+
+  const ABAS = [
+    ["identificacao", "Identificação"],
+    ["atividades", "Atividades"],
+    ["fap", "FAP publicado"],
+    ["rat", "RAT aplicado"],
+    ["enquadramento", "Enquadramento"],
+    ["fpas", "FPAS e Terceiros"],
+  ] as const;
+
+  // ROLAGEM ÚNICA: a aba não troca de conteúdo, leva até o bloco. Todos continuam visíveis, que é
+  // o ponto da mudança — esconder blocos atrás de abas recriaria a janela empilhada com outro nome.
+  const irPara = (ancora: string) =>
+    document.getElementById(`bloco-${ancora}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  if (!estab) {
+    return (
+      <div className="p-6">
+        <button onClick={() => navigate("/estabelecimentos")} className="text-sm text-indigo-700 hover:underline">
+          ← Estabelecimentos
+        </button>
+        <p className="text-sm text-gray-500 mt-4">Carregando o estabelecimento…</p>
+      </div>
+    );
+  }
+
+  const r = resumo || {};
+  const est = r.estado || {};
+  const pos = r.posicao || {};
+  const falta: any[] = r.o_que_falta || [];
+  const janela = r.janela || {};
+  const periodo = janela.inicio && janela.fim
+    ? `${fmt.competencia(janela.inicio)} a ${fmt.competencia(janela.fim)}`
+    : "sem competências apuradas";
+
+  const Bloco = ({ ancora, titulo, children }: { ancora: string; titulo: string; children: any }) => (
+    <section id={`bloco-${ancora}`} className="scroll-mt-24 mb-4">
+      <h2 className="text-sm font-bold text-gray-800 mb-2">{titulo}</h2>
+      {children}
+    </section>
+  );
+
+  return (
+    <div className="p-6 max-w-6xl">
+      <button onClick={() => navigate("/estabelecimentos")} className="text-sm text-indigo-700 hover:underline">
+        ← Estabelecimentos
+      </button>
+
+      <h1 className="text-2xl font-bold text-gray-900 mt-2">{estab.nome || estab.codigo}</h1>
+      <p className="text-xs text-gray-500 mt-1">
+        <span className="inline-block bg-gray-100 text-gray-700 rounded px-1.5 py-0.5 mr-2 uppercase tracking-wide text-[10px] font-semibold">
+          {estab.posicao || "—"}
+        </span>
+        <span className="font-mono">{estab.cnpj || estab.cno || "—"}</span>
+        {estab.municipio ? ` · ${estab.municipio}/${estab.uf || ""}` : ""}
+        {estab.data_abertura ? ` · ativa desde ${fmt.data(estab.data_abertura)}` : ""}
+      </p>
+
+      {/* O TOPO RESPONDE TRÊS COISAS antes de qualquer bloco: qual é a janela, como ela está, e o
+          que falta preencher. "O usuário não precisa adivinhar por que duas competências estão em
+          conferência." */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4 mb-5">
+        <div className="border border-gray-200 rounded-xl p-4">
+          <p className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Janela · {periodo}</p>
+          <p className="text-sm text-gray-800 mt-1">
+            <b>{est.apuradas ?? 0} apuradas</b> · {est.em_conferencia ?? 0} em conferência ·{" "}
+            {est.conferidas ?? 0} conferidas
+            {est.nao_auditadas ? ` · ${est.nao_auditadas} não auditadas` : ""}
+          </p>
+        </div>
+        <div className="border border-gray-200 rounded-xl p-4">
+          <p className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Posição na janela — em competências</p>
+          {(pos.total ?? 0) === 0 || (pos.com_credito + pos.com_debito + pos.sem_divergencia) === 0 ? (
+            <p className="text-sm text-gray-500 mt-1">sem posição — nada apurado</p>
+          ) : (
+            <p className="text-sm text-gray-800 mt-1">
+              <b className="text-indigo-700">{pos.com_credito} com crédito</b> ·{" "}
+              <b className="text-red-700">{pos.com_debito} com débito</b> ·{" "}
+              {pos.sem_divergencia} sem divergência
+            </p>
+          )}
+        </div>
+        <div className={`rounded-xl p-4 border ${falta.length ? "border-amber-300 bg-amber-50" : "border-gray-200"}`}>
+          <p className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">O que falta</p>
+          {falta.length === 0 ? (
+            <p className="text-sm text-emerald-700 mt-1">✓ completo</p>
+          ) : (
+            falta.map((f, i) => (
+              <p key={i} className="text-sm text-amber-900 mt-1 leading-snug">{f.texto}</p>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* As abas ficam fixas e só levam ao bloco. O ponto marca a aba que tem pendência. */}
+      <div className="sticky top-0 z-20 bg-white border-b border-gray-200 flex gap-4 overflow-x-auto mb-4 py-2">
+        {ABAS.map(([k, rotulo]) => {
+          // A aba de FAP ganha o ponto quando a pendência cita FAP; a de atividades idem. O texto
+          // do motivo é o mesmo que o topo exibe — não há segunda regra decidindo isso.
+          const pendente = falta.some((f) => (f.motivo || "").toLowerCase().includes(
+            k === "fap" ? "fap" : k === "atividades" ? "atividade" : k === "rat" ? "aplicado" : "\u0000"));
+          return (
+            <button key={k} onClick={() => irPara(k)}
+              className="text-sm text-gray-600 hover:text-gray-900 whitespace-nowrap">
+              {rotulo}{pendente && <span className="ml-1 text-amber-500">•</span>}
+            </button>
+          );
+        })}
+      </div>
+
+      <Bloco ancora="identificacao" titulo="Identificação">
+        <div className="bg-white rounded-xl border border-gray-100 p-5 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+          <div><p className="text-[11px] text-gray-500">Natureza</p><p>{estab.natureza || "—"}</p></div>
+          <div><p className="text-[11px] text-gray-500">CNPJ / CNO</p><p className="font-mono">{estab.cnpj || estab.cno || "—"}</p></div>
+          <div><p className="text-[11px] text-gray-500">Abertura</p><p>{estab.data_abertura ? fmt.data(estab.data_abertura) : "—"}</p></div>
+          <div><p className="text-[11px] text-gray-500">Situação</p><p>{estab.status || "—"}</p></div>
+        </div>
+      </Bloco>
+
+      {/* Os quatro blocos abaixo são as antigas janelas, agora embutidas. O conteúdo e a gravação
+          são os mesmos; some só a moldura flutuante. */}
+      <Bloco ancora="atividades" titulo="Atividades — quantitativo de segurados empregados e avulsos">
+        <AtividadesModal estab={estab} onFechar={() => {}} embutido />
+      </Bloco>
+
+      {/* O FAP ainda não é um componente próprio: hoje ele vive dentro do componente da lista,
+          usando o estado dela (fapValores, fapSalvando). Extraí-lo é a primeira coisa da etapa C,
+          quando a lista for reescrita. Declarar a ausência aqui é melhor do que uma página que
+          simplesmente não mostra o FAP e deixa quem lê procurando. */}
+      <Bloco ancora="fap" titulo="FAP publicado">
+        <div className="bg-white rounded-xl border border-gray-100 p-5">
+          <p className="text-xs text-gray-500">
+            Bloco ainda na lista — entra aqui na etapa C, junto com a reescrita dela.
+          </p>
+        </div>
+      </Bloco>
+
+      <Bloco ancora="rat" titulo="RAT aplicado pela empresa">
+        <RatAplicadoModal estab={estab} onFechar={() => {}} embutido />
+      </Bloco>
+
+      <Bloco ancora="enquadramento" titulo="Enquadramento">
+        <PainelModal estab={estab} onFechar={() => {}} embutido />
+      </Bloco>
+
+      <Bloco ancora="fpas" titulo="FPAS e Terceiros">
+        <FpasModal estab={estab} onFechar={() => {}} embutido />
+      </Bloco>
     </div>
   );
 }
