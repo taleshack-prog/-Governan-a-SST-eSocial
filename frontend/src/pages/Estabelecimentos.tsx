@@ -1500,7 +1500,10 @@ export function EstabelecimentoPagina() {
                   ? <p className="text-gray-600">{b.dispositivo}</p>
                   : <p className="text-amber-700">sem fundamentação cadastrada</p>}
                 {b.ato && <p className="text-gray-600">{b.ato}</p>}
-                {b.anexo && <p className="text-gray-500">{b.anexo}</p>}
+                {/* O MESMO rótulo da memória de cálculo ("Grau de risco: …"), para a tela e o
+                    documento dizerem a mesma coisa com as mesmas palavras. O campo chegava vazio
+                    até 28/10 porque o endpoint da página não o serializava. */}
+                {b.anexo && <p className="text-gray-500">Grau de risco: {b.anexo}</p>}
               </div>
             ))}
           </div>

@@ -913,6 +913,20 @@ async def resumo_enquadramento_estab(
             {"de": b["de"].isoformat(), "ate": b["ate"].isoformat(),
              "dispositivo": (b["citacao"] or {}).get("dispositivo"),
              "ato": (b["citacao"] or {}).get("ato_normativo"),
+             # O ANEXO FALTAVA AQUI (Carolina, 28/10, lendo a tela: "o Anexo V não aparece").
+             #
+             # Nao era dado ausente: as duas linhas de 'rat_devido' tem anexo cadastrado — Anexo V
+             # do Decreto 3.048/99 no periodo da IN 971/2009 (migration 050) e Anexo I da propria
+             # IN 2.110/2022 no periodo vigente (migration 043). A tela ja renderiza `b.anexo`.
+             # Era ESTE serializador que nao mandava o campo, enquanto o da memoria (_blocos,
+             # abaixo) mandava — e e o anexo que diz de onde sai o grau do CNAE, isto e, a base do
+             # RAT devido. Sem ele a tela afirmava o grau sem citar a fonte.
+             #
+             # Os dois serializadores desenham o MESMO bloco e vivem a 300 linhas um do outro. Essa
+             # duplicacao e a causa: a divergencia nao e detectavel por tipo, so por leitura. Fica
+             # anotada como divida tecnica — um serializador unico, como resumo_enquadramento.py fez
+             # com as agregacoes.
+             "anexo": (b["citacao"] or {}).get("anexo"),
              "observacao": (b["citacao"] or {}).get("observacao"),
              "vigencia_inicio": (b["citacao"] or {}).get("vigencia_inicio"),
              "vigencia_fim": (b["citacao"] or {}).get("vigencia_fim")}
