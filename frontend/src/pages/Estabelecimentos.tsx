@@ -12,6 +12,12 @@ import { useParams, useNavigate } from "react-router-dom";
 
 const NATUREZAS = ["CNPJ", "CNO", "CAEPF"];
 const POSICOES = ["matriz", "filial", "obra"];
+// Os filtros da lista-indice (etapa C, item 3). "Com pendência" e "Encerrados" não são
+// naturezas: são recortes de trabalho, e por isso vêm depois dos três de natureza.
+const FILTROS: [string, string][] = [
+  ["todos", "Todos"], ["matriz", "Matriz"], ["filial", "Filiais"], ["obra", "Obras"],
+  ["pendencia", "Com pendência"], ["encerrados", "Encerrados"],
+];
 const STATUS = ["ativa", "paralisada", "encerrada"];
 
 const maskCnpj = (v: string) => (v || "").replace(/\D/g, "").slice(0, 14)
@@ -932,35 +938,56 @@ export function Estabelecimentos() {
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState<any>(FORM_VAZIO);
   const [erro, setErro] = useState("");
-  const [ativEstab, setAtivEstab] = useState<any>(null);
-  const [painelEstab, setPainelEstab] = useState<any>(null);
-  const [ratEstab, setRatEstab] = useState<any>(null);
-  const [fpasPeriodoEstab, setFpasPeriodoEstab] = useState<any>(null);
   const navegar = useNavigate();
-  const [fapEstab, setFapEstab] = useState<any>(null);
   const [busca, setBusca] = useState("");
-  const [ordem, setOrdem] = useState("codigo");
+  const [ordem, setOrdem] = useState("pendencia");
+  const [filtro, setFiltro] = useState("todos");
 
   const { data: estabs = [], isLoading } = useQuery({
     queryKey: ["estabelecimentos"],
     queryFn: () => apiClient.get("/estabelecimentos/").then((r) => r.data),
   });
 
-  // Item 10: busca e ordenação no cliente — a lista de um escritório não justifica paginar no
-  // servidor, e "maior divergência primeiro" é a ordem que responde "onde eu olho".
+  // FILTROS POR NATUREZA E POR PENDENCIA (itens 3 e 4). A busca e a ordenacao continuam no
+  // cliente: a lista de um escritorio nao justifica paginar no servidor.
+  const pendente = (e: any) => ((e.resumo?.o_que_falta || []).length > 0);
+  const encerrado = (e: any) => String(e.status || "").toLowerCase().startsWith("encerrad");
+
+  const casaFiltro = (e: any, f: string) =>
+    f === "todos" ? true
+    : f === "pendencia" ? pendente(e)
+    : f === "encerrados" ? encerrado(e)
+    : String(e.posicao || "").toLowerCase() === f;
+
+  const contaFiltro = (f: string) => estabs.filter((e: any) => casaFiltro(e, f)).length;
+
   const visiveis = (() => {
     const q = busca.trim().toLowerCase();
-    const filtrados = !q ? [...estabs] : estabs.filter((e: any) =>
-      [e.codigo, e.nome, e.cnpj, e.identificador].some((v: any) => String(v || "").toLowerCase().includes(q)));
-    const falta = (e: any) => e.completude
-      ? Object.values(e.completude).filter((v) => !v).length : 9;
-    const div = (e: any) => Math.abs(e.enquadramento_atual?.divergencia_pp ?? -1);
+    const filtrados = estabs
+      .filter((e: any) => casaFiltro(e, filtro))
+      .filter((e: any) => !q || [e.nome, e.cnpj, e.identificador]
+        .some((v: any) => String(v || "").toLowerCase().includes(q)));
+    // COM PENDENCIA PRIMEIRO, por padrao: "quem abre a lista vê de cara onde trabalhar".
     filtrados.sort((a: any, b: any) =>
-      ordem === "nome" ? String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR")
-      : ordem === "divergencia" ? div(b) - div(a)
-      : ordem === "incompleto" ? falta(b) - falta(a)
-      : String(a.codigo || "").localeCompare(String(b.codigo || ""), "pt-BR", { numeric: true }));
+      ordem === "nome"
+        ? String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR")
+        : (Number(pendente(b)) - Number(pendente(a)))
+          || String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR"));
     return filtrados;
+  })();
+
+  // O rótulo da janela no cabeçalho da coluna, quando todos concordam. Estabelecimentos com
+  // janelas diferentes não ganham um período único no título — seria afirmar o de um sobre todos.
+  const janelaRotulo: string = (() => {
+    // Set<string> explícito: montado a partir de um map sobre `any`, o Set sai sem tipo e o
+    // elemento vira `unknown`, que o JSX não aceita renderizar.
+    const js = Array.from(new Set<string>(
+      estabs
+        .map((e: any) => e.resumo?.janela)
+        .filter(Boolean)
+        .map((j: any) => `${fmt.competencia(j.inicio)} a ${fmt.competencia(j.fim)}`)
+    ));
+    return js.length === 1 ? js[0] : "";
   })();
 
   const salvar = useMutation({
@@ -980,144 +1007,136 @@ export function Estabelecimentos() {
     salvar.mutate(p);
   };
 
-  // Abrir o FAP virou só escolher o estabelecimento: o componente carrega os próprios valores.
-  const abrirFap = (e: any) => setFapEstab(e);
 
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Estabelecimentos</h1>
-          <p className="text-sm text-gray-500 mt-1">Matriz, filiais e obras. O grau de risco é apurado da atividade preponderante.</p>
+          <p className="text-sm text-gray-500 mt-1">
+            Matriz, filiais e obras. O enquadramento pertence a cada estabelecimento.
+          </p>
         </div>
         <button onClick={() => { setForm(FORM_VAZIO); setErro(""); setModal(true); }}
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">+ Novo</button>
+          className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">
+          + Novo estabelecimento
+        </button>
       </div>
 
-      {/* Item 10: busca e ordenação. Com quinze linhas, achar um estabelecimento rolando a lista
-          já não funciona; com quarenta obras, menos ainda. */}
+      {/* A LISTA E UM INDICE, NAO UMA PLANILHA (Carolina, etapa C, itens 1 a 4).
+          "A lista só responde a três perguntas: quais estabelecimentos existem, em que estado
+          está a janela de cada um e o que falta preencher. Tudo o mais fica na página."
+
+          Sairam daqui codigo, grau, RAT devido, efetiva, divergencia de um mes, abertura, as
+          etiquetas At·FAP·RAT·FPAS e a fileira de seis acoes. Nada disso sumiu do sistema: esta
+          na pagina do estabelecimento, que abre ao clicar na linha. */}
       <div className="flex flex-wrap items-center gap-3">
-        <input className="flex-1 min-w-[220px] border border-gray-300 rounded-lg px-3 py-2 text-sm"
+        <input className="flex-1 min-w-[260px] border border-gray-300 rounded-lg px-3 py-2 text-sm"
           value={busca} onChange={(e) => setBusca(e.target.value)}
-          placeholder="Buscar por código, nome, CNPJ ou matrícula…" />
+          placeholder="Buscar por nome, CNPJ ou CNO…" />
         <select className="border border-gray-300 rounded-lg px-3 py-2 text-sm" value={ordem}
           onChange={(e) => setOrdem(e.target.value)}>
-          <option value="codigo">Ordenar por código</option>
+          <option value="pendencia">Ordenar: com pendência primeiro</option>
           <option value="nome">Ordenar por nome</option>
-          <option value="divergencia">Maior divergência primeiro</option>
-          <option value="incompleto">Menos completo primeiro</option>
         </select>
-        <span className="text-xs text-gray-400">{visiveis.length} de {estabs.length}</span>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+      {/* Os filtros fazem o trabalho que a rolagem lateral não fazia: com quarenta obras, achar
+          o que falta preencher deixa de depender de varrer a tela. */}
+      <div className="flex flex-wrap gap-2">
+        {FILTROS.map(([chave, rotulo]) => (
+          <button key={chave} onClick={() => setFiltro(chave)}
+            className={`text-xs rounded-full px-3 py-1.5 border ${filtro === chave
+              ? "bg-gray-900 text-white border-gray-900"
+              : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"}`}>
+            {rotulo} · {contaFiltro(chave)}
+          </button>
+        ))}
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-200">
         {isLoading ? <div className="p-8 text-center text-gray-400">Carregando…</div>
           : estabs.length === 0 ? <div className="p-8 text-center text-gray-400">Nenhum estabelecimento.</div>
-          : visiveis.length === 0 ? <div className="p-8 text-center text-gray-400">Nenhum estabelecimento corresponde à busca.</div>
+          : visiveis.length === 0 ? <div className="p-8 text-center text-gray-400">Nenhum estabelecimento neste filtro.</div>
           : (
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>{["Código", "Nome", "CNPJ / matrícula", "Natureza", "Grau", "RAT devido",
-                      "Efetiva", "Divergência", "Situação", "Abertura", "Completude", "Ações"].map((h) => (
-                  <th key={h} className="text-left px-3 py-3 text-xs font-medium text-gray-500 uppercase whitespace-nowrap">{h}</th>))}</tr>
+                <tr className="text-[10px] uppercase tracking-wide text-gray-500 text-left">
+                  <th className="px-4 py-3">Estabelecimento</th>
+                  <th className="px-3">CNPJ / CNO</th>
+                  <th className="px-3">Janela{janelaRotulo && <span className="normal-case"> · {janelaRotulo}</span>}</th>
+                  <th className="px-3">O que falta</th>
+                  <th className="px-3"></th>
+                </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {visiveis.map((e: any) => {
-                  const a = e.enquadramento_atual;
-                  const comp = a?.competencia ? `competência ${fmt.competencia(a.competencia)}` : "série não apurada";
-                  // A LINHA ABRE A PÁGINA (etapa B). As ações continuam onde estavam até a
-                  // etapa C reescrever a lista; clicar fora delas leva ao estabelecimento.
+                  const res = e.resumo;
+                  const est = res?.estado;
+                  const pos = res?.posicao;
+                  const falta: any[] = res?.o_que_falta || [];
+                  const temPosicao = pos && (pos.com_credito + pos.com_debito + pos.sem_divergencia) > 0;
                   return (
-                  <tr key={e.id} className="hover:bg-gray-50 cursor-pointer"
-                    onClick={(ev) => {
-                      // Só navega quando o clique não foi num botão ou link da própria linha:
-                      // senão "Atividades" abriria a janela e a página ao mesmo tempo.
-                      if ((ev.target as HTMLElement).closest("button,a,input,select")) return;
-                      navegar(`/estabelecimentos/${e.id}`);
-                    }}>
-                    <td className="px-3 py-3 font-mono text-gray-600 text-xs">{e.codigo}</td>
-                    <td className="px-3 py-3 font-medium text-gray-900">
-                      {e.nome}
-                      <span className="block text-[11px] text-gray-400 capitalize">{e.posicao} · {e.status}</span>
-                    </td>
-                    <td className="px-3 py-3 font-mono text-gray-600 text-xs">{e.cnpj ? maskCnpj(e.cnpj) : (e.identificador || "—")}</td>
-                    <td className="px-3 py-3 text-gray-600">{e.tipo_estabelecimento}</td>
-                    {/* Enquadramento apurado da competência corrente — somente leitura */}
-                    <td className="px-3 py-3 text-gray-600 whitespace-nowrap" title={comp}>
-                      {a?.grau_risco ? <span>{a.grau_risco} <span className="text-gray-400 text-xs">{a.grau_label}</span></span> : "—"}
-                    </td>
-                    <td className="px-3 py-3 text-gray-600 tabular-nums" title={comp}>{fmt.pct(a?.aliquota_devida)}</td>
-                    <td className="px-3 py-3 text-gray-600 tabular-nums" title={comp}>{fmt.pct(a?.aliquota_efetiva)}</td>
-                    {/* Item 9: a divergência é o que diz QUAL estabelecimento tem problema.
-                        Positiva = crédito; negativa = passivo. Cor acompanhada de rótulo. */}
-                    <td className="px-3 py-3 tabular-nums whitespace-nowrap">
-                      {a?.divergencia_confirmada === false ? (
-                        <span className="text-amber-700" title="Divergência não confirmada: depende de informar o RAT base e o FAP aplicados.">
-                          <b>?</b>
-                          <span className="block text-[11px] font-normal">não confirmada</span>
-                        </span>
-                      ) : a?.divergencia_pp == null ? <span className="text-gray-400">—</span> : (
-                        <span className={a.divergencia_pp > 0 ? "text-blue-700" : a.divergencia_pp < 0 ? "text-red-700" : "text-gray-500"}
-                          title={a.divergencia_pp > 0 ? "pagou a mais — crédito a recuperar" : a.divergencia_pp < 0 ? "pagou a menos — passivo a regularizar" : "sem divergência"}>
-                          <b>{fmt.pp(a.divergencia_pp)}</b>
-                          {a.origem_divergencia && a.origem_divergencia !== "nenhuma" && (
-                            <span className="block text-[11px] font-normal">
-                              {ORIGEM[a.origem_divergencia] || a.origem_divergencia}
-                              {a.amparada && <span className="text-gray-400" title="processo informado amparando a alíquota"> · amparada</span>}
-                            </span>
-                          )}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-3 whitespace-nowrap">
-                      <span className={SIT[a?.situacao]?.cls || "text-gray-400"} title={a?.motivo_fila || SIT[a?.situacao]?.ajuda || "série não apurada"}>
-                        {SIT[a?.situacao]?.txt || "—"}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3 text-gray-600 whitespace-nowrap">{fmt.data(e.data_abertura)}</td>
-                    {/* Item 10: o que falta, sem abrir cada estabelecimento */}
-                    <td className="px-3 py-3 whitespace-nowrap">
-                      {e.completude ? (
-                        <span className="flex gap-1">
-                          {([["atividade", "At"], ["fap", "FAP"], ["rat_aplicado", "RAT"], ["fpas", "FPAS"]] as const).map(([k, lbl]) => (
-                            <span key={k}
-                              title={`${lbl === "At" ? "Atividade" : lbl}: ${e.completude[k] ? "informado" : "faltando"}`}
-                              className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                                e.completude[k] ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-400"}`}>
-                              {lbl}
-                            </span>
-                          ))}
-                        </span>
-                      ) : "—"}
-                    </td>
-                    {/* Item 10: cor só onde significa algo. Enquadramento é o resultado (verde);
-                        os insumos ficam neutros; Editar é secundário. */}
-                    <td className="px-3 py-3 text-xs whitespace-nowrap">
-                      <button onClick={() => setPainelEstab(e)} className="text-emerald-700 font-medium hover:underline">Enquadramento</button>
-                      <span className="text-gray-300 mx-2">|</span>
-                      <span className="space-x-2 text-gray-600">
-                        <button onClick={() => setAtivEstab(e)} className="hover:underline hover:text-gray-900">Atividades</button>
-                        <button onClick={() => abrirFap(e)} className="hover:underline hover:text-gray-900">FAP</button>
-                        <button onClick={() => setRatEstab(e)} className="hover:underline hover:text-gray-900">RAT aplicado</button>
-                        <button onClick={() => setFpasPeriodoEstab(e)} className="hover:underline hover:text-gray-900">FPAS</button>
-                      </span>
-                      <span className="text-gray-300 mx-2">|</span>
-                      <button onClick={() => { setForm({ ...FORM_VAZIO, ...e, data_abertura: e.data_abertura || "", data_encerramento: e.data_encerramento || "" }); setErro(""); setModal(true); }} className="text-gray-400 hover:underline hover:text-gray-700">Editar</button>
-                    </td>
-                  </tr>
-                );})}
+                    <tr key={e.id} className="hover:bg-gray-50 cursor-pointer align-top"
+                      onClick={() => navegar(`/estabelecimentos/${e.id}`)}>
+                      <td className="px-4 py-4">
+                        <p className="font-bold text-gray-900">{e.nome}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          <span className="inline-block bg-gray-100 rounded px-1.5 py-0.5 mr-2 uppercase tracking-wide text-[10px] font-semibold">
+                            {e.posicao || "—"}
+                          </span>
+                          {e.cidade ? `${e.cidade}/${e.uf || ""}` : ""}{e.status ? ` · ${e.status}` : ""}
+                        </p>
+                      </td>
+                      <td className="px-3 py-4 font-mono text-xs text-gray-600">
+                        {e.cnpj ? fmt.cnpj(e.cnpj) : (e.identificador ? `CNO ${e.identificador}` : "—")}
+                      </td>
+                      <td className="px-3 py-4 text-xs">
+                        {!est ? <span className="text-gray-400">série não apurada</span> : (
+                          <>
+                            <p className="text-gray-700">
+                              <b>{est.apuradas} apuradas</b> · {est.em_conferencia} em conferência ·{" "}
+                              {est.conferidas} conferidas
+                            </p>
+                            {/* A COLUNA RESUME O PERIODO INTEIRO. Ela substitui a divergência de um
+                                mês só, que na lista parecia ser a do estabelecimento. */}
+                            {temPosicao ? (
+                              <p className="mt-1 text-gray-700">
+                                competências: <b className="text-indigo-700">{pos.com_credito} com crédito</b> ·{" "}
+                                <b className="text-red-700">{pos.com_debito} com débito</b> ·{" "}
+                                {pos.sem_divergencia} sem divergência
+                              </p>
+                            ) : (
+                              <p className="mt-1 text-gray-400">sem posição — nada apurado</p>
+                            )}
+                          </>
+                        )}
+                      </td>
+                      <td className="px-3 py-4">
+                        {/* O QUE FALTA, EM PALAVRAS. Eram as etiquetas cifradas At · FAP · RAT ·
+                            FPAS, que só diziam alguma coisa a quem já sabia o que significavam. */}
+                        {falta.length === 0 ? (
+                          <span className="text-xs text-emerald-700">✓ completo</span>
+                        ) : (
+                          <span className="inline-block text-xs rounded-md border border-amber-300 bg-amber-50 text-amber-900 px-2 py-1">
+                            {falta.map((f) => f.motivo).join(" · ")}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-4 text-gray-300">›</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
       </div>
 
       {modal && <EstabModal form={form} setForm={setForm} onSalvar={onSalvar} onFechar={() => { setModal(false); setForm(FORM_VAZIO); }} isPending={salvar.isPending} erro={erro} />}
-      {ativEstab && <AtividadesModal estab={ativEstab} onFechar={() => setAtivEstab(null)} />}
-      {painelEstab && <PainelModal estab={painelEstab} onFechar={() => setPainelEstab(null)} />}
-      {/* Reapura a série ao fechar: grau/RAT da listagem precisam refletir o que acabou de mudar */}
-      {ratEstab && <RatAplicadoModal estab={ratEstab} onFechar={() => { setRatEstab(null); qc.invalidateQueries({ queryKey: ["estabelecimentos"] }); }} />}
-      {fpasPeriodoEstab && <FpasModal estab={fpasPeriodoEstab} onFechar={() => setFpasPeriodoEstab(null)} />}
-      {fapEstab && <FapBloco estab={fapEstab} onFechar={() => setFapEstab(null)} />}
+      {/* ITEM 11: as janelas que viraram blocos não são mais abertas daqui. Os componentes
+          continuam existindo — a página do estabelecimento os usa embutidos —, o que saiu foi a
+          abertura como janela sobre a lista, que era o empilhamento que a revisão eliminou.
+          Fica só o EstabModal, que é o cadastro de um estabelecimento novo e nunca virou bloco. */}
     </div>
   );
 }
