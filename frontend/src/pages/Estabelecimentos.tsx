@@ -1448,12 +1448,16 @@ export function EstabelecimentoPagina() {
                       <td className="py-2 font-medium">{l.ano}</td>
                       <td>{l.competencias}</td>
                       <td className="font-mono">{cel(l.cnae_preponderante, l.cnae_preponderante_varia, (x) => fmt.cnae(x))}</td>
-                      <td>{cel(l.aliquota_devida, l.aliquota_devida_varia, (x) => fmt.pct(x))}</td>
+                      {/* A DEVIDA E A EFETIVA: RAT do grau × FAP publicado do ano. Mostrar o RAT
+                          puro aqui punha 3,00% em todos os anos ao lado de uma divergência
+                          calculada sobre outro número, e a conta não fechava na tela. Sem FAP
+                          publicado não há efetiva, e a célula diz "—" em vez de inventar uma. */}
+                      <td>{cel(l.aliquota_efetiva, l.aliquota_efetiva_varia, (x) => fmt.pct(x))}</td>
                       <td>{cel(l.aliquota_aplicada, l.aliquota_aplicada_varia, (x) => fmt.pct(x))}</td>
                       <td>
                         {l.divergencia_pp_varia ? <span className="text-gray-400">varia</span>
                           : d == null ? <span className="text-gray-400">não apurada</span>
-                          : d === 0 ? "0,00"
+                          : d === 0 ? "0,00 p.p."
                           : <b className={d > 0 ? "text-indigo-700" : "text-red-700"}>
                               {fmt.pp(d)} {d > 0 ? "crédito" : "débito"}
                             </b>}
@@ -1479,18 +1483,25 @@ export function EstabelecimentoPagina() {
         {(r.fundamentacao_blocos || []).length > 0 && (
           <div className="mt-3 text-[11px] text-gray-500 space-y-1">
             {(r.fundamentacao_blocos || []).map((b: any, i: number) => (
-              <p key={i}>
-                <span className="text-gray-400">
-                  {fmt.competencia(b.de)} a {fmt.competencia(b.ate)} —{" "}
-                </span>
-                {b.dispositivo || <span className="text-amber-700">sem fundamentação cadastrada</span>}
-                {b.vigencia_inicio && (
-                  <span className="text-gray-400">
-                    {" "}(redação vigente desde {fmt.data(b.vigencia_inicio)}
-                    {b.vigencia_fim ? ` até ${fmt.data(b.vigencia_fim)}` : ""})
-                  </span>
-                )}
-              </p>
+              <div key={i} className={i > 0 ? "mt-2 pt-2 border-t border-gray-100" : ""}>
+                <p className="text-gray-400">
+                  {fmt.competencia(b.de)} a {fmt.competencia(b.ate)}
+                </p>
+                {/* OS TRES CAMPOS, em linhas separadas, como a memória de cálculo já imprime.
+                    A tela mostrava só `dispositivo` — a Lei e o Decreto — e por isso as duas
+                    vigências saíam idênticas: o que as distingue é a IN, que vive em
+                    `ato_normativo`, e o anexo, que vive em `anexo`. O dado sempre esteve certo;
+                    faltava exibi-lo.
+
+                    E saiu a nota genérica "redação vigente desde …": colada ao fim de uma citação
+                    que começa pelo Decreto, ela afirmava que o Decreto mudou em 17/10/2022, o que
+                    é falso. A data agora acompanha a IN, dentro do próprio campo. */}
+                {b.dispositivo
+                  ? <p className="text-gray-600">{b.dispositivo}</p>
+                  : <p className="text-amber-700">sem fundamentação cadastrada</p>}
+                {b.ato && <p className="text-gray-600">{b.ato}</p>}
+                {b.anexo && <p className="text-gray-500">{b.anexo}</p>}
+              </div>
             ))}
           </div>
         )}

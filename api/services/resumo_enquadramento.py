@@ -121,7 +121,13 @@ def resumo_por_ano(serie: list[dict]) -> list[dict]:
         situacoes = {r.get("situacao") for r in rs}
         situacao = next((s for s in _PRECEDENCIA if s in situacoes), None)
         campos = {}
-        for chave in ("cnae_preponderante", "aliquota_devida", "aliquota_aplicada", "divergencia_pp"):
+        # 'aliquota_efetiva' e a DEVIDA de verdade: RAT do grau multiplicado pelo FAP publicado
+        # do ano. 'aliquota_devida' guarda so o RAT do grau, e foi o que a tela exibiu na coluna
+        # "Devida" — 3,00% em todos os anos, ao lado de uma divergencia calculada sobre a efetiva.
+        # As duas colunas vinham de campos diferentes, e a conta nao fechava na tela: 3,00 menos
+        # 3,00 aparecia dando +0,90. Quem le uma peca com isso conclui que o sistema errou.
+        for chave in ("cnae_preponderante", "aliquota_devida", "aliquota_efetiva",
+                      "aliquota_aplicada", "divergencia_pp"):
             vals = [r.get(chave) for r in rs]
             v = _unico(vals)
             campos[chave] = v
