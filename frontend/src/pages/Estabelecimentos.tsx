@@ -933,6 +933,32 @@ function FapBloco({ estab, embutido = false, onFechar, editando = false, onEdita
   );
 }
 
+// OS INSUMOS DO CADASTRO QUE FALTAM (Carolina, 29/10, defeito 2).
+//
+// Tres insumos, e sao os tres que a apuracao do RAT exige: a atividade da o CNAE preponderante,
+// o FAP multiplica a aliquota do grau, e o RAT aplicado e o termo com que a devida se compara.
+// Sem qualquer um deles nao ha o que apurar.
+//
+// O FPAS fica de fora de proposito, embora o servidor tambem o informe: ele responde pelas
+// contribuicoes a Terceiros, que sao outro eixo, e a sua ausencia nao impede a apuracao do RAT.
+// Foi a lista que ela escreveu, e e a que corresponde ao que trava a serie.
+//
+// Funcao de modulo porque a LISTA e a PAGINA leem as duas — a mesma razao de resumo_enquadramento
+// existir no servidor: duas telas que respondem "o que falta" nao podem responder coisas
+// diferentes.
+const INSUMOS: [string, string][] = [
+  ["atividade", "Atividades"],
+  ["fap", "FAP"],
+  ["rat_aplicado", "RAT aplicado"],
+];
+
+function faltaCadastro(completude: any): string[] {
+  // Sem o campo, nao se afirma nada: devolver os tres aqui acusaria de incompleto um
+  // estabelecimento sobre o qual o servidor nao respondeu.
+  if (!completude) return [];
+  return INSUMOS.filter(([chave]) => !completude[chave]).map(([, rotulo]) => rotulo);
+}
+
 export function Estabelecimentos() {
   const qc = useQueryClient();
   const [modal, setModal] = useState(false);
@@ -950,7 +976,13 @@ export function Estabelecimentos() {
 
   // FILTROS POR NATUREZA E POR PENDENCIA (itens 3 e 4). A busca e a ordenacao continuam no
   // cliente: a lista de um escritorio nao justifica paginar no servidor.
-  const pendente = (e: any) => ((e.resumo?.o_que_falta || []).length > 0);
+  //
+  // PENDENTE SAO AS DUAS COISAS (Carolina, 29/10, defeito 2). Era so a serie apurada, e por isso
+  // estabelecimento recem-cadastrado — sem atividade, sem FAP, sem RAT aplicado — ficava FORA do
+  // filtro "Com pendência": sem insumo nao ha serie, sem serie nao ha pendencia de serie, e a
+  // lista o dava por completo. Era o estabelecimento que mais precisava aparecer.
+  const pendente = (e: any) =>
+    faltaCadastro(e.completude).length > 0 || (e.resumo?.o_que_falta || []).length > 0;
   const encerrado = (e: any) => String(e.status || "").toLowerCase().startsWith("encerrad");
 
   const casaFiltro = (e: any, f: string) =>
@@ -1086,6 +1118,7 @@ export function Estabelecimentos() {
                   const est = res?.estado;
                   const pos = res?.posicao;
                   const falta: any[] = res?.o_que_falta || [];
+                  const semCadastro = faltaCadastro(e.completude);
                   const temPosicao = pos && (pos.com_credito + pos.com_debito + pos.sem_divergencia) > 0;
                   return (
                     <tr key={e.id} className="hover:bg-gray-50 cursor-pointer align-top"
@@ -1126,9 +1159,17 @@ export function Estabelecimentos() {
                       <td className="px-3 py-4">
                         {/* O QUE FALTA, EM PALAVRAS. Eram as etiquetas cifradas At · FAP · RAT ·
                             FPAS, que só diziam alguma coisa a quem já sabia o que significavam. */}
-                        {falta.length === 0 ? (
+                        {semCadastro.length > 0 && (
+                          /* O QUE FALTA CADASTRAR vem ANTES do que falta apurar: enquanto o
+                             insumo nao existe, a serie nem comeca, e dizer "em conferência" a
+                             quem ainda nao cadastrou atividade seria apontar o sintoma. */
+                          <span className="block text-xs rounded-md border border-sky-300 bg-sky-50 text-sky-900 px-2 py-1 mb-1">
+                            {semCadastro.join(" · ")}
+                          </span>
+                        )}
+                        {falta.length === 0 && semCadastro.length === 0 ? (
                           <span className="text-xs text-emerald-700">✓ completo</span>
-                        ) : (
+                        ) : falta.length === 0 ? null : (
                           /* `texto`, NAO `motivo` (Carolina, 29/10, revisao da Lista). A celula
                              mostrava so o motivo — "FAP de 2021 não informado" —, enquanto a
                              página mostrava o motivo E a consequência: "— trava 11/2021, 12/2021".
@@ -1245,6 +1286,7 @@ export function EstabelecimentoPagina() {
   const est = r.estado || {};
   const pos = r.posicao || {};
   const falta: any[] = r.o_que_falta || [];
+  const semCadastro = faltaCadastro(r.completude);
   const janela = r.janela || {};
   const periodo = janela.inicio && janela.fim
     ? `${fmt.competencia(janela.inicio)} a ${fmt.competencia(janela.fim)}`
@@ -1320,9 +1362,18 @@ export function EstabelecimentoPagina() {
             </p>
           )}
         </div>
-        <div className={`rounded-xl p-4 border ${falta.length ? "border-amber-300 bg-amber-50" : "border-gray-200"}`}>
+        {/* O MESMO "o que falta" DA LISTA (Carolina, 29/10, defeito 2). O cartão lia só a série
+            apurada e, num estabelecimento sem atividade, sem FAP e sem RAT aplicado, concluía
+            "✓ completo" de uma lista vazia — a mesma afirmação falsa que a lista fazia, pelo
+            mesmo motivo. Os insumos do cadastro vêm primeiro: sem eles a série não começa. */}
+        <div className={`rounded-xl p-4 border ${(falta.length || semCadastro.length) ? "border-amber-300 bg-amber-50" : "border-gray-200"}`}>
           <p className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">O que falta</p>
-          {falta.length === 0 ? (
+          {semCadastro.length > 0 && (
+            <p className="text-sm text-sky-900 mt-1 leading-snug">
+              Falta cadastrar: {semCadastro.join(" · ")}
+            </p>
+          )}
+          {falta.length === 0 && semCadastro.length === 0 ? (
             <p className="text-sm text-emerald-700 mt-1">✓ completo</p>
           ) : (
             falta.map((f, i) => (

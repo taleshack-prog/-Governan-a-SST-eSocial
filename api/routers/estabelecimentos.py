@@ -898,6 +898,18 @@ async def resumo_enquadramento_estab(
         "posicao": contagem_posicao(serie),
         "resumo_ano": resumo_por_ano(serie),
         "o_que_falta": o_que_falta(serie),
+        # OS INSUMOS DO CADASTRO, ao lado das pendencias da serie (Carolina, 29/10, defeito 2).
+        #
+        # 'o_que_falta' le a SERIE APURADA. Estabelecimento sem atividade, sem FAP e sem RAT
+        # aplicado nao tem serie nenhuma: a lista volta vazia, e a tela concluia "completo" de uma
+        # lista vazia. Completo e vazio nao sao a mesma coisa — um diz que nada falta, o outro que
+        # nada foi apurado, e o segundo escondia da apuracao justamente os estabelecimentos que
+        # ninguem cadastrou ainda.
+        #
+        # A lista ja recebia este campo e nao o usava desde que as etiquetas "At · FAP · RAT"
+        # sairam. A pagina nao o recebia. As duas passam a ler o mesmo, pelo mesmo motivo de
+        # sempre: duas telas que respondem "o que falta" nao podem responder coisas diferentes.
+        "completude": (await _completude([estab_id], db)).get(str(estab_id)),
         # AS VIGENCIAS QUE A SERIE ATRAVESSA (Carolina, 27/10, item 10 da etapa C).
         #
         # A tela dizia "Fundamentação vigente em 11/2021, início da série" e citava UMA redacao
