@@ -1057,7 +1057,18 @@ export function Estabelecimentos() {
       <div className="bg-white rounded-xl border border-gray-200">
         {isLoading ? <div className="p-8 text-center text-gray-400">Carregando…</div>
           : estabs.length === 0 ? <div className="p-8 text-center text-gray-400">Nenhum estabelecimento.</div>
-          : visiveis.length === 0 ? <div className="p-8 text-center text-gray-400">Nenhum estabelecimento neste filtro.</div>
+          // DUAS FRASES PARA DUAS SITUACOES (Carolina, 29/10). A unica frase anterior —
+          // "Nenhum estabelecimento neste filtro." — culpava o filtro mesmo quando o usuario
+          // tinha DIGITADO uma busca e nao escolhido filtro nenhum. Quem digita quer ver o termo
+          // de volta, para saber se errou a digitacao ou se o estabelecimento nao existe. Com a
+          // busca vazia a frase antiga continua certa, e continua.
+          : visiveis.length === 0 ? (
+            <div className="p-8 text-center text-gray-400">
+              {busca.trim()
+                ? <>Nenhum estabelecimento encontrado para “{busca.trim()}”.</>
+                : "Nenhum estabelecimento neste filtro."}
+            </div>
+          )
           : (
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
