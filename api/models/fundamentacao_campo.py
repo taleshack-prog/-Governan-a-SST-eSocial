@@ -33,7 +33,11 @@ class FundamentacaoCampo(Base):
     campo: Mapped[str] = mapped_column(String(40), nullable=False)
     dispositivo: Mapped[str | None] = mapped_column(String(300))   # LEGADO (045): ver cabeçalho
     ato_normativo: Mapped[str | None] = mapped_column(String(300))
-    anexo: Mapped[str | None] = mapped_column(String(120))
+    # 200 desde a migration 062: a citacao do RAT devido vigente passou a trazer os DOIS anexos —
+    # o Anexo V do Decreto, que e a fonte normativa do grau, e o Anexo I da IN, que e a tabela com
+    # que a Receita o aplica — com o nome oficial completo, e isso da 151 caracteres. O limite
+    # antigo eram 120, e o UPDATE nao truncaria: falharia.
+    anexo: Mapped[str | None] = mapped_column(String(200))
     observacao: Mapped[str | None] = mapped_column(String(500))
     vigencia_inicio: Mapped[date] = mapped_column(Date, nullable=False)
     vigencia_fim: Mapped[date | None] = mapped_column(Date)
