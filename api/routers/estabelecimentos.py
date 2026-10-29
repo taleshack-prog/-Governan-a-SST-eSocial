@@ -7,7 +7,7 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, case
 from uuid import UUID
 from pydantic import BaseModel
 
@@ -43,6 +43,16 @@ TIPOS_ESTABELECIMENTO = ("CNPJ", "CNO", "CAEPF")   # RF-0.171
 POSICOES = ("matriz", "filial", "obra")
 STATUS_VALIDOS = ("ativa", "paralisada", "encerrada")
 GRAU_LABEL = {1: "leve", 2: "médio", 3: "grave"}
+
+# A MATRIZ EM CIMA, SEMPRE (Carolina, 29/10). Ordenar so pelo codigo poria a matriz em primeiro
+# apenas enquanto ela fosse a ordem 0001 — e a ressalva dela e exatamente essa: "a matriz nem
+# sempre é 0001 (ex.: transferência de sede)". Depois de uma transferencia, a sede pode ser a
+# 0007, e a lista a esconderia no meio das filiais.
+_ORDEM_POSICAO = case(
+    (Estabelecimento.posicao == "matriz", 0),
+    (Estabelecimento.posicao == "filial", 1),
+    else_=2,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -108,6 +118,155 @@ def _validar(data) -> None:
         raise HTTPException(status_code=422, detail="Matrícula CNO obrigatória para natureza CNO.")
     if not data.data_abertura:
         raise HTTPException(status_code=422, detail="Data de abertura é obrigatória.")
+    _validar_status_e_encerramento(data)
+
+
+# ---- "Encerrada" deixa de ser escolhida e passa a vir da data (Carolina, 29/10, pergunta B) ----
+#
+# O DEFEITO. 'status' e 'data_encerramento' diziam a mesma coisa e podiam se contradizer: dava
+# para salvar encerramento preenchido com status "ativa". Dois campos para um fato so, e o
+# sistema nao sabia qual deles acreditar — numa tela que decide se o estabelecimento entra ou nao
+# na apuracao.
+#
+# A PROPOSTA DELA ERA MAIS LARGA: "o status sai do formulario e passa a ser consequencia da data".
+# Isso resolveria ativa/encerrada e apagaria o terceiro valor, 'paralisada', que data nenhuma
+# expressa — um estado declarado sumiria sem ninguem ter decidido que devia sumir. Ela acolheu a
+# ressalva: o usuario escolhe entre ATIVA e PARALISADA, e "encerrada" vem da data.
+#
+# NAO SE REESCREVE O QUE O USUARIO MANDOU. A regra e simetrica e recusa a contradicao nos dois
+# sentidos, em vez de corrigir em silencio: num sistema que precisa ser auditavel, gravar algo
+# diferente do que foi enviado e pior do que recusar. A tela nunca chega a ver estas mensagens —
+# ela deriva o status da data antes de enviar —, mas a API nao depende da tela para se manter
+# coerente.
+def _validar_status_e_encerramento(data) -> None:
+    fim = data.data_encerramento
+    encerrada_de_fato = bool(fim and fim <= date.today())
+    if data.status == "encerrada" and not encerrada_de_fato:
+        raise HTTPException(
+            status_code=422,
+            detail=("Status 'encerrada' exige a data de encerramento, e ela não pode estar no "
+                    "futuro. Informe a data em que o estabelecimento encerrou."),
+        )
+    if encerrada_de_fato and data.status != "encerrada":
+        raise HTTPException(
+            status_code=422,
+            detail=(f"O encerramento em {fim.strftime('%d/%m/%Y')} já passou: o estabelecimento "
+                    f"está encerrado e não pode ficar como '{data.status}'. Para mantê-lo "
+                    f"{data.status}, apague a data de encerramento."),
+        )
+
+
+# ---- A raiz do CNPJ e a matriz única (Carolina, 29/10, defeitos 1 e 3) ----
+
+async def _raiz_do_cnpj_da_empresa(empresa_id, db: AsyncSession) -> str | None:
+    """Os oito primeiros digitos que todo estabelecimento CNPJ da empresa tem que repetir.
+
+    DE ONDE SAI. Da MATRIZ nao encerrada, que e a referencia que ela deu ("a filial tem que ter a
+    raiz da matriz"). Quando ainda nao existe matriz — a empresa cadastrando o primeiro
+    estabelecimento —, cai no CNPJ da propria empresa, que e NOT NULL e unico: sempre ha uma
+    resposta, e ela nao depende da ordem em que os estabelecimentos foram cadastrados.
+
+    Por que a matriz vem primeiro, e nao a empresa: e o que ela escreveu, e evita que um dado
+    antigo divergente entre os dois comece a recusar edicoes de cadastros que ja existiam.
+    """
+    matriz = (await db.execute(
+        select(Estabelecimento).where(
+            Estabelecimento.empresa_id == empresa_id,
+            Estabelecimento.posicao == "matriz",
+            Estabelecimento.status != "encerrada",
+        ).limit(1)
+    )).scalar_one_or_none()
+    if matriz and matriz.cnpj and len(matriz.cnpj) == 14:
+        return matriz.cnpj[:8]
+
+    from api.models.empresa import Empresa
+    empresa = (await db.execute(
+        select(Empresa).where(Empresa.id == empresa_id)
+    )).scalar_one_or_none()
+    if empresa and empresa.cnpj and len(empresa.cnpj) == 14:
+        return empresa.cnpj[:8]
+    return None
+
+
+def _raiz_formatada(raiz: str) -> str:
+    return f"{raiz[:2]}.{raiz[2:5]}.{raiz[5:8]}"
+
+
+async def _validar_no_contexto(data, empresa_id, db: AsyncSession, estab_id=None) -> None:
+    """As regras que dependem dos OUTROS estabelecimentos da empresa.
+
+    Ficam separadas de _validar porque precisam do banco. Valem na criacao e na edicao: a segunda
+    matriz de teste entrou pelo cadastro, mas entraria igualmente trocando a posicao de uma filial
+    que ja existia.
+    """
+    # (1) A RAIZ. "Estabelecimento de terceiro entra na apuração e soma crédito ou débito que não
+    # é do cliente" — e o resultado sai dentro de peça assinada por advogado.
+    #
+    # Vale para QUALQUER estabelecimento CNPJ, nao so para a filial: uma matriz com raiz diferente
+    # da empresa e outra empresa. Nao alcanca CNO nem CAEPF, que nao tem raiz.
+    if data.tipo_estabelecimento == "CNPJ" and data.cnpj and len(data.cnpj) == 14:
+        raiz = await _raiz_do_cnpj_da_empresa(empresa_id, db)
+        # Sem raiz conhecida nao se afirma nada: recusar aqui bloquearia o cadastro por uma
+        # ausencia que nao e culpa de quem esta cadastrando.
+        if raiz and data.cnpj[:8] != raiz:
+            raise HTTPException(
+                status_code=422,
+                detail=f"A raiz do CNPJ da filial deve ser a da matriz ({_raiz_formatada(raiz)}).",
+            )
+
+    # (2) UMA MATRIZ SO — e so a ATIVA bloqueia. Decisao dela: "matriz encerrada não bloqueia,
+    # porque é o caso da transferência de sede", em que a sede antiga encerra e outra assume.
+    if data.posicao == "matriz" and data.status != "encerrada":
+        filtro = [
+            Estabelecimento.empresa_id == empresa_id,
+            Estabelecimento.posicao == "matriz",
+            Estabelecimento.status != "encerrada",
+        ]
+        if estab_id is not None:
+            filtro.append(Estabelecimento.id != estab_id)
+        outra = (await db.execute(select(Estabelecimento).where(*filtro).limit(1))).scalar_one_or_none()
+        if outra:
+            raise HTTPException(status_code=409, detail="A empresa já tem matriz cadastrada.")
+
+
+# ---- O código deixa de ser digitado (Carolina, 29/10, pergunta A) ----
+#
+# O QUE ELE ERA. Campo obrigatorio que o usuario inventava. Procurado no codigo inteiro, nao
+# corresponde a campo nenhum do eSocial e nao sai em documento: serve para impedir dois cadastros
+# iguais na mesma empresa, para ordenar a lista e para nomear o estabelecimento sem nome. Pedir ao
+# usuario que invente um identificador interno e pedir que ele faca o trabalho do sistema.
+#
+# O QUE PASSA A SER. A ORDEM do proprio CNPJ — os quatro digitos entre a raiz e o verificador —,
+# que e o numero que a Receita ja deu ao estabelecimento. Nao e inventado, e e conferivel contra o
+# cartao CNPJ. CNO e CAEPF nao tem ordem, e caem numa sequencia com prefixo, que nunca colide com
+# os quatro digitos de um CNPJ.
+#
+# GERADO UMA VEZ, NA CRIACAO. A edicao nunca o regrava: e a chave que identifica a linha, e trocar
+# identificador de registro existente e reescrever historia.
+#
+# A ORDEM NAO ORDENA SOZINHA. Ressalva dela: "a matriz nem sempre é 0001 (ex.: transferência de
+# sede)". Por isso a lista ordena primeiro pela POSICAO e so depois pelo codigo — ver _ORDEM_POSICAO.
+async def _codigo_novo(empresa_id, data, db: AsyncSession) -> str:
+    usados = {c for c in (await db.execute(
+        select(Estabelecimento.codigo).where(Estabelecimento.empresa_id == empresa_id)
+    )).scalars().all()}
+
+    if data.tipo_estabelecimento == "CNPJ" and data.cnpj and len(data.cnpj) == 14:
+        base = data.cnpj[8:12]
+        if base not in usados:
+            return base
+        # Dois estabelecimentos com o MESMO CNPJ na mesma empresa — o cadastro ainda nao recusa
+        # isso. O sufixo evita que a colisao vire erro de banco; a duplicidade em si fica anotada.
+        n = 2
+        while f"{base}-{n}" in usados:
+            n += 1
+        return f"{base}-{n}"
+
+    prefixo = "CNO" if data.tipo_estabelecimento == "CNO" else "CAEPF"
+    n = 1
+    while f"{prefixo}-{n:04d}" in usados:
+        n += 1
+    return f"{prefixo}-{n:04d}"
 
 
 def _to_dict(e: Estabelecimento) -> dict:
@@ -124,7 +283,9 @@ def _to_dict(e: Estabelecimento) -> dict:
 
 
 class EstabelecimentoIn(BaseModel):
-    codigo: str
+    # OPCIONAL E IGNORADO (Carolina, 29/10, pergunta A). O servidor gera na criacao e preserva na
+    # edicao. Continua aceito no corpo para nao quebrar quem ainda o envia — e descartado.
+    codigo: str | None = None
     nome: str
     tipo_estabelecimento: str = "CNPJ"
     posicao: str = "filial"
@@ -249,7 +410,7 @@ async def listar_estabelecimentos(
 ):
     result = await db.execute(
         select(Estabelecimento).where(Estabelecimento.empresa_id == current_user.empresa_id)
-        .order_by(Estabelecimento.codigo)
+        .order_by(_ORDEM_POSICAO, Estabelecimento.codigo)
     )
     estabs = list(result.scalars())
     ids = [e.id for e in estabs]
@@ -311,15 +472,12 @@ async def criar_estabelecimento(
     current_user: Usuario = Depends(require_perfil("admin")),
 ):
     _validar(data)
-    existente = (await db.execute(
-        select(Estabelecimento).where(
-            Estabelecimento.empresa_id == current_user.empresa_id,
-            Estabelecimento.codigo == data.codigo,
-        )
-    )).scalar_one_or_none()
-    if existente:
-        raise HTTPException(status_code=409, detail="Já existe um estabelecimento com este código.")
-    e = Estabelecimento(empresa_id=current_user.empresa_id, **data.model_dump())
+    await _validar_no_contexto(data, current_user.empresa_id, db)
+    campos = data.model_dump()
+    # O codigo enviado pela tela e DESCARTADO: quem decide e o servidor. A verificacao de
+    # duplicidade que existia aqui perdeu o objeto — o gerador ja devolve um codigo livre.
+    campos["codigo"] = await _codigo_novo(current_user.empresa_id, data, db)
+    e = Estabelecimento(empresa_id=current_user.empresa_id, **campos)
     db.add(e)
     await db.commit()
     await db.refresh(e)
@@ -334,6 +492,7 @@ async def atualizar_estabelecimento(
     current_user: Usuario = Depends(require_perfil("admin")),
 ):
     _validar(data)
+    await _validar_no_contexto(data, current_user.empresa_id, db, estab_id=estab_id)
     e = (await db.execute(
         select(Estabelecimento).where(
             Estabelecimento.id == estab_id, Estabelecimento.empresa_id == current_user.empresa_id
@@ -342,6 +501,10 @@ async def atualizar_estabelecimento(
     if not e:
         raise HTTPException(status_code=404, detail="Estabelecimento não encontrado.")
     for k, v in data.model_dump().items():
+        # O CODIGO NAO SE REGRAVA. Gerado na criacao, e dali em diante identifica a linha: trocá-lo
+        # numa edicao seria renomear um registro que ja existe — e a tela nem o envia mais.
+        if k == "codigo":
+            continue
         setattr(e, k, v)
     await db.commit()
     await db.refresh(e)

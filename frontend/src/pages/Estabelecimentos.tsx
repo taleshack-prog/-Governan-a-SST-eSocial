@@ -18,7 +18,11 @@ const FILTROS: [string, string][] = [
   ["todos", "Todos"], ["matriz", "Matriz"], ["filial", "Filiais"], ["obra", "Obras"],
   ["pendencia", "Com pendência"], ["encerrados", "Encerrados"],
 ];
-const STATUS = ["ativa", "paralisada", "encerrada"];
+// O que o usuário ESCOLHE. São dois, e não os três que o banco aceita: "encerrada" vem da data de
+// encerramento, e era oferecê-la aqui que permitia salvar a contradição — data preenchida com
+// status "ativa". A lista antiga foi REMOVIDA de propósito, para que ninguém a reaproveite num
+// select e reponha o defeito.
+const STATUS_ESCOLHIVEIS = ["ativa", "paralisada"];
 
 const maskCnpj = (v: string) => (v || "").replace(/\D/g, "").slice(0, 14)
   .replace(/^(\d{2})(\d)/, "$1.$2").replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
@@ -710,9 +714,35 @@ function FpasModal({ estab, onFechar, embutido = false }: { estab: any; onFechar
 }
 
 // ---------- Modal de estabelecimento ----------
-function EstabModal({ form, setForm, onSalvar, onFechar, isPending, erro, embutido = false }: any) {
+function EstabModal({ form, setForm, onSalvar, onFechar, isPending, erro, embutido = false,
+                     raiz = "", matrizOcupada = false }: any) {
   const editando = !!form.id;
   const cnpjInvalido = form.tipo_estabelecimento === "CNPJ" && form.cnpj && !validaCnpj(form.cnpj);
+
+  // A RAIZ VEM PREENCHIDA (Carolina, 29/10, defeito 1). "O formulário já traz a raiz preenchida
+  // (90.244.278/____-__) e o usuário digita só a ordem e o dígito." A raiz sai da matriz ativa da
+  // própria lista — não há consulta nova para isso. Num cadastro que já existe o CNPJ inteiro
+  // continua visível e editável: ali a raiz é fato consumado, e o servidor a confere do mesmo
+  // jeito.
+  const comRaizFixa = !editando && form.tipo_estabelecimento === "CNPJ" && raiz.length === 8;
+  const resto = (form.cnpj || "").slice(8);     // ordem (4) + dígito verificador (2)
+  const mudarResto = (v: string) =>
+    setForm({ ...form, cnpj: raiz + v.replace(/\D/g, "").slice(0, 6) });
+
+  // O STATUS DERIVA DA DATA (pergunta B). Preenchida uma data de encerramento já passada, o
+  // estabelecimento está encerrado — o usuário não declara isso num segundo campo que poderia
+  // dizer o contrário. Apagada a data, volta a ativa. Data futura não encerra nada ainda.
+  const hoje = hojeISO();
+  const encerradaPelaData = !!form.data_encerramento && form.data_encerramento <= hoje;
+  const mudarEncerramento = (v: string) => {
+    const enc = !!v && v <= hoje;
+    setForm({
+      ...form,
+      data_encerramento: v,
+      status: enc ? "encerrada" : (form.status === "encerrada" ? "ativa" : form.status),
+    });
+  };
+
   return (
     <div className={embutido ? "" : "fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"}>
       <div className={embutido
@@ -720,9 +750,16 @@ function EstabModal({ form, setForm, onSalvar, onFechar, isPending, erro, embuti
             : "bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto"}>
         <h2 className="text-lg font-bold text-gray-900 mb-4">{editando ? "Editar" : "Novo"} Estabelecimento</h2>
         <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div><label className={lbl}>Código *</label><input className={inp} value={form.codigo} onChange={(e) => setForm({ ...form, codigo: e.target.value })} /></div>
-            <div><label className={lbl}>Nome *</label><input className={inp} value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} /></div>
+          {/* O CÓDIGO SAIU DO FORMULÁRIO (pergunta A). Era obrigatório e o usuário o inventava,
+              embora não corresponda a campo nenhum do eSocial. O servidor gera pela ordem do
+              próprio CNPJ — 0001, 0002 — e, em cadastro que já existe, mostra o que foi gerado,
+              sem deixar reescrever: ele identifica a linha. */}
+          <div>
+            <label className={lbl}>Nome *</label>
+            <input className={inp} value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} />
+            {editando && form.codigo && (
+              <p className="text-[11px] text-gray-400 mt-1">Código <span className="font-mono">{form.codigo}</span> — gerado pelo sistema.</p>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div><label className={lbl}>Natureza</label>
@@ -731,15 +768,35 @@ function EstabModal({ form, setForm, onSalvar, onFechar, isPending, erro, embuti
               </select>
             </div>
             <div><label className={lbl}>Posição</label>
+              {/* UMA MATRIZ SÓ (defeito 3). Com matriz ativa cadastrada, a opção fica
+                  indisponível — e a frase diz por quê, em vez de deixar o usuário descobrir no
+                  erro depois de salvar. Matriz encerrada não ocupa o lugar: é a transferência de
+                  sede. */}
               <select className={inp} value={form.posicao} onChange={(e) => setForm({ ...form, posicao: e.target.value })}>
-                {POSICOES.map((p) => <option key={p} value={p}>{p}</option>)}
+                {POSICOES.map((p) => (
+                  <option key={p} value={p} disabled={p === "matriz" && matrizOcupada}>{p}</option>
+                ))}
               </select>
+              {matrizOcupada && <p className="text-[11px] text-gray-400 mt-1">A empresa já tem matriz cadastrada.</p>}
             </div>
           </div>
           {form.tipo_estabelecimento === "CNPJ" ? (
             <div><label className={lbl}>CNPJ *</label>
-              <input className={`${inp} ${cnpjInvalido ? "border-red-400" : ""}`} value={maskCnpj(form.cnpj)} maxLength={18}
-                onChange={(e) => setForm({ ...form, cnpj: e.target.value.replace(/\D/g, "").slice(0, 14) })} placeholder="00.000.000/0000-00" />
+              {comRaizFixa ? (
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="font-mono text-sm text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                    {raiz.slice(0, 2)}.{raiz.slice(2, 5)}.{raiz.slice(5, 8)}/
+                  </span>
+                  <input className={`${inp} mt-0 font-mono ${cnpjInvalido ? "border-red-400" : ""}`}
+                    value={resto.length > 4 ? `${resto.slice(0, 4)}-${resto.slice(4)}` : resto}
+                    maxLength={7} inputMode="numeric" placeholder="0002-88"
+                    onChange={(e) => mudarResto(e.target.value)} />
+                </div>
+              ) : (
+                <input className={`${inp} ${cnpjInvalido ? "border-red-400" : ""}`} value={maskCnpj(form.cnpj)} maxLength={18}
+                  onChange={(e) => setForm({ ...form, cnpj: e.target.value.replace(/\D/g, "").slice(0, 14) })} placeholder="00.000.000/0000-00" />
+              )}
+              {comRaizFixa && <p className="text-[11px] text-gray-400 mt-1">A raiz é a da matriz e não se digita. Informe a ordem e o dígito.</p>}
               {cnpjInvalido && <p className="text-[11px] text-red-500 mt-1">CNPJ inválido (dígito verificador).</p>}
             </div>
           ) : (
@@ -749,11 +806,20 @@ function EstabModal({ form, setForm, onSalvar, onFechar, isPending, erro, embuti
           )}
           <div className="grid grid-cols-3 gap-3">
             <div><label className={lbl}>Abertura *</label><input type="date" className={inp} value={form.data_abertura || ""} onChange={(e) => setForm({ ...form, data_abertura: e.target.value })} /></div>
-            <div><label className={lbl}>Encerramento</label><input type="date" className={inp} value={form.data_encerramento || ""} onChange={(e) => setForm({ ...form, data_encerramento: e.target.value })} /></div>
+            <div><label className={lbl}>Encerramento</label><input type="date" className={inp} value={form.data_encerramento || ""} onChange={(e) => mudarEncerramento(e.target.value)} /></div>
             <div><label className={lbl}>Status</label>
-              <select className={inp} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-                {STATUS.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
+              {/* "ENCERRADA" NÃO SE ESCOLHE (pergunta B). Dois campos diziam a mesma coisa e
+                  podiam se contradizer — dava para salvar encerramento preenchido com status
+                  "ativa". A data passa a ser o fato; o usuário escolhe entre ativa e paralisada,
+                  que é o estado que data nenhuma expressa. */}
+              {encerradaPelaData ? (
+                <div className={`${inp} bg-gray-50 text-gray-500`}>encerrada</div>
+              ) : (
+                <select className={inp} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+                  {STATUS_ESCOLHIVEIS.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              )}
+              {encerradaPelaData && <p className="text-[11px] text-gray-400 mt-1">Vem da data de encerramento.</p>}
             </div>
           </div>
           {/* Item 5: endereço ESTRUTURADO, igual à tela da empresa. O campo único impedia o
@@ -815,7 +881,7 @@ function EstabModal({ form, setForm, onSalvar, onFechar, isPending, erro, embuti
         {erro && <p className="text-xs text-red-500 mt-3">{erro}</p>}
         <div className="flex gap-3 mt-5">
           <button onClick={onFechar} className="flex-1 border border-gray-300 text-gray-700 rounded-lg py-2 text-sm hover:bg-gray-50">Cancelar</button>
-          <button onClick={onSalvar} disabled={!form.codigo || !form.nome || isPending || cnpjInvalido}
+          <button onClick={onSalvar} disabled={!form.nome || isPending || cnpjInvalido}
             className="flex-1 bg-blue-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
             {isPending ? "Salvando…" : (editando ? "Salvar" : "Cadastrar")}
           </button>
@@ -984,6 +1050,7 @@ export function Estabelecimentos() {
   const pendente = (e: any) =>
     faltaCadastro(e.completude).length > 0 || (e.resumo?.o_que_falta || []).length > 0;
   const encerrado = (e: any) => String(e.status || "").toLowerCase().startsWith("encerrad");
+  const matrizAtiva = estabs.find((e: any) => e.posicao === "matriz" && !encerrado(e));
 
   const casaFiltro = (e: any, f: string) =>
     f === "todos" ? true
@@ -1199,7 +1266,14 @@ export function Estabelecimentos() {
           )}
       </div>
 
-      {modal && <EstabModal form={form} setForm={setForm} onSalvar={onSalvar} onFechar={() => { setModal(false); setForm(FORM_VAZIO); }} isPending={salvar.isPending} erro={erro} />}
+      {/* A MATRIZ ATIVA responde às duas regras novas do cadastro: dá a raiz que a filial tem de
+          repetir (defeito 1) e ocupa o lugar de matriz (defeito 3). Sai da lista que já está
+          carregada — nenhuma consulta nova. "Ativa" aqui é só "não encerrada": a paralisada
+          continua sendo a sede. */}
+      {modal && <EstabModal form={form} setForm={setForm} onSalvar={onSalvar} onFechar={() => { setModal(false); setForm(FORM_VAZIO); }}
+                  isPending={salvar.isPending} erro={erro}
+                  raiz={(matrizAtiva?.cnpj || "").slice(0, 8)}
+                  matrizOcupada={!!matrizAtiva && matrizAtiva.id !== form.id} />}
       {/* ITEM 11: as janelas que viraram blocos não são mais abertas daqui. Os componentes
           continuam existindo — a página do estabelecimento os usa embutidos —, o que saiu foi a
           abertura como janela sobre a lista, que era o empilhamento que a revisão eliminou.
