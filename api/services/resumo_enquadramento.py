@@ -162,9 +162,15 @@ def o_que_falta(serie: list[dict]) -> list[dict]:
 
     saida = []
     for motivo, comps in grupos.items():
-        # Ate tres competencias saem nomeadas; acima disso, o intervalo — a mesma regra que a
-        # memoria ja usa para nao transformar a frase numa lista de meses.
-        onde = ", ".join(comps) if len(comps) <= 3 else f"{comps[0]} a {comps[-1]}"
+        # Ate tres competencias saem nomeadas; acima disso, a QUANTIDADE e o intervalo — a mesma
+        # regra que a memoria ja usa para nao transformar a frase numa lista de meses.
+        #
+        # A quantidade entrou em 29/10 (Carolina, revisao da Lista): "uma pendencia que trava 2
+        # competencias nao pode parecer igual a uma que trava 60", porque e por esse numero que o
+        # usuario decide por onde comecar. O intervalo sozinho nao responde isso: entre 11/2021 e
+        # 10/2022 cabem doze competencias ou cinco, e so o numero distingue as duas.
+        onde = (", ".join(comps) if len(comps) <= 3
+                else f"{len(comps)} competências ({comps[0]} a {comps[-1]})")
         saida.append({
             "motivo": motivo,
             "competencias": comps,

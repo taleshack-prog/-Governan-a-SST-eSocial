@@ -1118,9 +1118,24 @@ export function Estabelecimentos() {
                         {falta.length === 0 ? (
                           <span className="text-xs text-emerald-700">✓ completo</span>
                         ) : (
-                          <span className="inline-block text-xs rounded-md border border-amber-300 bg-amber-50 text-amber-900 px-2 py-1">
-                            {falta.map((f) => f.motivo).join(" · ")}
-                          </span>
+                          /* `texto`, NAO `motivo` (Carolina, 29/10, revisao da Lista). A celula
+                             mostrava so o motivo — "FAP de 2021 não informado" —, enquanto a
+                             página mostrava o motivo E a consequência: "— trava 11/2021, 12/2021".
+                             Ela: "é ali que o usuário decide por onde começar: uma pendência que
+                             trava 2 competências não pode parecer igual a uma que trava 60."
+                             O campo ja vinha pronto do servidor, pela mesma funcao da pagina.
+
+                             Uma etiqueta POR PENDENCIA, e nao todas juntas separadas por " · ":
+                             com o texto completo, duas pendencias numa etiqueta so viram uma
+                             frase corrida de onde nao se distingue onde acaba uma e comeca a
+                             outra. */
+                          <div className="space-y-1">
+                            {falta.map((f, i) => (
+                              <span key={i} className="block text-xs rounded-md border border-amber-300 bg-amber-50 text-amber-900 px-2 py-1">
+                                {f.texto}
+                              </span>
+                            ))}
+                          </div>
                         )}
                       </td>
                       <td className="px-3 py-4 text-gray-300">›</td>
