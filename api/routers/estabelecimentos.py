@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, case
+from sqlalchemy.exc import IntegrityError
 from uuid import UUID
 from pydantic import BaseModel
 
@@ -36,6 +37,14 @@ from api.services.resumo_enquadramento import (
 )
 from api.models.enquadramento_evento import EnquadramentoEvento, ROTULO_EVENTO
 from api.services.enquadramento_eventos import registrar_ato_humano, retrato
+# Excluir estabelecimento (01/11). Apelidados na importacao porque 'situacao_exclusao' e
+# 'registrar_ato' ja existem com esse nome no ciclo de vida da EMPRESA, e duas funcoes homonimas
+# com objetos diferentes no mesmo arquivo e como se chama a errada sem perceber.
+from api.services.estabelecimento_ciclo_vida import (
+    situacao_exclusao as situacao_exclusao_do_estab,
+    registrar_exclusao as registrar_exclusao_de_estab,
+    identificador_de, so_digitos,
+)
 
 router = APIRouter()
 
@@ -213,6 +222,34 @@ async def _validar_no_contexto(data, empresa_id, db: AsyncSession, estab_id=None
                 status_code=422,
                 detail=f"A raiz do CNPJ da filial deve ser a da matriz ({_raiz_formatada(raiz)}).",
             )
+
+    # (3) O MESMO CNPJ DUAS VEZES (Carolina, 01/11). Nas palavras dela: "dois cadastros com o
+    # mesmo CNPJ fazem o sistema apurar o mesmo estabelecimento duas vezes, e o crédito ou o
+    # débito sai em dobro. Esse defeito é mais grave que os três anteriores."
+    #
+    # E mais grave mesmo: os outros produziam cadastro errado, que se vê. Este produz um NUMERO
+    # errado dentro de peca assinada — a janela do segundo cadastro soma com a do primeiro, e o
+    # total nao denuncia de onde veio.
+    #
+    # A regra vale para as tres naturezas, cada uma pelo seu identificador: CNPJ para CNPJ,
+    # matricula para CNO, identificador para CAEPF. "Para CNO, mesma regra", disse ela.
+    _dupla = None
+    if data.tipo_estabelecimento == "CNPJ" and data.cnpj:
+        _dupla = (Estabelecimento.cnpj == data.cnpj, "Este CNPJ já está cadastrado nesta empresa.")
+    elif data.identificador and data.identificador.strip():
+        _rotulo = "Esta matrícula CNO" if data.tipo_estabelecimento == "CNO" else "Este identificador CAEPF"
+        _dupla = (Estabelecimento.identificador == data.identificador.strip(),
+                  f"{_rotulo} já está cadastrada nesta empresa."
+                  if data.tipo_estabelecimento == "CNO"
+                  else f"{_rotulo} já está cadastrado nesta empresa.")
+    if _dupla is not None:
+        _cond, _msg = _dupla
+        _filtro = [Estabelecimento.empresa_id == empresa_id, _cond]
+        if estab_id is not None:
+            _filtro.append(Estabelecimento.id != estab_id)
+        _ja = (await db.execute(select(Estabelecimento).where(*_filtro).limit(1))).scalar_one_or_none()
+        if _ja:
+            raise HTTPException(status_code=422, detail=_msg)
 
     # (2) UMA MATRIZ SO — e so a ATIVA bloqueia. Decisao dela: "matriz encerrada não bloqueia,
     # porque é o caso da transferência de sede", em que a sede antiga encerra e outra assume.
@@ -509,6 +546,96 @@ async def atualizar_estabelecimento(
     await db.commit()
     await db.refresh(e)
     return _to_dict(e)
+
+
+# ---- Excluir estabelecimento (decisão da Carolina, 01/11) ----
+#
+# POR QUE ESTA FUNCAO NAO EXISTIA, e por que passa a existir com trava. Ate aqui nao havia como
+# apagar um estabelecimento pela tela: os dois cadastros de teste dela sairam por comando direto
+# no banco. Ela decidiu que a funcao deve existir, mas delimitou o uso:
+#
+#   "Estabelecimento que fechou de verdade e encerrado pela data, nao excluido. Excluir fica para
+#    cadastro feito por engano, com as mesmas travas da empresa. Nao precisa de arquivar."
+#
+# Dai as quatro travas, e nenhuma delas e enfeite:
+#   - sem competencia conferida e sem memoria emitida (senao apaga o que sustenta documento);
+#   - a matriz nao sai enquanto houver outro estabelecimento (as filiais perdem a referencia);
+#   - exige o identificador digitado — CNPJ, matricula CNO ou CAEPF, conforme a natureza;
+#   - restrita ao papel TITULAR do escritorio.
+
+class ExclusaoEstabIn(BaseModel):
+    confirmacao: str
+
+
+@router.get("/{estab_id}/exclusao")
+async def situacao_exclusao_estab(
+    estab_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Se este estabelecimento pode ser excluido, e o que a tela deve pedir na confirmacao.
+
+    Endpoint de leitura separado para a tela nao descobrir o impedimento DEPOIS de o usuario
+    digitar o CNPJ. Quem nao pode excluir deve saber disso antes de digitar qualquer coisa.
+    """
+    estab = await _tenant_estab(estab_id, current_user, db)
+    return await situacao_exclusao_do_estab(db, estab)
+
+
+@router.delete("/{estab_id}")
+async def excluir_estabelecimento(
+    estab_id: UUID,
+    confirmacao: ExclusaoEstabIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(require_papel("titular")),
+):
+    """Apaga o estabelecimento e o que pende dele. IRREVERSIVEL."""
+    estab = await _tenant_estab(estab_id, current_user, db)
+
+    # A VERIFICACAO VEM ANTES DA CONFIRMACAO, de proposito: nao se pede a alguem que digite um
+    # CNPJ para so entao dizer que a exclusao nao era possivel. Mesma ordem do endpoint da empresa.
+    situacao = await situacao_exclusao_do_estab(db, estab)
+    if not situacao["pode_excluir"]:
+        raise HTTPException(status_code=409, detail=situacao["motivo"])
+
+    # COMPARACAO POR DIGITOS. O cadastro guarda o CNPJ sem pontuacao e a tela o exibe formatado;
+    # exigir que o usuario acerte os pontos e as barras seria fricção sem ganho de seguranca
+    # nenhum — o que a confirmacao previne e o clique distraido, nao o erro de digitacao.
+    esperado = so_digitos(identificador_de(estab))
+    informado = so_digitos(confirmacao.confirmacao)
+    if not esperado or informado != esperado:
+        raise HTTPException(
+            status_code=422,
+            detail=(f"Para excluir, digite {situacao['rotulo_confirmacao']} deste estabelecimento: "
+                    f"{identificador_de(estab) or '(não cadastrado)'}."),
+        )
+
+    from api.models.empresa import Empresa
+    empresa = (await db.execute(
+        select(Empresa).where(Empresa.id == estab.empresa_id)
+    )).scalar_one_or_none()
+
+    # Lidos ANTES do delete: depois do commit o objeto esta expirado e a linha sumiu.
+    nome = estab.nome
+    identificacao = identificador_de(estab)
+    try:
+        # O REGISTRO ENTRA ANTES DE APAGAR, na mesma transacao — pela mesma razao do endpoint da
+        # empresa: nome e identificador sao copiados do estabelecimento, e depois do delete nao ha
+        # de onde le-los. A trilha nao tem chave estrangeira para estabelecimentos, entao a linha
+        # sobrevive; e se a transacao falhar, as duas coisas voltam juntas.
+        await registrar_exclusao_de_estab(
+            db, empresa=empresa, estab=estab, autor=_autor(current_user),
+            detalhe=("Sem competência conferida e sem memória emitida no momento da exclusão."),
+        )
+        await db.delete(estab)
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=(
+            "Não foi possível excluir: há dados vinculados a este estabelecimento "
+            "(trabalhador, documento ou vínculo). Remova-os antes, ou informe a data de "
+            "encerramento, que preserva tudo."))
+    return {"ok": True, "excluido": True, "nome": nome, "identificacao": identificacao}
 
 
 # ---- Lista de atividades com quantitativo por período (RF-0.173) ----

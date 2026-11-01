@@ -23,12 +23,18 @@ from api.database import Base
 EVENTO_ARQUIVADA = "arquivada"
 EVENTO_RESTAURADA = "restaurada"
 EVENTO_EXCLUIDA = "excluida"
-EVENTOS_ESCRITORIO = (EVENTO_ARQUIVADA, EVENTO_RESTAURADA, EVENTO_EXCLUIDA)
+# Exclusao de ESTABELECIMENTO (migration 063). Entra na mesma trilha, e nao numa tabela propria,
+# porque e o mesmo fato para quem audita: um cadastro do escritorio deixou de existir, por ato de
+# alguem. 'enquadramento_evento' nao serviria — ela referencia estabelecimentos com ON DELETE
+# CASCADE, e a linha sumiria junto com o que ela registra.
+EVENTO_ESTAB_EXCLUIDO = "estabelecimento_excluido"
+EVENTOS_ESCRITORIO = (EVENTO_ARQUIVADA, EVENTO_RESTAURADA, EVENTO_EXCLUIDA, EVENTO_ESTAB_EXCLUIDO)
 
 ROTULO_EVENTO_ESCRITORIO = {
     EVENTO_ARQUIVADA: "Arquivada",
     EVENTO_RESTAURADA: "Restaurada",
     EVENTO_EXCLUIDA: "Excluída",
+    EVENTO_ESTAB_EXCLUIDO: "Estabelecimento excluído",
 }
 
 
@@ -51,3 +57,13 @@ class EscritorioEvento(Base):
     autor: Mapped[str] = mapped_column(String(200), nullable=False)
     ocorrido_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     detalhe: Mapped[str | None] = mapped_column(String(500))
+
+    # O ESTABELECIMENTO EXCLUIDO (migration 063), quando o evento for desse tipo. Nulos nos
+    # eventos de empresa.
+    #
+    # Colunas proprias, e nao reaproveitamento de 'razao_social'/'cnpj': aquelas duas respondem
+    # QUAL EMPRESA, e continuam respondendo isso tambem nestas linhas — sem elas, a trilha nao
+    # diria de qual cliente se tratava. Misturar os dois faria 'cnpj' ser as vezes da empresa e as
+    # vezes do estabelecimento, sem nada no dado que dissesse qual.
+    estabelecimento_nome: Mapped[str | None] = mapped_column(String(300))
+    estabelecimento_cnpj: Mapped[str | None] = mapped_column(String(20))

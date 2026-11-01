@@ -1018,6 +1018,11 @@ const INSUMOS: [string, string][] = [
   ["rat_aplicado", "RAT aplicado"],
 ];
 
+// Comparação por dígitos na confirmação de exclusão: o cadastro guarda o CNPJ sem pontuação e a
+// tela o exibe formatado. Exigir que o usuário acerte pontos e barras seria fricção sem ganho —
+// o que a confirmação previne é o clique distraído, não o erro de digitação.
+const soDigitos = (v: any) => String(v ?? "").replace(/\D/g, "");
+
 function faltaCadastro(completude: any): string[] {
   // Sem o campo, nao se afirma nada: devolver os tres aqui acusaria de incompleto um
   // estabelecimento sobre o qual o servidor nao respondeu.
@@ -1301,6 +1306,7 @@ export function Estabelecimentos() {
 export function EstabelecimentoPagina() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const qc = useQueryClient();
 
   const { data: estabs } = useQuery({
     queryKey: ["estabelecimentos"],
@@ -1327,6 +1333,35 @@ export function EstabelecimentoPagina() {
     queryKey: ["estab-rat", id],
     queryFn: async () => (await apiClient.get(`/estabelecimentos/${id}/rat-aplicado`)).data,
   });
+
+  // SE PODE EXCLUIR, E O QUE PEDIR NA CONFIRMAÇÃO (Carolina, 01/11). Vem do servidor, que é
+  // quem conta competências conferidas, memórias emitidas e estabelecimentos dependentes da
+  // matriz. A tela não recalcula nada disso — pela mesma razão de sempre: dois lugares contando
+  // a mesma coisa acabam contando diferente.
+  const { data: exclusao } = useQuery({
+    enabled: !!id,
+    queryKey: ["estab-exclusao", id],
+    queryFn: async () => (await apiClient.get(`/estabelecimentos/${id}/exclusao`)).data,
+  });
+  const [mostrarExclusao, setMostrarExclusao] = useState(false);
+  const [confirmaExclusao, setConfirmaExclusao] = useState("");
+  const [erroExclusao, setErroExclusao] = useState("");
+  const [excluindo, setExcluindo] = useState(false);
+
+  const excluirEstab = async () => {
+    setExcluindo(true); setErroExclusao("");
+    try {
+      // O que foi digitado vai no corpo; o servidor compara com o que está cadastrado e recusa
+      // se não bater. A confirmação é dele, não da tela.
+      await apiClient.delete(`/estabelecimentos/${id}`, { data: { confirmacao: confirmaExclusao } });
+      // Invalidar ANTES de navegar: sem isso a lista volta do cache e mostra por alguns
+      // segundos um estabelecimento que já não existe.
+      await qc.invalidateQueries({ queryKey: ["estabelecimentos"] });
+      navigate("/estabelecimentos");
+    } catch (e: any) {
+      setErroExclusao(e?.response?.data?.detail || "Não foi possível excluir.");
+    } finally { setExcluindo(false); }
+  };
 
   // A série mensal e a conferência ficam a um clique, fechadas por padrão (item 7).
   const [serieAberta, setSerieAberta] = useState(false);
@@ -1673,6 +1708,60 @@ export function EstabelecimentoPagina() {
         ) : (
           <Leitura>Clique em “editar” para ver e alterar os períodos de FPAS e Terceiros.</Leitura>
         )}
+      </Bloco>
+
+      {/* EXCLUIR — decisão da Carolina, 01/11. Não há "arquivar" aqui, e a ausência é
+          deliberada: estabelecimento que fechou de verdade é encerrado pela data, que desde
+          29/10 é o que determina o status. Excluir serve só para cadastro feito por engano.
+
+          A tarja ocupa o lugar do botão quando a exclusão não é possível, pelo mesmo motivo do
+          bloco da empresa: oferecer o caminho e recusar depois que a pessoa digitou o CNPJ é
+          pior do que explicar antes por que ele não está ali. */}
+      <Bloco ancora="excluir" titulo="Excluir estabelecimento">
+        <div className="bg-white rounded-xl border border-gray-100 p-5">
+          <p className="text-[11px] text-gray-500 mb-3 leading-snug">
+            Apaga o estabelecimento e <b>todo o enquadramento já apurado</b> dele, sem volta.
+            Exige digitar {exclusao?.rotulo_confirmacao || "o identificador"} e é restrita ao
+            titular do escritório. Se o estabelecimento <b>fechou</b>, não exclua: informe a data
+            de encerramento no bloco Identificação, que preserva o histórico.
+          </p>
+
+          {exclusao && !exclusao.pode_excluir ? (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+              <p className="text-[11px] text-red-900 leading-snug">
+                <b>Exclusão indisponível.</b> {exclusao.motivo}
+              </p>
+            </div>
+          ) : !mostrarExclusao ? (
+            <button onClick={() => setMostrarExclusao(true)} disabled={!exclusao}
+              className="text-xs text-red-700 hover:underline disabled:text-gray-400 disabled:no-underline">
+              Quero excluir este estabelecimento
+            </button>
+          ) : (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+              <label className="text-[11px] text-red-800">
+                Para confirmar, digite {exclusao?.rotulo_confirmacao}:
+                <b className="font-mono"> {exclusao?.confirmar_com
+                  ? (estab.tipo_estabelecimento === "CNPJ" ? fmt.cnpj(exclusao.confirmar_com) : exclusao.confirmar_com)
+                  : "—"}</b>
+              </label>
+              <input className={`${inp} mt-2 font-mono`} value={confirmaExclusao} autoComplete="off"
+                onChange={(e) => setConfirmaExclusao(e.target.value)} placeholder="Digite para confirmar" />
+              {erroExclusao && <p className="text-[11px] text-red-700 mt-2">{erroExclusao}</p>}
+              <div className="flex gap-2 mt-3">
+                <button onClick={() => { setMostrarExclusao(false); setConfirmaExclusao(""); setErroExclusao(""); }}
+                  className="px-3 py-1.5 text-xs text-gray-600 hover:text-gray-800">Cancelar</button>
+                {/* A comparação aqui é só para habilitar o botão. Quem recusa de verdade é o
+                    servidor, que compara por dígitos — a tela não é a guarda. */}
+                <button onClick={excluirEstab}
+                  disabled={excluindo || soDigitos(confirmaExclusao) !== soDigitos(exclusao?.confirmar_com)}
+                  className="bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-red-700 disabled:opacity-40">
+                  {excluindo ? "Excluindo…" : "Excluir definitivamente"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </Bloco>
     </div>
   );
