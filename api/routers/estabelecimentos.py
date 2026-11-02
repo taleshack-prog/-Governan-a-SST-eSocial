@@ -22,7 +22,7 @@ from api.models.estabelecimento_fpas_periodo import EstabelecimentoFpasPeriodo
 from api.models.cnae_enquadramento import CnaeEnquadramento
 from api.models.tabela_fpas import TabelaFPAS
 from api.models.usuario import Usuario
-from api.auth import get_current_user, require_perfil, require_papel
+from api.auth import get_current_user, require_perfil, require_papel, tem_papel
 from api.services.enquadramento_situacao import (
     situacao_de, divergencia_de, origem_divergencia, divergencia_amparada, ROTULO_ORIGEM,
     divergencia_confirmada, motivo_conferencia,
@@ -579,7 +579,12 @@ async def situacao_exclusao_estab(
     digitar o CNPJ. Quem nao pode excluir deve saber disso antes de digitar qualquer coisa.
     """
     estab = await _tenant_estab(estab_id, current_user, db)
-    return await situacao_exclusao_do_estab(db, estab)
+    # O papel entra na resposta para a TELA não oferecer o que o servidor vai negar. A conta é a
+    # mesma que o require_papel do DELETE usa — não há duas regras, há uma consultada de dois
+    # lugares. Se divergissem, a tela voltaria a oferecer o botão para quem não pode.
+    return await situacao_exclusao_do_estab(
+        db, estab, e_titular=tem_papel(current_user, "titular"),
+    )
 
 
 @router.delete("/{estab_id}")
@@ -587,14 +592,19 @@ async def excluir_estabelecimento(
     estab_id: UUID,
     confirmacao: ExclusaoEstabIn,
     db: AsyncSession = Depends(get_db),
-    current_user: Usuario = Depends(require_papel("titular")),
+    # A frase e desta acao, nao do mecanismo. A padrao — "Ação restrita ao papel 'titular' ou
+    # superior" — descreve o sistema por dentro e nao diz ao usuario o que ele tentou fazer.
+    current_user: Usuario = Depends(require_papel(
+        "titular", mensagem="Só o titular do escritório pode excluir estabelecimentos.",
+    )),
 ):
     """Apaga o estabelecimento e o que pende dele. IRREVERSIVEL."""
     estab = await _tenant_estab(estab_id, current_user, db)
 
     # A VERIFICACAO VEM ANTES DA CONFIRMACAO, de proposito: nao se pede a alguem que digite um
     # CNPJ para so entao dizer que a exclusao nao era possivel. Mesma ordem do endpoint da empresa.
-    situacao = await situacao_exclusao_do_estab(db, estab)
+    # Chegar aqui ja implica ser titular — o require_papel acima barrou quem nao e.
+    situacao = await situacao_exclusao_do_estab(db, estab, e_titular=True)
     if not situacao["pode_excluir"]:
         raise HTTPException(status_code=409, detail=situacao["motivo"])
 

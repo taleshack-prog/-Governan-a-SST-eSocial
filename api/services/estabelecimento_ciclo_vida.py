@@ -75,6 +75,15 @@ async def dependentes_da_matriz(db: AsyncSession, estab) -> int:
     risco de cada estabelecimento se apura contra o enquadramento dela. Apagar a matriz deixaria
     as filiais sem a referencia que as valida.
 
+    CONTA AS ENCERRADAS TAMBEM, e isso NAO e esquecimento de filtro (confirmado com ela em 02/11):
+    "filial encerrada continua cadastrada, com historico e com a raiz da matriz". Encerrar nao
+    desfaz o vinculo — so marca que a atividade acabou. A competencia ja apurada da filial
+    encerrada continua precisando da matriz para se sustentar.
+
+    NAO CONFUNDIR com a regra da matriz unica, em _validar_no_contexto, que ignora as encerradas
+    de proposito: la a pergunta e "ja existe uma sede?", e uma sede encerrada deixou de ser sede —
+    e o caso da transferencia. Aqui a pergunta e outra: "alguem ainda depende desta matriz?".
+
     Zero quando o estabelecimento nao e matriz — a pergunta nao se aplica.
     """
     if (estab.posicao or "") != "matriz":
@@ -90,26 +99,36 @@ def _plural(n: int, singular: str, plural: str) -> str:
     return f"{n} {singular if n == 1 else plural}"
 
 
-async def situacao_exclusao(db: AsyncSession, estab) -> dict:
+async def situacao_exclusao(db: AsyncSession, estab, *, e_titular: bool = True) -> dict:
     """Se o estabelecimento pode ser excluido, e por que nao, quando nao pode.
 
     Devolve as contagens mesmo quando a exclusao e possivel: a tela mostra os numeros, e um "nao
     pode" sem dizer quanto nem do que nao se confere.
 
-    A ordem das razoes na mensagem nao e arbitraria. A da matriz vem primeiro porque e a unica que
-    o usuario resolve mexendo em OUTRO cadastro; as outras duas sao definitivas e a saida delas e
-    encerrar, nao excluir.
+    O PAPEL VEM PRIMEIRO (Carolina, 02/11). Quem nao e titular nao pode excluir estabelecimento
+    nenhum, e nao ha por que listar obstaculos de um ato que essa pessoa nao realizaria de todo
+    modo. Era o defeito que ela apontou: a recusa chegava depois de digitar o CNPJ.
+
+    Entre os demais, a ordem nao e arbitraria. A da matriz vem antes porque e a unica que o
+    usuario resolve mexendo em OUTRO cadastro; as outras duas sao definitivas, e a saida delas e
+    informar o encerramento, nao excluir.
     """
     conferidas = await competencias_conferidas(db, estab.id)
     memorias = await memorias_emitidas(db, estab.id)
     dependentes = await dependentes_da_matriz(db, estab)
-    pode = conferidas == 0 and memorias == 0 and dependentes == 0
+    pode = e_titular and conferidas == 0 and memorias == 0 and dependentes == 0
 
     motivo = None
-    if dependentes:
+    if not e_titular:
+        motivo = "Exclusão restrita ao titular do escritório."
+    elif dependentes:
+        # "Exclua os demais antes", e NAO "exclua ou encerre" (Carolina, 02/11): encerrar nao
+        # resolve nada aqui, porque a filial encerrada continua cadastrada e continua dependendo
+        # da matriz. Oferecer encerrar como saida mandaria o usuario fazer algo que nao destrava.
         motivo = (
             f"Esta é a matriz, e a empresa tem {_plural(dependentes, 'outro estabelecimento', 'outros estabelecimentos')} "
-            "cadastrado. Exclua ou encerre os demais antes — a raiz do CNPJ das filiais vem da matriz."
+            "cadastrado. Exclua os demais antes — a raiz do CNPJ das filiais vem da matriz, e "
+            "encerrar não basta: estabelecimento encerrado continua cadastrado."
         )
     elif not pode:
         partes = []
@@ -129,6 +148,7 @@ async def situacao_exclusao(db: AsyncSession, estab) -> dict:
         "competencias_conferidas": conferidas,
         "memorias_emitidas": memorias,
         "outros_estabelecimentos": dependentes,
+        "e_titular": e_titular,
         # A tela precisa saber O QUE pedir na confirmacao: CNPJ, matrícula CNO ou CAEPF.
         "confirmar_com": identificador_de(estab),
         "rotulo_confirmacao": ROTULO_IDENTIFICADOR.get(estab.tipo_estabelecimento or "CNPJ", "o identificador"),

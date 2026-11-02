@@ -96,15 +96,32 @@ async def get_current_user(
 PAPEIS_HIERARQUIA = {"titular": 100, "operador": 60, "leitor": 20, "cliente": 10}
 
 
-def require_papel(papel_minimo: str):
-    """Exige papel minimo no escritorio. Nunca substitui o RLS — e autorizacao, nao isolamento."""
+def tem_papel(usuario, papel_minimo: str) -> bool:
+    """Se o usuario alcanca o papel minimo. Mesma conta que require_papel usa para recusar.
+
+    Existe separada para que uma TELA possa perguntar antes de oferecer a acao. Sem isso, a unica
+    forma de descobrir que a pessoa nao pode era tentar e levar 403 — que foi o que a Carolina
+    apontou em 02/11: "a recusa vem depois de digitar o CNPJ; para quem nao e titular o link nem
+    deve aparecer". Perguntar aqui e recusar no require_papel usam a MESMA regra, e e por isso que
+    a tela nunca oferece o que o servidor vai negar.
+    """
+    atual = PAPEIS_HIERARQUIA.get(getattr(usuario, "papel", None) or "leitor", 0)
+    return atual >= PAPEIS_HIERARQUIA.get(papel_minimo, 999)
+
+
+def require_papel(papel_minimo: str, mensagem: str | None = None):
+    """Exige papel minimo no escritorio. Nunca substitui o RLS — e autorizacao, nao isolamento.
+
+    'mensagem' permite que o endpoint diga, na lingua do usuario, o que ele nao pode fazer. A
+    frase padrao — "Ação restrita ao papel 'titular' ou superior" — descreve o mecanismo, nao o
+    ato, e e opaca para quem nao conhece os papeis do sistema. Carolina, 02/11: "troca por 'Só o
+    titular do escritório pode excluir estabelecimentos'".
+    """
     async def dependency(current_user: Usuario = Depends(get_current_user)):
-        atual = PAPEIS_HIERARQUIA.get(getattr(current_user, "papel", None) or "leitor", 0)
-        minimo = PAPEIS_HIERARQUIA.get(papel_minimo, 999)
-        if atual < minimo:
+        if not tem_papel(current_user, papel_minimo):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Ação restrita ao papel '{papel_minimo}' ou superior.",
+                detail=mensagem or f"Ação restrita ao papel '{papel_minimo}' ou superior.",
             )
         return current_user
     return dependency
