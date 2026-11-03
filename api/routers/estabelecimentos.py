@@ -712,9 +712,57 @@ async def listar_atividades(
         select(EstabelecimentoAtividade).where(EstabelecimentoAtividade.estabelecimento_id == estab_id)
         .order_by(EstabelecimentoAtividade.vigencia_inicio)
     )).scalars().all()
-    return [{"cnae": r.cnae, "descricao": r.descricao, "quantitativo": r.quantitativo,
-             "inicio": r.vigencia_inicio.isoformat(), "fim": r.vigencia_fim.isoformat() if r.vigencia_fim else None,
-             "declarado_por": r.declarado_por} for r in rows]
+
+    # O GRAU E A PREPONDERANTE ENTRAM NA LEITURA (Carolina, 03/11, ponto 3). Ela: "na leitura
+    # faltam a coluna Grau e a etiqueta preponderante na linha que vence — não se vê por que o
+    # estabelecimento paga RAT de grau 3."
+    #
+    # O grau vem do Anexo I (cnae_enquadramento), que e a mesma tabela que o motor consulta: a
+    # tela nao deduz grau nenhum, le o que foi usado no calculo.
+    graus: dict[str, dict] = {}
+    cnaes = {r.cnae for r in rows if r.cnae}
+    if cnaes:
+        for c in (await db.execute(
+            select(CnaeEnquadramento).where(CnaeEnquadramento.cnae.in_(cnaes))
+        )).scalars().all():
+            graus[c.cnae] = {"grau_risco": c.grau_risco, "cnae_fmt": c.cnae_fmt, "descricao": c.descricao}
+
+    # QUEM VENCEU, E EM QUE PERIODO. A preponderante nao e recalculada aqui — e lida da serie
+    # APURADA, competencia por competencia. Recalcular na tela seria uma segunda implementacao da
+    # regra de desempate, e a tela passaria a poder discordar do documento.
+    #
+    # Uma linha e marcada quando o CNAE dela foi o preponderante em ALGUMA competencia dentro da
+    # propria vigencia dela. E por isso que a etiqueta acompanha o periodo: se a composicao mudar
+    # e a preponderante virar outra, a marca muda de linha junto, sem ninguem decidir nada aqui.
+    serie = (await db.execute(
+        select(EstabelecimentoEnquadramento.competencia,
+               EstabelecimentoEnquadramento.cnae_preponderante,
+               EstabelecimentoEnquadramento.criterio)
+        .where(EstabelecimentoEnquadramento.estabelecimento_id == estab_id,
+               EstabelecimentoEnquadramento.cnae_preponderante.isnot(None))
+    )).all()
+
+    def _venceu(r) -> dict:
+        comps = [s for s in serie
+                 if s.cnae_preponderante == r.cnae
+                 and s.competencia >= r.vigencia_inicio
+                 and (r.vigencia_fim is None or s.competencia <= r.vigencia_fim)]
+        return {
+            "preponderante": bool(comps),
+            # Quantas vezes venceu POR EMPATE. A tela diz ao leitor que ali a escolha nao foi pelo
+            # quantitativo, e sim pelo grau — a pergunta que ela fez em 03/11.
+            "por_empate": sum(1 for s in comps if s.criterio == "desempate_grau"),
+        }
+
+    return [{"cnae": r.cnae,
+             "cnae_fmt": graus.get(r.cnae, {}).get("cnae_fmt"),
+             "descricao": r.descricao or graus.get(r.cnae, {}).get("descricao"),
+             "grau_risco": graus.get(r.cnae, {}).get("grau_risco"),
+             "quantitativo": r.quantitativo,
+             "inicio": r.vigencia_inicio.isoformat(),
+             "fim": r.vigencia_fim.isoformat() if r.vigencia_fim else None,
+             "declarado_por": r.declarado_por,
+             **_venceu(r)} for r in rows]
 
 
 @router.put("/{estab_id}/atividades")

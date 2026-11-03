@@ -99,11 +99,30 @@ const ORIGEM: Record<string, string> = {
 };
 
 // ---------- Autocomplete de CNAE sobre o Anexo I ----------
-function CnaeAutocomplete({ value, onPick }: { value: string; onPick: (c: any) => void }) {
-  const [q, setQ] = useState(value || "");
+// O RÓTULO DO CNAE ESCOLHIDO — código formatado, descrição e grau, exatamente como a lista de
+// sugestões mostra. Carolina, 03/11: "na edição o CNAE escolhido vira só números; quem edita
+// depois não sabe qual atividade está ali nem o grau, o dado que move o cálculo."
+function rotuloCnae(cnae?: string, descricao?: string, grau?: any, cnaeFmt?: string): string {
+  const c = String(cnae || "").replace(/\D/g, "");
+  if (!c) return "";
+  const cod = cnaeFmt || (c.length === 7 ? `${c.slice(0, 4)}-${c.slice(4, 5)}/${c.slice(5)}` : c);
+  return `${cod}${descricao ? ` — ${descricao}` : ""}${grau != null ? ` (grau ${grau})` : ""}`;
+}
+
+function CnaeAutocomplete({ value, descricao, grau, cnaeFmt, onPick, onTexto }: {
+  value: string; descricao?: string; grau?: any; cnaeFmt?: string;
+  onPick: (c: any) => void; onTexto?: (t: string) => void;
+}) {
+  const [q, setQ] = useState(() => rotuloCnae(value, descricao, grau, cnaeFmt));
   const [opts, setOpts] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
-  useEffect(() => { setQ(value || ""); }, [value]);
+  // AQUI ESTAVA O DEFEITO 2. Este efeito reescrevia o campo com `value` cru a cada mudança — ou
+  // seja, logo depois de escolher na lista, o rótulo que o onPick tinha acabado de pôr era
+  // sobrescrito por "4712100". Agora ele reescreve com o MESMO rótulo que o onPick põe, então
+  // escolher e recarregar a tela dão o mesmo texto.
+  //
+  // Enquanto a pessoa digita, nenhuma destas dependências muda, e o que ela escreveu permanece.
+  useEffect(() => { setQ(rotuloCnae(value, descricao, grau, cnaeFmt)); }, [value, descricao, grau, cnaeFmt]);
   useEffect(() => {
     if (q.trim().length < 2) { setOpts([]); return; }
     const t = setTimeout(() => {
@@ -114,13 +133,18 @@ function CnaeAutocomplete({ value, onPick }: { value: string; onPick: (c: any) =
   return (
     <div className="relative">
       <input className={inp} value={q} placeholder="CNAE ou descrição"
-        onChange={(e) => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)}
+        onChange={(e) => { setQ(e.target.value); setOpen(true); onTexto?.(e.target.value); }}
+        onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 150)} />
       {open && opts.length > 0 && (
         <div className="absolute z-20 bg-white border border-gray-200 rounded-lg mt-1 w-full max-h-48 overflow-y-auto shadow-lg">
           {opts.map((o) => (
             <button type="button" key={o.cnae} className="block w-full text-left px-3 py-2 text-xs hover:bg-gray-50"
-              onMouseDown={() => { onPick(o); setQ(`${o.cnae_fmt} ${o.descricao}`); setOpen(false); }}>
+              onMouseDown={() => {
+                onPick(o);
+                setQ(rotuloCnae(o.cnae, o.descricao, o.grau_risco, o.cnae_fmt));
+                setOpen(false);
+              }}>
               <b>{o.cnae_fmt}</b> — {o.descricao} <span className="text-gray-400">(grau {o.grau_risco})</span>
             </button>
           ))}
@@ -139,6 +163,10 @@ function AtividadesModal({ estab, onFechar, embutido = false }: { estab: any; on
     apiClient.get(`/estabelecimentos/${estab.id}/atividades`).then((r) => setRows(r.data || [])).catch(() => setRows([]));
   }, [estab.id]);
   const upd = (i: number, k: string, v: any) => setRows((l) => l.map((x, j) => j === i ? { ...x, [k]: v } : x));
+  // Vários campos de uma vez, numa atualização só: escolher um CNAE muda código, descrição e
+  // grau juntos, e três `upd` seguidos fariam três re-renderizações para um único ato.
+  const updMany = (i: number, campos: Record<string, any>) =>
+    setRows((l) => l.map((x, j) => j === i ? { ...x, ...campos } : x));
 
   // ESPELHO DA REGRA DO BACKEND (Carolina, 25/10, item 2). A mesma atividade não pode ter dois
   // períodos cobrindo a mesma competência: ali não há o que comparar, há um quantitativo
@@ -149,12 +177,26 @@ function AtividadesModal({ estab, onFechar, embutido = false }: { estab: any; on
   // Atividades DIFERENTES na mesma competência continuam válidas, e têm de continuar: é
   // comparando os quantitativos delas que a preponderante se apura. A validação é por CNAE.
   const problema = (): string => {
-    const uteis = rows.filter((r) => r.cnae || r.inicio);
-    for (const r of uteis) {
-      if (!r.cnae) return "Toda linha precisa de uma atividade (CNAE).";
-      if (!r.inicio) return "Toda linha precisa de início.";
-      if (r.fim && r.fim < r.inicio) return "Há uma atividade com fim anterior ao início.";
+    // DIZ QUAL LINHA E O QUE HÁ DE ERRADO NELA (Carolina, 03/11, ponto 1). A mensagem antiga —
+    // "Toda linha precisa de uma atividade (CNAE)" — fazia parecer que o campo estava vazio
+    // quando na verdade havia texto digitado que não casou com nenhum CNAE, e não dizia em qual
+    // das linhas. São dois defeitos numa frase só: afirma a causa errada e esconde o lugar.
+    //
+    // O número da linha é a posição na tela, contando todas, inclusive as em branco — é o que a
+    // pessoa consegue conferir com o olho.
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const digitado = String(r.cnae_texto ?? "").trim();
+      if (!r.cnae && !digitado && !r.inicio) continue;   // linha em branco: ignorada, não é erro
+      if (!r.cnae) {
+        return digitado
+          ? `Linha ${i + 1}: CNAE ${digitado} não encontrado. Escolha a atividade na lista.`
+          : `Linha ${i + 1}: escolha a atividade (CNAE) na lista.`;
+      }
+      if (!r.inicio) return `Linha ${i + 1}: informe o início da vigência.`;
+      if (r.fim && r.fim < r.inicio) return `Linha ${i + 1}: o fim é anterior ao início.`;
     }
+    const uteis = rows.filter((r) => r.cnae || r.inicio);
     const porCnae: Record<string, any[]> = {};
     for (const r of uteis) {
       const c = String(r.cnae || "").replace(/\D/g, "");
@@ -210,7 +252,21 @@ function AtividadesModal({ estab, onFechar, embutido = false }: { estab: any; on
         </div>
         {rows.map((r, i) => (
           <div key={i} className="grid grid-cols-12 gap-2 mb-2 items-start">
-            <div className="col-span-5"><CnaeAutocomplete value={r.cnae} onPick={(o) => { upd(i, "cnae", o.cnae); upd(i, "descricao", o.descricao); }} /></div>
+            <div className="col-span-5">
+              <CnaeAutocomplete
+                value={r.cnae} descricao={r.descricao} grau={r.grau_risco} cnaeFmt={r.cnae_fmt}
+                onPick={(o) => updMany(i, {
+                  cnae: o.cnae, descricao: o.descricao, grau_risco: o.grau_risco,
+                  cnae_fmt: o.cnae_fmt, cnae_texto: "",
+                })}
+                // O que foi digitado fica guardado para a validação poder dizer "CNAE 9999999
+                // não encontrado" em vez de "campo vazio". Apagar o campo desfaz a escolha: sem
+                // isso, limpar o texto deixaria o código antigo gravado em silêncio.
+                onTexto={(t) => updMany(i, t.trim()
+                  ? { cnae_texto: t }
+                  : { cnae_texto: "", cnae: "", descricao: "", grau_risco: null, cnae_fmt: null })}
+              />
+            </div>
             <input type="number" className={`${inp} col-span-2`} value={r.quantitativo ?? ""} onChange={(e) => upd(i, "quantitativo", e.target.value)} placeholder="nº" />
             <input type="month" className={`${inp} col-span-2`} value={r.inicio ? String(r.inicio).slice(0, 7) : ""} onChange={(e) => upd(i, "inicio", e.target.value ? `${e.target.value}-01` : "")} />
             <input type="month" className={`${inp} col-span-2`} value={r.fim ? String(r.fim).slice(0, 7) : ""} onChange={(e) => upd(i, "fim", e.target.value ? `${e.target.value}-01` : "")} />
@@ -231,7 +287,10 @@ function AtividadesModal({ estab, onFechar, embutido = false }: { estab: any; on
 }
 
 // ---------- Painel de enquadramento apurado (RF-0.155/série) ----------
-const CRIT: Record<string, string> = { maior_quantitativo: "maior quantitativo", desempate_grau: "empate → grau", fila_conferencia: "—" };
+// "empate → maior grau", e não "empate → grau": a tela dizia só "grau", que não informa em que
+// sentido o grau decidiu. O rótulo é o mesmo da memória de cálculo, de propósito — a frase da
+// coluna e a do documento têm de ser a mesma, senão são duas explicações do mesmo fato.
+const CRIT: Record<string, string> = { maior_quantitativo: "maior quantitativo", desempate_grau: "empate → maior grau", fila_conferencia: "—" };
 function PainelModal({ estab, onFechar, embutido = false }: { estab: any; onFechar: () => void; embutido?: boolean }) {
   const qc = useQueryClient();
   const [rows, setRows] = useState<any[]>([]);
@@ -451,6 +510,17 @@ function PainelModal({ estab, onFechar, embutido = false }: { estab: any; onFech
               </tbody>
             </table>
           )}
+        {/* O DESEMPATE, ESCRITO (pergunta da Carolina, 03/11). A coluna "Critério" diz "empate →
+            maior grau" na competência em que isso ocorreu, mas o rótulo é curto demais para quem
+            não conhece a regra. A frase aparece só quando houve empate de fato na série — em
+            meses decididos pelo quantitativo, explicar desempate seria ruído. */}
+        {rows.some((r) => r.criterio === "desempate_grau") && (
+          <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-3">
+            Em {rows.filter((r) => r.criterio === "desempate_grau").length} competência(s) houve{" "}
+            <b>empate no quantitativo</b> entre duas atividades: nesses meses prevalece o{" "}
+            <b>maior grau de risco</b>.
+          </p>
+        )}
         {/* A citação NÃO vem mais congelada na linha apurada. Vinha: a tela pegava a primeira
             linha que tivesse fundamentação e imprimia aquele texto como rodapé de uma série de
             vários anos — sem data, sem dizer de quando era. Agora pergunta à tabela versionada
@@ -1529,23 +1599,51 @@ export function EstabelecimentoPagina() {
               <p className="text-xs text-gray-500">Nenhuma atividade declarada.</p>
             ) : (
               <>
+                {/* GRAU E PREPONDERANTE NA LEITURA (Carolina, 03/11, ponto 3): "não se vê por
+                    que o estabelecimento paga RAT de grau 3". O grau é o dado que move o
+                    cálculo, e a etiqueta diz qual das atividades o determinou.
+
+                    Os dois vêm do servidor: o grau da mesma tabela do Anexo I que o motor
+                    consulta, e a preponderante da série já apurada, competência por
+                    competência. A tela não decide nenhum dos dois — se decidisse, poderia
+                    discordar da memória de cálculo. */}
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="text-[10px] uppercase tracking-wide text-gray-500 text-left">
-                      <th className="py-1">CNAE</th><th>Descrição</th><th>Nº trab.</th><th>Vigência</th>
+                      <th className="py-1">CNAE</th><th>Descrição</th><th>Grau</th>
+                      <th>Nº trab.</th><th>Vigência</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {(ativs || []).map((a: any, i: number) => (
                       <tr key={i} className="text-gray-700">
-                        <td className="py-2 font-mono">{fmt.cnae(a.cnae)}</td>
-                        <td className="pr-3">{a.descricao || "—"}</td>
-                        <td>{a.quantitativo}</td>
-                        <td>{fmt.competencia(a.inicio)} a {a.fim ? fmt.competencia(a.fim) : "vigente"}</td>
+                        <td className="py-2 font-mono align-top">{fmt.cnae(a.cnae)}</td>
+                        <td className="pr-3 align-top">
+                          {a.descricao || "—"}
+                          {a.preponderante && (
+                            <span className="ml-2 inline-block text-[10px] rounded-full border border-indigo-300 bg-indigo-50 text-indigo-800 px-2 py-0.5 align-middle">
+                              preponderante
+                            </span>
+                          )}
+                        </td>
+                        <td className="align-top">{a.grau_risco ?? "—"}</td>
+                        <td className="align-top">{a.quantitativo}</td>
+                        <td className="align-top">{fmt.competencia(a.inicio)} a {a.fim ? fmt.competencia(a.fim) : "vigente"}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+
+                {/* O DESEMPATE, ESCRITO (pergunta dela de 03/11). A frase só aparece quando
+                    houve empate de fato na janela — num mês em que a preponderante venceu pelo
+                    quantitativo, explicar desempate seria ruído. O número vem do servidor, que
+                    o lê do critério gravado em cada competência pelo motor. */}
+                {(ativs || []).some((a: any) => a.por_empate > 0) && (
+                  <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-3">
+                    Houve <b>empate no quantitativo</b> em alguma competência da janela: nesses
+                    meses prevalece o <b>maior grau de risco</b>.
+                  </p>
+                )}
                 {/* A autoria fica na leitura, não dentro do formulário: é informação de quem lê,
                     não de quem edita. */}
                 {(ativs || []).some((a: any) => a.declarado_por) && (

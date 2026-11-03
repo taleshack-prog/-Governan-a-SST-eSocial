@@ -251,6 +251,39 @@ def gerar_memoria_pdf(d: dict) -> bytes:
         t.setStyle(TableStyle(style))
         el.append(t)
 
+        def _onde(rs):
+            """Lista as competências quando são poucas; os anos quando são muitas."""
+            comps = sorted(_comp(r.get("competencia")) for r in rs)
+            if len(comps) <= 3:
+                return ", ".join(comps)
+            anos = sorted({c[3:] for c in comps})
+            return ", ".join(anos)
+
+        # ---- O DESEMPATE, ESCRITO POR EXTENSO (pergunta da Carolina, 03/11) ----
+        #
+        # Ela: "no empate, a escolha foi pelo maior grau de risco, que é o critério correto, ou
+        # pela ordem do código? Se foi pelo grau, quando houver empate a série mensal e a memória
+        # precisam dizer 'empate — prevalece o maior grau de risco', para o leitor entender a
+        # escolha."
+        #
+        # É pelo grau: o motor toma o maior quantitativo e, havendo empate, escolhe entre os
+        # empatados o de maior grau, gravando o critério em cada competência.
+        #
+        # A FRASE NÃO CABE NA CÉLULA, e por isso vem aqui. A tabela tem treze colunas a 7 pontos;
+        # "empate — prevalece o maior grau de risco" dentro da coluna "Crit." quebraria o
+        # alinhamento de todas as linhas. O rótulo curto fica na célula e a regra fica embaixo,
+        # que é onde o leitor a procura ao encontrar o rótulo.
+        #
+        # Só aparece quando houve empate NA JANELA: explicar desempate num documento onde todas
+        # as competências foram decididas pelo quantitativo é afirmar que algo aconteceu que não
+        # aconteceu.
+        _empates = [r for r in serie if r.get("criterio") == "desempate_grau"]
+        if _empates:
+            el.append(_p(
+                f"Empate no quantitativo em {_onde(_empates)}: duas atividades com o mesmo "
+                "número de segurados na mesma competência. Nesses meses prevalece o maior grau de "
+                "risco entre as empatadas.", small))
+
         # ---- O SALDO DA JANELA (Carolina, 25/10, item 1) ----
         #
         # O documento listava as sessenta linhas e em nenhum ponto dizia que a janela tem crédito
@@ -262,14 +295,6 @@ def gerar_memoria_pdf(d: dict) -> bytes:
         # divergência é em pontos percentuais e o valor depende da folha de cada competência, que
         # o sistema não tem. Dizer "há valor a recuperar" a partir de pontos percentuais seria o
         # mesmo erro que saiu do quadro de divergência hoje de manhã, em escala maior.
-        def _onde(rs):
-            """Lista as competências quando são poucas; os anos quando são muitas."""
-            comps = sorted(_comp(r.get("competencia")) for r in rs)
-            if len(comps) <= 3:
-                return ", ".join(comps)
-            anos = sorted({c[3:] for c in comps})
-            return ", ".join(anos)
-
         # A CONTAGEM VEM DO MODULO DE RESUMO, nao e feita aqui (Carolina, 27/10): "a lista e a
         # pagina tem que usar a MESMA funcao, nao uma conta nova, para a tela e o documento nunca
         # mostrarem numeros diferentes." Era aqui que ela vivia, e copiar para as duas telas
