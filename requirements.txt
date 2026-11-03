@@ -12,6 +12,15 @@ pydantic==2.9.0
 pydantic-settings==2.5.2
 redis==5.1.0
 celery==5.4.0
+# EXPLICITO DE PROPOSITO (03/11). O transporte Redis do Kombu, que o Celery usa para falar com a
+# fila, faz `from packaging.version import Version` ao subir o worker. Este pacote vinha de
+# carona como dependencia transitiva de outro, e numa reconstrucao da imagem o pip resolveu sem
+# ele: o worker passou a morrer na partida com ModuleNotFoundError e a fila inteira caiu.
+#
+# Nao houve mudanca de codigo — bastou a imagem ser reconstruida, o que acontece a cada troca de
+# variavel na Railway. Por isso esta linha precisa existir mesmo tendo "funcionado sem ela" ate
+# aqui: o que funcionava era a sorte na resolucao de dependencias.
+packaging==24.1
 httpx==0.27.2
 structlog==24.4.0
 email-validator==2.2.0
