@@ -1292,6 +1292,37 @@ async def resumo_enquadramento_estab(
              "vigencia_fim": (b["citacao"] or {}).get("vigencia_fim")}
             for b in await citacoes_do_periodo("rat_devido", comps, db)
         ],
+        # ---- A REGRA DO DESEMPATE, NA TELA (Carolina, 03/11) ----
+        #
+        # A tela já dizia "empate → maior grau" na coluna Crit. e explicava a regra embaixo da
+        # tabela, mas sem citar norma — e a correção dela foi justamente essa: a regra é normativa,
+        # não escolha do sistema. A frase da tela e a do documento passam a sair da MESMA fonte,
+        # pelo mesmo motivo que o rótulo da coluna é idêntico nos dois: duas redações do mesmo fato
+        # são duas explicações, e uma delas envelhece sem ninguém notar.
+        #
+        # Lista VAZIA quando não houve empate — é assim que a tela sabe não imprimir nada. Só as
+        # competências empatadas entram, cada uma resolvida no seu mês, porque é só sobre elas que
+        # a regra foi aplicada.
+        #
+        # ESTE SERIALIZADOR E O _blocos DA MEMÓRIA DIVERGEM DE PROPÓSITO NUM PONTO: lá entra
+        # 'dispositivo_curto', porque a citação vai dentro de frase corrida. Aqui a tela monta a
+        # frase e precisa do mesmo campo. A dívida anotada acima — dois serializadores a 300 linhas
+        # um do outro — acaba de ganhar mais um campo para manter em sincronia; fica registrado.
+        "fundamentacao_desempate": [
+            {"de": b["de"].isoformat(), "ate": b["ate"].isoformat(),
+             "dispositivo": (b["citacao"] or {}).get("dispositivo"),
+             "dispositivo_curto": (b["citacao"] or {}).get("dispositivo_curto"),
+             "ato": (b["citacao"] or {}).get("ato_normativo"),
+             "observacao": (b["citacao"] or {}).get("observacao"),
+             "vigencia_inicio": (b["citacao"] or {}).get("vigencia_inicio"),
+             "vigencia_fim": (b["citacao"] or {}).get("vigencia_fim")}
+            for b in (
+                [_bd for _bd in await citacoes_do_periodo("desempate_preponderante", comps, db)
+                 if any(_bd["de"] <= c <= _bd["ate"]
+                        for c in {r.competencia for r in rows if r.criterio == "desempate_grau"})]
+                if any(r.criterio == "desempate_grau" for r in rows) else []
+            )
+        ],
     }
 
 
@@ -1559,12 +1590,62 @@ async def memoria_enquadramento(
                         "vigência correspondente na tabela de fundamentação antes de gerar o "
                         "documento."),
             )
+    # ---- A REGRA DO DESEMPATE (Carolina, 03/11) ----
+    #
+    # Resolve-se SO sobre as competencias em que houve empate de fato, e e por isso que este campo
+    # nao entra em _campos_fund acima. Dois motivos, e os dois importam:
+    #
+    #   1) A PORTA DE EMISSAO FICA ESTREITA. Em _campos_fund a lacuna barra o documento INTEIRO.
+    #      Aqui isso recusaria a memoria de uma empresa que nunca teve empate, por falta de citacao
+    #      de uma regra que nao foi aplicada. A trava existe, mas so alcanca o caso em que ela faz
+    #      sentido: HOUVE empate e nao ha como citar a norma que o decidiu — ai o documento nao
+    #      sai, porque o que ele afirmaria naquele mes nao tem amparo.
+    #
+    #   2) CADA EMPATE E FUNDAMENTADO PELA NORMA DO SEU MES. Empate em 09/2022 cita a IN 971/2009;
+    #      empate em 11/2022 cita a IN 2.110/2022. Uma citacao unica esticada sobre os dois estaria
+    #      errada em metade deles — e e exatamente o que citacoes_do_periodo evita, resolvendo
+    #      competencia por competencia e colapsando so os meses de redacao igual.
+    # O INTERVALO DO RÓTULO É O DA NORMA, NÃO O DOS EMPATES — e eu errei isso na primeira versão.
+    #
+    # Ela escreveu os dois intervalos como "11/2021 a 09/2022" e "10/2022 a 10/2026": o alcance de
+    # cada redação sobre a série. Eu havia resolvido a citação passando SÓ as competências
+    # empatadas, e o colapso em blocos produzia o intervalo entre o primeiro e o último empate —
+    # com empates em 01/2023 e 07/2023 sairia "01/2023 a 07/2023", afirmando, para quem lê, empate
+    # nos seis meses do meio. Quais meses empataram já está dito na frase de cima, uma a uma.
+    #
+    # Então: resolve sobre a SÉRIE INTEIRA, que dá os blocos com o alcance real de cada redação, e
+    # mantém apenas os blocos que contêm ao menos um empate. Bloco sem empate sai — citar a regra
+    # num período que não a aplicou é a mesma afirmação falsa, só mais larga.
+    _comps_empate = {r.competencia for r in serie_rows if r.criterio == "desempate_grau"}
+    fund_desempate = (
+        [b for b in await citacoes_do_periodo("desempate_preponderante", _comps, db)
+         if any(b["de"] <= c <= b["ate"] for c in _comps_empate)]
+        if _comps_empate else []
+    )
+    _lacunas_emp = [b for b in fund_desempate if b["citacao"] is None]
+    if _lacunas_emp:
+        _faixas_emp = "; ".join(
+            b["de"].strftime("%m/%Y") + (f" a {b['ate'].strftime('%m/%Y')}" if b["ate"] != b["de"] else "")
+            for b in _lacunas_emp
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=("A memória não pode ser emitida: houve empate no quantitativo nestas "
+                    f"competências e não há fundamentação cadastrada para a regra de desempate "
+                    f"('desempate_preponderante'): {_faixas_emp}. Cadastre a vigência "
+                    "correspondente na tabela de fundamentação antes de gerar o documento."),
+        )
+
     fund_blocos = fund_por_campo["rat_devido"]
     def _blocos(lista):
         """Serializa os blocos de vigencia. Existe porque agora sao DOIS campos fundamentados."""
         return [
             {"de": b["de"].isoformat(), "ate": b["ate"].isoformat(),
              "dispositivo": b["citacao"]["dispositivo"],
+             # SEM AS NOTAS: serve a quem cita dentro de frase corrida, que e o caso da frase do
+             # desempate. A nota entre parenteses dentro de outro parentese fica ilegivel — o
+             # resolvedor ja devolve as duas formas justamente por isso.
+             "dispositivo_curto": b["citacao"]["dispositivo_curto"],
              "ato": b["citacao"]["ato_normativo"],
              "anexo": b["citacao"]["anexo"],
              "observacao": b["citacao"]["observacao"],
@@ -1688,6 +1769,9 @@ async def memoria_enquadramento(
         # que foi resolvida: e isso que torna a citacao conferivel depois de emitida.
         "fundamentacao_blocos": _blocos(fund_blocos),
         "fundamentacao_preponderante": _blocos(fund_por_campo["atividade_preponderante"]),
+        # Lista VAZIA quando nao houve empate, e e assim que o gerador sabe nao imprimir a frase.
+        # Nao e ausencia de dado: e a informacao de que a regra nao foi aplicada em mes nenhum.
+        "fundamentacao_desempate": _blocos(fund_desempate),
         "autoria": autoria,
         "cprb": {
             "status": (empresa.cprb_status if empresa else None) or "nao_informado",

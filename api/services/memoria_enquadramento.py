@@ -283,6 +283,24 @@ def gerar_memoria_pdf(d: dict) -> bytes:
                 f"Empate no quantitativo em {_onde(_empates)}: duas atividades com o mesmo "
                 "número de segurados na mesma competência. Nesses meses prevalece o maior grau de "
                 "risco entre as empatadas.", small))
+            # ---- E A REGRA É NORMATIVA, NÃO ESCOLHA DO SISTEMA (Carolina, 03/11) ----
+            #
+            # Correção dela sobre o que eu havia afirmado: o desempate pelo maior grau está na
+            # norma — IN RFB 971/2009, art. 72, § 1º, II, "a" até 09/2022, e IN RFB 2.110/2022,
+            # art. 43, § 1º, II daí em diante. O parágrafo acima explicava o FATO sem citar o
+            # FUNDAMENTO, e num documento assinado isso deixa a escolha parecendo arbítrio do
+            # software.
+            #
+            # UMA LINHA POR BLOCO DE VIGÊNCIA. Se os empates caem dos dois lados de 16/10/2022,
+            # saem duas linhas, cada uma com o intervalo que a sua redação governa. Vem resolvido
+            # do router, competência por competência; aqui não se escolhe norma nenhuma.
+            #
+            # Texto do banco passa por _esc: a citação é digitada por pessoa, e um '&' solto
+            # levanta exceção no reportlab e o PDF não sai.
+            for _b in d.get("fundamentacao_desempate") or []:
+                _faixa = _comp(_b["de"]) + (f" a {_comp(_b['ate'])}" if _b["ate"] != _b["de"] else "")
+                el.append(_p(
+                    f"{_faixa}: {_esc(_b['observacao'])} ({_esc(_b['dispositivo_curto'])}).", small))
 
         # ---- O SALDO DA JANELA (Carolina, 25/10, item 1) ----
         #

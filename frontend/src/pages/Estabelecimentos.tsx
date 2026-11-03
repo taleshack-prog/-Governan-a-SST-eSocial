@@ -291,7 +291,11 @@ function AtividadesModal({ estab, onFechar, embutido = false }: { estab: any; on
 // sentido o grau decidiu. O rótulo é o mesmo da memória de cálculo, de propósito — a frase da
 // coluna e a do documento têm de ser a mesma, senão são duas explicações do mesmo fato.
 const CRIT: Record<string, string> = { maior_quantitativo: "maior quantitativo", desempate_grau: "empate → maior grau", fila_conferencia: "—" };
-function PainelModal({ estab, onFechar, embutido = false }: { estab: any; onFechar: () => void; embutido?: boolean }) {
+// 'desempate' vem de FORA, do resumo que a página já carregou — e não de uma segunda consulta
+// daqui. A citação da regra de empate é resolvida pelo servidor em /enquadramento/resumo, que
+// esta página busca de qualquer forma; pedir de novo aqui seria uma ida à rede para repetir um
+// dado que está a trinta linhas de distância, e as duas cópias poderiam divergir no intervalo.
+function PainelModal({ estab, onFechar, embutido = false, desempate }: { estab: any; onFechar: () => void; embutido?: boolean; desempate?: any[] }) {
   const qc = useQueryClient();
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -515,11 +519,27 @@ function PainelModal({ estab, onFechar, embutido = false }: { estab: any; onFech
             não conhece a regra. A frase aparece só quando houve empate de fato na série — em
             meses decididos pelo quantitativo, explicar desempate seria ruído. */}
         {rows.some((r) => r.criterio === "desempate_grau") && (
-          <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-3">
-            Em {rows.filter((r) => r.criterio === "desempate_grau").length} competência(s) houve{" "}
-            <b>empate no quantitativo</b> entre duas atividades: nesses meses prevalece o{" "}
-            <b>maior grau de risco</b>.
-          </p>
+          <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-3 space-y-1">
+            <p>
+              Em {rows.filter((r) => r.criterio === "desempate_grau").length} competência(s) houve{" "}
+              <b>empate no quantitativo</b> entre duas atividades: nesses meses prevalece o{" "}
+              <b>maior grau de risco</b>.
+            </p>
+            {/* E A REGRA É NORMATIVA (correção da Carolina, 03/11). O parágrafo acima dizia o que
+                aconteceu sem dizer com que amparo, e assim a escolha fica parecendo critério do
+                software. A citação vem do servidor, por bloco de vigência: empate até 09/2022 cita
+                a IN 971/2009; de 10/2022 em diante, a IN 2.110/2022. Se os empates caírem dos dois
+                lados do corte, saem as duas linhas — a tela não escolhe norma, só imprime.
+                Linha sem citação não vira linha: sem citação, não se exibe citação. */}
+            {(desempate || []).map((b: any, i: number) =>
+              b.dispositivo_curto && b.observacao ? (
+                <p key={i}>
+                  {mesBR(b.de)}{b.ate !== b.de ? ` a ${mesBR(b.ate)}` : ""}: {b.observacao}{" "}
+                  ({b.dispositivo_curto}).
+                </p>
+              ) : null,
+            )}
+          </div>
         )}
         {/* A citação NÃO vem mais congelada na linha apurada. Vinha: a tela pegava a primeira
             linha que tivesse fundamentação e imprimia aquele texto como rodapé de uma série de
@@ -1795,7 +1815,7 @@ export function EstabelecimentoPagina() {
 
         {serieAberta && (
           <div className="mt-3">
-            <PainelModal estab={estab} onFechar={() => setSerieAberta(false)} embutido />
+            <PainelModal estab={estab} onFechar={() => setSerieAberta(false)} embutido desempate={r.fundamentacao_desempate} />
           </div>
         )}
       </Bloco>
