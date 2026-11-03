@@ -12,14 +12,25 @@ pydantic==2.9.0
 pydantic-settings==2.5.2
 redis==5.1.0
 celery==5.4.0
-# EXPLICITO DE PROPOSITO (03/11). O transporte Redis do Kombu, que o Celery usa para falar com a
-# fila, faz `from packaging.version import Version` ao subir o worker. Este pacote vinha de
-# carona como dependencia transitiva de outro, e numa reconstrucao da imagem o pip resolveu sem
-# ele: o worker passou a morrer na partida com ModuleNotFoundError e a fila inteira caiu.
+# KOMBU FIXADO (03/11) — e esta e a causa raiz de o worker ter morrido duas vezes neste dia.
 #
-# Nao houve mudanca de codigo — bastou a imagem ser reconstruida, o que acontece a cada troca de
-# variavel na Railway. Por isso esta linha precisa existir mesmo tendo "funcionado sem ela" ate
-# aqui: o que funcionava era a sorte na resolucao de dependencias.
+# O celery 5.4.0 aceita kombu>=5.3.4,<6.0. Como o kombu nao estava fixado, uma reconstrucao da
+# imagem resolveu para o 5.7, cujo transporte Redis exige redis-py >= 6.1.0 e importa
+# `packaging`. Os dois vem declarados no extra `kombu[redis]`, que este projeto NAO instala —
+# ele instala `redis` direto. Resultado: o worker subiu sem ambos e morreu na partida, primeiro
+# com ModuleNotFoundError: No module named 'packaging' e, depois de declarado o packaging, com
+# VersionMismatch: Redis transport requires redis-py 6.1.0 or later. You have 5.1.0.
+#
+# Nao houve mudanca de codigo nenhuma. Bastou a imagem ser reconstruida — o que acontece a cada
+# troca de variavel na Railway. Ficou assim desde que o kombu 5.6 saiu; so ninguem tinha
+# reconstruido a imagem desde entao.
+#
+# 5.3.7 e a linha com que o celery 5.4.0 foi publicado e aceita o redis-py 5.x fixado acima.
+# Subir o redis-py para 6.x resolveria igualmente e deixaria o kombu novo entrar, mas e salto de
+# versao maior decidido no meio de uma interrupcao — fica para quando houver janela.
+kombu==5.3.7
+# Mantido explicito mesmo com o kombu de volta ao 5.3, que nao precisa dele: se um dia o kombu
+# subir de novo, a falta deste pacote volta a derrubar o worker na partida.
 packaging==24.1
 httpx==0.27.2
 structlog==24.4.0
