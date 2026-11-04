@@ -19,6 +19,12 @@ class EstabelecimentoFAP(Base):
     ano_vigencia: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     valor_fap: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False)  # 0.5000 a 2.0000
     origem: Mapped[str | None] = mapped_column(String(16))
+    # QUEM DECLAROU (migration 065, revisao da Carolina de 03/11). A linha ja guardava 'origem' e
+    # 'declarado_em', mas nao a pessoa — e numero que entra em peca assinada tem dono, como ja
+    # vale para estabelecimento_atividade. 160 e o mesmo limite de la, e guarda o NOME, nao o
+    # e-mail: ver _autor() em routers/estabelecimentos.py.
+    # NULL nas linhas anteriores a 065: foram gravadas sem autor, e autor nao se preenche depois.
+    declarado_por: Mapped[str | None] = mapped_column(String(160))
     declarado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 

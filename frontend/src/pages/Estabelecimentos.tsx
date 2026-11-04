@@ -989,21 +989,45 @@ function EstabModal({ form, setForm, onSalvar, onFechar, isPending, erro, embuti
 //
 // Em leitura mostra os anos como a folha pede, com o nao informado destacado: e o que trava
 // competencias em conferencia, e some num campo em branco dentro de um formulario.
+// ANOS COBERTOS. Lista fixa: em 2027 ela fica obsoleta em silêncio, e isso está anotado como
+// dívida — o certo é derivá-la da janela de apuração da empresa, que é quem define o período.
 const ANOS_FAP = [2021, 2022, 2023, 2024, 2025, 2026];
+
+// A MENSAGEM QUE O SERVIDOR MANDOU, quando houver uma (Carolina, 03/11, ponto 1 do bloco FAP).
+//
+// O backend recusa o FAP fora da faixa com uma frase que já diz o ano e a regra; a tela a
+// descartava. Daqui em diante é esta função que a extrai, e ela trata as duas formas em que o
+// FastAPI responde: 'detail' como frase, nas recusas que o nosso código escreve, e 'detail' como
+// LISTA de objetos, nas validações do pydantic — onde a frase útil está em cada .msg. Devolve
+// string vazia quando não há nada legível, para quem chama decidir o texto de reserva.
+const detalheDoErro = (e: any): string => {
+  const d = e?.response?.data?.detail;
+  if (typeof d === "string" && d.trim()) return d.trim();
+  if (Array.isArray(d) && d.length) {
+    const msgs = d.map((x: any) => x?.msg).filter(Boolean).join("; ");
+    if (msgs) return msgs;
+  }
+  return "";
+};
 
 function FapBloco({ estab, embutido = false, onFechar, editando = false, onEditar }: {
   estab: any; embutido?: boolean; onFechar?: () => void; editando?: boolean; onEditar?: () => void;
 }) {
   const [valores, setValores] = useState<Record<number, string>>({});
+  const [autoria, setAutoria] = useState<Record<number, { por: string | null; em: string | null }>>({});
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
 
   const carregar = () => {
     apiClient.get(`/estabelecimentos/${estab.id}/fap`).then((r) => {
       const m: Record<number, string> = {};
-      (r.data || []).forEach((x: any) => { m[x.ano] = fmt.num(x.fap, 4); });
-      setValores(m);
-    }).catch(() => setValores({}));
+      const a: Record<number, { por: string | null; em: string | null }> = {};
+      (r.data || []).forEach((x: any) => {
+        m[x.ano] = fmt.num(x.fap, 4);
+        a[x.ano] = { por: x.declarado_por ?? null, em: x.declarado_em ?? null };
+      });
+      setValores(m); setAutoria(a);
+    }).catch(() => { setValores({}); setAutoria({}); });
   };
   useEffect(carregar, [estab.id]);
 
@@ -1015,18 +1039,40 @@ function FapBloco({ estab, embutido = false, onFechar, editando = false, onEdita
         .map((a) => ({ ano: a, fap: Number(String(valores[a]).replace(".", "").replace(",", ".")) }));
       await apiClient.put(`/estabelecimentos/${estab.id}/fap`, faps);
       onFechar?.();
-    } catch { setErro("Não foi possível salvar o FAP."); } finally { setSalvando(false); }
+    } catch (e) {
+      // A MENSAGEM DO SERVIDOR, QUANDO HOUVER (Carolina, 03/11, ponto 1).
+      //
+      // Aqui havia um `catch` pelado que jogava fora a resposta inteira e escrevia uma frase
+      // genérica por cima. O servidor já dizia o ano e a faixa; quem apagava era esta linha. A
+      // frase genérica fica só para o caso em que realmente não há mensagem nenhuma — rede
+      // caída, servidor fora —, que é onde ela é a verdade.
+      setErro(detalheDoErro(e) || "Não foi possível salvar o FAP.");
+    } finally { setSalvando(false); }
   };
+
+  // A autoria mais recente entre os anos declarados. Uma linha por ano encheria uma grade de
+  // três colunas de texto miúdo; e, na prática, salvar grava todos os anos enviados no mesmo
+  // instante e com o mesmo autor, então a linha única descreve o caso comum sem mentir. Quando
+  // há mais de uma declaração distinta, a frase muda para dizer que é a última.
+  const _decl = Object.values(autoria).filter((x) => x.em);
+  const _ultima = _decl.slice().sort((x, y) => String(y.em).localeCompare(String(x.em)))[0];
+  const _variasDeclaracoes = new Set(_decl.map((x) => `${x.por}|${x.em}`)).size > 1;
 
   const campos = (
     <>
+      {/* ANO DE VIGÊNCIA, NÃO DE DIVULGAÇÃO (Carolina, 03/11, ponto 2).
+          O FAP é divulgado num ano e vale no seguinte. Os quadros diziam só "2023", e quem
+          digitasse pelo ano de divulgação deslocaria a janela inteira em um ano sem nenhum
+          aviso — o número ficaria certo e aplicado no ano errado. O dado guardado sempre foi o
+          ano de vigência (a coluna chama-se ano_vigencia), então aqui muda só o que se lê. */}
       <p className="text-xs text-gray-500 mb-3">
-        O cálculo usa o FAP de cada ano. Campo vazio não é 1,0 — fica em branco e vai à conferência.
+        Informe o FAP que vale no ano indicado, divulgado no ano anterior. O cálculo usa o FAP de
+        cada ano; campo vazio não é 1,0 — fica em branco e vai à conferência.
       </p>
       <div className="space-y-2">
         {ANOS_FAP.map((ano) => (
           <div key={ano} className="flex items-center gap-3">
-            <label className="w-16 text-sm text-gray-600">{ano}</label>
+            <label className="w-28 text-sm text-gray-600">vigência {ano}</label>
             <input type="text" inputMode="decimal"
               className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm tabular-nums"
               value={valores[ano] ?? ""}
@@ -1056,20 +1102,35 @@ function FapBloco({ estab, embutido = false, onFechar, editando = false, onEdita
     return (
       <div className="bg-white rounded-xl border border-gray-100 p-5">
         {editando ? campos : (
-          <div className="grid grid-cols-3 gap-2">
-            {ANOS_FAP.map((ano) => {
-              const v = valores[ano];
-              return (
-                <div key={ano}
-                  className={`rounded-lg border px-3 py-2 text-center ${v ? "border-gray-200" : "border-amber-300 bg-amber-50"}`}>
-                  <p className="text-[11px] text-gray-500">{ano}</p>
-                  <p className={`text-sm tabular-nums ${v ? "text-gray-800" : "text-amber-800"}`}>
-                    {v || "não informado"}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
+          <>
+            <div className="grid grid-cols-3 gap-2">
+              {ANOS_FAP.map((ano) => {
+                const v = valores[ano];
+                return (
+                  <div key={ano}
+                    className={`rounded-lg border px-3 py-2 text-center ${v ? "border-gray-200" : "border-amber-300 bg-amber-50"}`}>
+                    <p className="text-[11px] text-gray-500">vigência {ano}</p>
+                    <p className={`text-sm tabular-nums ${v ? "text-gray-800" : "text-amber-800"}`}>
+                      {v || "não informado"}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+            {/* QUEM DECLAROU (Carolina, 03/11, ponto 3). Mesmo compromisso que vale em Atividades:
+                número que entra em peça assinada tem dono.
+
+                Sem nome, só a data: são as linhas gravadas antes da migration 065, que não têm
+                autor. A frase simplesmente omite o "por", em vez de escrever "sistema" ou o
+                usuário atual — atribuir a alguém uma declaração que não é dele, dentro do campo
+                que existe para dizer de quem ela é, seria o pior resultado possível aqui. */}
+            {_ultima && (
+              <p className="text-[11px] text-gray-500 mt-3">
+                {_variasDeclaracoes ? "Última declaração:" : "Declarado"}
+                {_ultima.por ? ` por ${_ultima.por}` : ""} em {fmt.dataHora(_ultima.em)}.
+              </p>
+            )}
+          </>
         )}
         {!editando && onEditar === undefined && null}
       </div>
@@ -1081,7 +1142,7 @@ function FapBloco({ estab, embutido = false, onFechar, editando = false, onEdita
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
       <div className="bg-white rounded-xl p-6 w-full max-w-md">
         <h2 className="text-lg font-bold text-gray-900">
-          FAP por ano — {estab.nome}<Fundamentacao campo="fap_publicado" em={hojeISO()} />
+          FAP por ano de vigência — {estab.nome}<Fundamentacao campo="fap_publicado" em={hojeISO()} />
         </h2>
         {campos}
       </div>
@@ -1680,7 +1741,10 @@ export function EstabelecimentoPagina() {
       {/* ITEM 5: O FAP SAIU DA LISTA e virou bloco. Em leitura, um cartão por ano, com o não
           informado destacado — é ele que trava competências em conferência, e num campo em branco
           dentro de um formulário isso não se vê. */}
-      <Bloco ancora="fap" titulo="FAP publicado" acao={<BotaoEditar bloco="fap" />}>
+      {/* "por ano de vigência" no título (Carolina, 03/11, ponto 2): "FAP publicado" não dizia
+          se o ano dos quadros era o de vigência ou o de divulgação, e o FAP é divulgado num ano
+          para valer no seguinte. O título responde isso antes de o usuário clicar em editar. */}
+      <Bloco ancora="fap" titulo="FAP — por ano de vigência" acao={<BotaoEditar bloco="fap" />}>
         <FapBloco estab={estab} embutido editando={editando === "fap"}
           onFechar={() => setEditando(null)} />
       </Bloco>

@@ -861,6 +861,42 @@ class FapAnoIn(BaseModel):
     fap: float
 
 
+# OS LIMITES, UMA VEZ SO. Estavam como literais 0.5/2.0 em dois pontos deste arquivo — aqui e na
+# conferencia do fap_aplicado. Literal repetido e divergencia esperando acontecer: no dia em que
+# a faixa mudar, um dos dois fica para tras e recusa (ou aceita) o que o outro nao recusa.
+FAP_MIN, FAP_MAX = 0.5, 2.0
+
+
+def _fap_fmt(v: float) -> str:
+    """Quatro casas e virgula, que e como a norma escreve o FAP."""
+    return f"{v:.4f}".replace(".", ",")
+
+
+async def _erro_faixa_fap(ano: int, db: AsyncSession) -> str:
+    """A recusa do FAP, dizendo o ano e a regra (Carolina, 03/11, ponto 1 do bloco FAP).
+
+    O QUE ESTAVA ERRADO NAO ERA ESTA MENSAGEM. O backend ja dizia ano e faixa; quem apagava era
+    um `catch` pelado no .tsx, que trocava a resposta inteira por "Não foi possível salvar o
+    FAP.". A tela agora mostra este texto — e e aqui que ele se escreve, num lugar so.
+
+    A CITACAO VEM DA TABELA VERSIONADA, pelo ano. Decisao dela: escrever "Decreto 3.048/99,
+    art. 202-A" dentro desta string criaria uma SEGUNDA fonte para o mesmo fundamento, que e
+    exatamente o que a migration 035 existe para impedir — no dia em que a norma mudar, a memoria
+    citaria uma coisa e a mensagem de erro, outra. 'fap_publicado' e a mesma linha que fundamenta
+    o FAP na memoria de calculo, e ela decidiu manter o art. 202-A inteiro, sem o § 1º: ali o
+    artigo todo e o correto, porque a linha responde pelo FAP como um todo e nao so pela faixa.
+
+    Resolve no FECHAMENTO do ano, pelo mesmo criterio que governa todos os cortes de vigencia do
+    projeto (ver TEXTO_CRITERIO_VIGENCIA em services/fundamentacao.py).
+
+    SEM CITACAO CADASTRADA, a frase sai sem o parenteses. Nunca com texto de reserva: mensagem de
+    erro que inventa fundamento legal e pior do que mensagem sem fundamento nenhum.
+    """
+    c = await citacao_de("fap_publicado", date(ano, 12, 31), db)
+    regra = f"{ano}: o FAP deve estar entre {_fap_fmt(FAP_MIN)} e {_fap_fmt(FAP_MAX)}"
+    return f"{regra} ({c['dispositivo_curto']})." if c else f"{regra}."
+
+
 @router.get("/{estab_id}/fap")
 async def listar_fap(
     estab_id: UUID,
@@ -872,7 +908,23 @@ async def listar_fap(
         select(EstabelecimentoFAP).where(EstabelecimentoFAP.estabelecimento_id == estab_id)
         .order_by(EstabelecimentoFAP.ano_vigencia)
     )).scalars().all()
-    return [{"ano": r.ano_vigencia, "fap": float(r.valor_fap)} for r in rows]
+    # AUTORIA NA LEITURA (Carolina, 03/11, ponto 3). Antes saía só {ano, fap}: a data já estava
+    # gravada na linha desde sempre e nunca chegava à tela, e o autor não era nem gravado.
+    #
+    # A HORA VIAJA COM O FUSO, sempre. 'declarado_em' é gravado com datetime.utcnow(), que é
+    # naive; um ISO sem marca de fuso faz o Date() do navegador ler como hora LOCAL e imprimir
+    # três horas a mais. É o mesmo defeito que a memória já teve com o gerado_em, e aqui ele
+    # apareceria como "declarado às 19:02" onde foram 16:02.
+    def _iso_utc(dt):
+        if dt is None:
+            return None
+        return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).isoformat()
+
+    return [{"ano": r.ano_vigencia, "fap": float(r.valor_fap), "origem": r.origem,
+             # None nas linhas anteriores à 065: elas foram gravadas sem autor, e autor não se
+             # inventa retroativamente. A tela mostra a data sozinha nesses casos.
+             "declarado_por": r.declarado_por,
+             "declarado_em": _iso_utc(r.declarado_em)} for r in rows]
 
 
 @router.put("/{estab_id}/fap")
@@ -884,22 +936,28 @@ async def salvar_fap(
 ):
     """FAP por ano (0,5 a 2,0). Campo vazio não é 1,0 — simplesmente não é enviado."""
     await _tenant_estab(estab_id, current_user, db)
+    _autoria = _autor(current_user)
     for item in faps:
-        if not (0.5 <= item.fap <= 2.0):
-            raise HTTPException(status_code=422, detail=f"FAP {item.fap} fora da faixa 0,5–2,0 (ano {item.ano}).")
+        if not (FAP_MIN <= item.fap <= FAP_MAX):
+            raise HTTPException(status_code=422, detail=await _erro_faixa_fap(item.ano, db))
         existe = (await db.execute(
             select(EstabelecimentoFAP).where(
                 EstabelecimentoFAP.estabelecimento_id == estab_id,
                 EstabelecimentoFAP.ano_vigencia == item.ano,
             )
         )).scalar_one_or_none()
+        # AUTORIA (Carolina, 03/11, ponto 3). A linha ja guardava origem e data, mas nao QUEM —
+        # e a data nem chegava a tela. "Declarado por" e o mesmo compromisso que ja vale para as
+        # atividades: numero que entra em peca assinada tem dono.
         if existe:
             existe.valor_fap = item.fap
             existe.origem = "declarado"
+            existe.declarado_por = _autoria
             existe.declarado_em = datetime.utcnow()
         else:
             db.add(EstabelecimentoFAP(estabelecimento_id=estab_id, ano_vigencia=item.ano, valor_fap=item.fap,
-                                      origem="declarado", declarado_em=datetime.utcnow()))
+                                      origem="declarado", declarado_por=_autoria,
+                                      declarado_em=datetime.utcnow()))
     await db.commit()
     from api.services.motor_enquadramento import apurar_estabelecimento
     await apurar_estabelecimento(estab_id, db, autor=_autor(current_user))   # reapura a série ao mudar o FAP
