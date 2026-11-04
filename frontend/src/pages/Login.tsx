@@ -20,6 +20,29 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>;
 
+// A FRASE CERTA PARA CADA FALHA (04/11).
+//
+// Esta tela dizia "Credenciais inválidas." para QUALQUER erro, inclusive quando a requisição
+// nunca saiu do navegador. Em 04/11 a Carolina não conseguiu entrar pela rede do Ministério
+// Público, que bloqueia o endereço da API: a tela anunciou senha errada, e nós passamos uma hora
+// investigando autenticação, RLS e versões de dependência antes de descobrir que era firewall.
+// Uma mensagem de erro que mente sobre a causa é pior do que uma mensagem genérica, porque
+// manda quem lê para o lugar errado com confiança.
+//
+// A distinção é objetiva: ou existe 'response', e então o servidor respondeu e o que ele disse
+// é a verdade; ou não existe, e então ninguém respondeu — rede, DNS, proxy corporativo, ou o
+// servidor fora do ar. São estados diferentes e pedem frases diferentes.
+function mensagemDeFalhaDeLogin(err: any): string {
+  const detalhe = err?.response?.data?.detail;
+  if (typeof detalhe === "string" && detalhe.trim()) return detalhe.trim();
+  if (err?.response) return "Credenciais inválidas.";
+  if (err?.code === "ECONNABORTED") {
+    return "O servidor demorou demais para responder. Tente novamente em alguns instantes.";
+  }
+  return "Não foi possível falar com o servidor. Verifique sua conexão — e, se você estiver "
+       + "numa rede corporativa, é possível que ela bloqueie o acesso ao sistema.";
+}
+
 export function Login() {
   const navigate = useNavigate();
   const { setAuth } = useAuthStore();
@@ -38,7 +61,7 @@ export function Login() {
       toast.success(`Bem-vindo, ${nome}!`);
       navigate("/");
     } catch (err: any) {
-      toast.error(err.response?.data?.detail ?? "Credenciais inválidas.");
+      toast.error(mensagemDeFalhaDeLogin(err));
     } finally {
       setLoading(false);
     }

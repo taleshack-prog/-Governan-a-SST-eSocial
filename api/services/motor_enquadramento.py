@@ -6,9 +6,12 @@
 # Vao a FILA DE CONFERENCIA (nunca valor presumido): obra CNO (B.5), CNAE fora do Anexo I
 # (RF-0.182), FAP do ano nao informado (RF-0.177), e competencia sem quantitativo declarado.
 from datetime import date, datetime
+from decimal import Decimal
 
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from api.models.enquadramento_evento import EVENTO_REVOGADO
 
 from api.models.estabelecimento import Estabelecimento
 from api.models.empresa import Empresa
@@ -18,7 +21,60 @@ from api.models.estabelecimento_rat_aplicado import EstabelecimentoRatAplicado
 from api.models.estabelecimento_enquadramento import EstabelecimentoEnquadramento
 from api.models.cnae_enquadramento import CnaeEnquadramento
 from api.services.regime_competencia import regime_da_competencia, rat_se_aplica, CERTO
-from api.services.enquadramento_eventos import registrar_apuracao, retrato
+from api.services.enquadramento_eventos import registrar_apuracao, registrar, retrato
+
+
+# ---------------------------------------------------------------------------
+# O QUE A CONFERENCIA ATESTA (04/11)
+#
+# Ate aqui, toda reapuracao fazia a linha nascer NAO conferida, sem olhar se alguma coisa tinha
+# mudado. Salvar o FAP de 2026 derrubava a assinatura de 2021; e, pior, uma reapuracao que nao
+# alterava nada derrubava a assinatura E NAO DEIXAVA RASTRO — a trilha so grava quando o numero
+# muda, entao a conferencia sumia em silencio. O motor passa a comparar antes e depois e so
+# revoga quando algo de fato mudou.
+#
+# ESTA LISTA E DELIBERADAMENTE MAIS LARGA que a CAMPOS_CALCULO da trilha, que tem seis campos.
+# A trilha responde "o que mudou no numero"; esta lista responde "sobre o que a pessoa assinou".
+# Sao perguntas diferentes: a atividade preponderante e impressa na memoria, mas duas atividades
+# de mesmo grau produzem aliquotas identicas — se a comparacao fosse so pelos seis campos, o
+# desempate poderia trocar o CNAE preponderante da peca com a assinatura sobrevivendo por baixo.
+# Errar para o lado de revogar demais custa retrabalho; errar para o outro lado deixa uma
+# assinatura cobrindo documento alterado, e isso nao se conserta depois.
+#
+# [A CONFIRMAR com a Carolina] a lista definitiva e dela: e ela quem diz o que a conferencia
+# cobre. Esta aqui e a leitura conservadora — tudo que a linha apresenta sobre a competencia.
+CAMPOS_CONTEUDO = (
+    "cnae_preponderante", "criterio",
+    "grau_risco", "aliquota_devida", "fap", "aliquota_efetiva", "aliquota_aplicada",
+    "rat_aplicado", "fap_aplicado", "processo_rat", "processo_fap",
+    "rat_aplicavel", "motivo_inaplicavel",
+    "regime_competencia", "anexo_competencia",
+    "em_fila", "motivo_fila",
+    "versao_tabelas",
+)
+
+
+def _comparavel(v):
+    """Normaliza para comparar antes e depois sem falso positivo de tipo.
+
+    O banco devolve NUMERIC como Decimal e o motor calcula em float. Comparar os dois direto
+    mente nos dois sentidos: Decimal('3.7035') == 3.7035 e False, porque o float nao e exatamente
+    3.7035. Sem isto, TODA reapuracao pareceria ter mudado tudo e a correcao nao serviria para
+    nada. Quatro casas e a precisao em que o sistema grava (NUMERIC(5,4)).
+
+    bool antes de numero: isinstance(True, int) e verdadeiro, e True viraria "1.0000".
+    """
+    if isinstance(v, bool) or v is None:
+        return v
+    if isinstance(v, (int, float, Decimal)):
+        return f"{float(v):.4f}"
+    return v
+
+
+def _conteudo(origem) -> dict:
+    """O retrato do que a competencia diz, para efeito de conferencia."""
+    pegar = origem.get if isinstance(origem, dict) else lambda c: getattr(origem, c, None)
+    return {c: _comparavel(pegar(c)) for c in CAMPOS_CONTEUDO}
 
 # A CITACAO NAO MORA MAIS AQUI (decisao da Carolina, 21/10). Havia uma constante FUND neste
 # arquivo com o dispositivo escrito a mao, e o motor a copiava em cada linha apurada. Eram duas
@@ -115,12 +171,16 @@ async def apurar_estabelecimento(estab_id, db: AsyncSession, autor: str | None =
         )
     )).scalars().all()
     antes_por_comp = {r.competencia: retrato(r) for r in linhas_antes}
+    # O conteudo anterior, no recorte que a conferencia cobre. Serve para decidir se a assinatura
+    # sobrevive — ver CAMPOS_CONTEUDO. E um retrato diferente do de cima, que alimenta a trilha.
+    conteudo_antes = {r.competencia: _conteudo(r) for r in linhas_antes}
     conferidas_antes = {
         r.competencia: (r.conferido_por, r.conferido_em)
         for r in linhas_antes if r.conferido_por
     }
     agora = datetime.utcnow()
     eventos_gravados = 0
+    revogadas_comps: list[date] = []   # as que caíram de fato, não as que existiam
 
     # recalcula: apaga a serie anterior e regrava
     await db.execute(delete(EstabelecimentoEnquadramento).where(EstabelecimentoEnquadramento.estabelecimento_id == estab_id))
@@ -222,36 +282,58 @@ async def apurar_estabelecimento(estab_id, db: AsyncSession, autor: str | None =
         if em_fila_flag:
             em_fila += 1
 
+        # ---- A ASSINATURA SO CAI SE ALGUMA COISA MUDOU (04/11) ----
+        #
+        # O motor continua sem assinar nada: ele nao cria conferencia. O que ele faz agora e
+        # distinguir recalcular de alterar. Reapurar sem alterar devolve exatamente a mesma
+        # competencia, e derrubar o aval nesse caso nao protegia ninguem — apagava trabalho
+        # humano e, como a trilha so registra mudanca, apagava sem deixar registro.
+        novo = {
+            "cnae_preponderante": cnae_prep,
+            "criterio": (criterio or ("fila_conferencia" if em_fila_flag else None)),
+            "grau_risco": grau, "aliquota_devida": aliq_dev,
+            "fap": faps.get(comp.year), "aliquota_efetiva": aliq_ef, "aliquota_aplicada": aliq_apl,
+            "rat_aplicado": rat_apl, "fap_aplicado": fap_apl,
+            "processo_rat": proc_rat, "processo_fap": proc_fap,
+            "rat_aplicavel": rat_aplicavel, "motivo_inaplicavel": motivo_inaplicavel,
+            "regime_competencia": reg.get("regime"), "anexo_competencia": reg.get("anexo"),
+            "em_fila": em_fila_flag, "motivo_fila": motivo,
+            "versao_tabelas": versao,
+        }
+        aval = conferidas_antes.get(comp)
+        # Competencia que nao existia antes nunca "permanece igual": conteudo_antes nao a tem.
+        intacta = comp in conteudo_antes and conteudo_antes[comp] == _conteudo(novo)
+        manter = aval if (aval and intacta) else None
+        revogar = aval if (aval and not intacta) else None
+        if revogar:
+            revogadas_comps.append(comp)
+
         db.add(EstabelecimentoEnquadramento(
             estabelecimento_id=estab_id, competencia=comp,
-            cnae_preponderante=cnae_prep, criterio=(criterio or ("fila_conferencia" if em_fila_flag else None)),
-            grau_risco=grau, aliquota_devida=aliq_dev,
-            fap=faps.get(comp.year), aliquota_efetiva=aliq_ef, aliquota_aplicada=aliq_apl,
-            rat_aplicado=rat_apl, fap_aplicado=fap_apl,
-            processo_rat=proc_rat, processo_fap=proc_fap,
-            # Nasce NAO conferida, sempre: o motor nao assina. Se havia aval sobre esta
-            # competencia, o rastro da revogacao fica registrado.
-            conferido_por=None, conferido_em=None,
-            revogado_em=agora if comp in conferidas_antes else None,
-            revogado_por=autor if comp in conferidas_antes else None,
-            revogado_de=conferidas_antes[comp][0] if comp in conferidas_antes else None,
-            em_fila=em_fila_flag, motivo_fila=motivo,
-            # Aplicabilidade e o regime que a decidiu, congelados na linha (migration 046): a
-            # peca precisa dizer o fato E a fonte. 'regime_origem' fica nulo ate a rodada da
-            # procedencia; hoje toda declaracao de regime e do contribuinte.
-            rat_aplicavel=rat_aplicavel, motivo_inaplicavel=motivo_inaplicavel,
-            regime_competencia=reg.get("regime"), anexo_competencia=reg.get("anexo"),
+            **novo,
+            # Preservada apenas quando NADA mudou. Quando mudou, cai e deixa o rastro de quem
+            # havia assinado e de quem derrubou.
+            conferido_por=(manter[0] if manter else None),
+            conferido_em=(manter[1] if manter else None),
+            revogado_em=agora if revogar else None,
+            revogado_por=autor if revogar else None,
+            revogado_de=revogar[0] if revogar else None,
+            # Aplicabilidade, regime e anexo agora entram pelo 'novo' acima, junto com o resto do
+            # conteudo (migration 046 explica por que ficam congelados na linha: a peca precisa
+            # dizer o fato E a fonte). Estavam escritos duas vezes enquanto eu montava o dict.
+            # 'regime_origem' segue nulo ate a rodada da procedencia.
             # fund_* NAO sao mais preenchidas: a citacao vem da tabela versionada, pela data da
             # competencia. 'versao_tabelas' permanece — e outra coisa: a versao das tabelas de
             # CALCULO usadas na apuracao, nao a vigencia da norma. Vinham impressas no mesmo
             # rodape, uma rotulada como se fosse a outra.
-            data_apuracao=datetime.utcnow(), versao_tabelas=versao,
+            # 'versao_tabelas' entra pelo 'novo': faz parte do conteudo comparado.
+            data_apuracao=datetime.utcnow(),
         ))
 
         # TRILHA (migration 047). Registra o que esta competencia passou a valer e, quando havia
         # conferencia sobre um numero diferente, tambem o que deixou de valer e de quem era a
         # assinatura. Nao grava nada quando o numero nao mudou — ver registrar_apuracao.
-        eventos_gravados += await registrar_apuracao(
+        gravados_aqui = await registrar_apuracao(
             db,
             estabelecimento_id=estab_id,
             competencia=comp,
@@ -264,12 +346,40 @@ async def apurar_estabelecimento(estab_id, db: AsyncSession, autor: str | None =
             autor=autor,
             conferido_por=conferidas_antes.get(comp, (None, None))[0],
         )
+        eventos_gravados += gravados_aqui
+
+        # REVOGACAO SEM RASTRO, FECHADA (04/11). registrar_apuracao decide pelos SEIS campos de
+        # calculo; esta funcao revoga por um conjunto maior. Entao existe um caso em que a
+        # assinatura cai e a trilha nao registra: mudou a atividade preponderante, o criterio ou
+        # o regime, sem mexer em nenhuma aliquota. Antes isso nao aparecia porque a assinatura
+        # caia sempre e ninguem perguntava; agora que a regra e "so cai se mudou", o motivo da
+        # queda tem de estar escrito em algum lugar. Dois eventos por revogacao nunca: so grava
+        # aqui quando registrar_apuracao nao gravou.
+        if revogar and gravados_aqui == 0:
+            mudou_em = [c for c in CAMPOS_CONTEUDO
+                        if conteudo_antes[comp].get(c) != _conteudo(novo).get(c)]
+            await registrar(
+                db, estabelecimento_id=estab_id, competencia=comp,
+                evento=EVENTO_REVOGADO,
+                valores=antes_por_comp.get(comp) or {},   # o numero sobre o qual se assinou
+                autor=autor,
+                motivo=(f"Conferência de {revogar[0]} revogada: "
+                        f"{', '.join(mudou_em)} mudou na reapuração."),
+            )
+            eventos_gravados += 1
 
     await db.commit()
-    revogadas = sum(1 for c in conferidas_antes if ini <= c <= fim)
+    # QUANTAS CAIRAM DE VERDADE, e nao quantas existiam. Antes este numero era o total de
+    # conferencias da janela, porque todas caiam; agora cai so o que mudou, e o aviso que vai
+    # para a tela precisa dizer o que aconteceu, nao o que poderia ter acontecido.
+    revogadas = len(revogadas_comps)
+    preservadas = sum(1 for c in conferidas_antes if ini <= c <= fim) - revogadas
     return {"ok": True, "competencias": total, "em_fila": em_fila,
             "eventos_registrados": eventos_gravados,
             "conferencias_revogadas": revogadas,
+            "conferencias_preservadas": preservadas,
             "aviso": (f"{revogadas} competência(s) tinham sido conferidas e voltaram a apurado: "
-                      f"o dado de cálculo mudou, então a validação anterior não vale mais.")
+                      f"o dado mudou, então a validação anterior não vale mais."
+                      + (f" Outras {preservadas} seguem conferidas, porque nada mudou nelas."
+                         if preservadas else ""))
                      if revogadas else None}
