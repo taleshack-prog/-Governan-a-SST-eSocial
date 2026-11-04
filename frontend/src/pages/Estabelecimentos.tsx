@@ -490,7 +490,22 @@ function PainelModal({ estab, onFechar, embutido = false, desempate }: { estab: 
                       <td className="px-2 py-1.5 font-medium tabular-nums text-amber-700"
                         title="Divergência não confirmada: depende de informar o RAT base e o FAP aplicados.">?</td>
                     ) : (
-                      <td className={`px-2 py-1.5 font-medium tabular-nums ${r.divergencia_pp > 0 ? "text-blue-700" : r.divergencia_pp < 0 ? "text-red-700" : "text-gray-400"}`} title={r.divergencia_pp > 0 ? "pagou a mais — crédito a recuperar" : r.divergencia_pp < 0 ? "pagou a menos — passivo a regularizar" : ""}>{fmt.pp(r.divergencia_pp)}</td>
+                      <td className={`px-2 py-1.5 font-medium tabular-nums ${r.amparada ? "text-amber-700" : r.divergencia_pp > 0 ? "text-blue-700" : r.divergencia_pp < 0 ? "text-red-700" : "text-gray-400"}`}
+                        title={r.amparada
+                          ? `Divergência amparada por processo informado para a origem que divergiu (${r.origem_label || r.origem_divergencia}). Continua apurada e aparece na memória, mas fica fora das contas de crédito e de débito.`
+                          : r.divergencia_pp > 0 ? "pagou a mais — crédito a recuperar" : r.divergencia_pp < 0 ? "pagou a menos — passivo a regularizar" : ""}>
+                        {fmt.pp(r.divergencia_pp)}
+                        {/* A MARCA DO AMPARO (Carolina, 04/11). A divergência NÃO deixa de ser
+                            apontada: o número continua ali, com o sinal que sempre teve. O que a
+                            marca diz é que existe processo informado para a origem que divergiu,
+                            e por isso esta competência não entra em crédito nem em débito. */}
+                        {r.amparada ? (
+                          <span className="block text-[10px] font-normal leading-tight">
+                            amparada{(r.processo_fap || r.processo_rat)
+                              ? ` — proc. nº ${r.processo_fap || r.processo_rat}` : ""}
+                          </span>
+                        ) : null}
+                      </td>
                     )}
                     <td className="px-2 py-1.5">
                       <span className={SIT[r.situacao]?.cls || "text-gray-400"}
@@ -573,7 +588,15 @@ function RatAplicadoModal({ estab, onFechar, embutido = false }: { estab: any; o
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
   useEffect(() => {
-    apiClient.get(`/estabelecimentos/${estab.id}/rat-aplicado`).then((r) => setRows(r.data || [])).catch(() => setRows([]));
+    // O FAP chega como número e é editado como texto em pt-BR, com as quatro casas à vista —
+    // mesma convenção do bloco FAP publicado. Antes o campo era type="number" e mostrava "1"
+    // onde o valor é 1,0000 (Carolina, 04/11, acabamento).
+    apiClient.get(`/estabelecimentos/${estab.id}/rat-aplicado`)
+      .then((r) => setRows((r.data || []).map((x: any) => ({
+        ...x,
+        fap_aplicado: x.fap_aplicado == null ? "" : fmt.num(x.fap_aplicado, 4),
+      }))))
+      .catch(() => setRows([]));
   }, [estab.id]);
   const upd = (i: number, k: string, v: any) => setRows((l) => l.map((x, j) => (j === i ? { ...x, [k]: v } : x)));
 
@@ -589,8 +612,14 @@ function RatAplicadoModal({ estab, onFechar, embutido = false }: { estab: any; o
         return "Informe a alíquota RAT (1, 2 ou 3) e o FAP aplicados no período.";
       if (temRat) {
         if (![1, 2, 3].includes(Number(r.aliquota_rat))) return "A alíquota RAT aplicada deve ser 1, 2 ou 3.";
-        const f = Number(r.fap_aplicado);
-        if (!(f >= 0.5 && f <= 2.0)) return `FAP aplicado ${r.fap_aplicado} fora da faixa 0,5000–2,0000.`;
+        // A FAIXA É CONFERIDA PELO SERVIDOR, e só por ele (Carolina, 04/11, ponto 4).
+        //
+        // Aqui havia uma segunda verificação, que produzia "FAP aplicado 2.5 fora da faixa
+        // 0,5000–2,0000." — ponto decimal, sem o período e sem a norma. Era ESTA a frase que
+        // ela viu; consertar a do backend e deixar esta no lugar teria mantido o defeito.
+        // Duas verificações da mesma regra significam duas redações, e a que aparece é a que
+        // roda primeiro. A do servidor é a que tem a citação da tabela versionada.
+        if (Number.isNaN(numeroBR(r.fap_aplicado))) return "O FAP aplicado precisa ser um número.";
       }
     }
     const ord = [...rows].sort((x, y) => String(x.inicio).localeCompare(String(y.inicio)));
@@ -609,9 +638,9 @@ function RatAplicadoModal({ estab, onFechar, embutido = false }: { estab: any; o
         const temRat = r.aliquota_rat !== "" && r.aliquota_rat != null;
         return {
           aliquota_rat: temRat ? Number(r.aliquota_rat) : null,
-          fap_aplicado: temRat ? Number(r.fap_aplicado) : null,
+          fap_aplicado: temRat ? numeroBR(r.fap_aplicado) : null,
           // só viaja na linha antiga, que ainda não foi desdobrada
-          aliquota: temRat ? null : Number(r.aliquota),
+          aliquota: temRat ? null : numeroBR(r.aliquota),
           processo_rat: r.processo_rat || null, processo_fap: r.processo_fap || null,
           inicio: r.inicio, fim: r.fim || null,
         };
@@ -624,8 +653,10 @@ function RatAplicadoModal({ estab, onFechar, embutido = false }: { estab: any; o
   const efetivaDe = (r: any) => {
     const temRat = r.aliquota_rat !== "" && r.aliquota_rat != null;
     const temFap = r.fap_aplicado !== "" && r.fap_aplicado != null;
-    if (temRat && temFap) return Number(r.aliquota_rat) * Number(r.fap_aplicado);
-    return r.sem_desdobramento && r.aliquota != null ? Number(r.aliquota) : null;
+    // numeroBR e não Number: o campo agora guarda "1,0000", e Number("1,0000") é NaN — a
+    // efetiva sairia vazia enquanto o usuário digita.
+    if (temRat && temFap) return Number(r.aliquota_rat) * numeroBR(r.fap_aplicado);
+    return r.sem_desdobramento && r.aliquota != null ? numeroBR(r.aliquota) : null;
   };
   const pendentes = rows.filter((r) => r.sem_desdobramento && (r.aliquota_rat === "" || r.aliquota_rat == null)).length;
 
@@ -641,8 +672,20 @@ function RatAplicadoModal({ estab, onFechar, embutido = false }: { estab: any; o
           Informe o que a empresa <b>efetivamente declarou</b>, como está no eSocial (evento S-1005):
           a <b>alíquota RAT</b> (<code>aliqRat</code>) e o <b>FAP</b> (<code>fap</code>). A alíquota efetiva
           é o produto dos dois — o próprio eSocial valida isso, então o erro nunca está no produto:
-          está no grau ou no fator. Guardar os dois separados é o que permite dizer <b>qual dos dois</b>
+          está no grau ou no fator. Guardar os dois separados é o que permite dizer <b>qual dos dois</b>{" "}
           causou a divergência, e cada um se defende de um jeito diferente.
+          {/* O {" "} acima não é enfeite: sem ele o JSX come a quebra de linha depois do </b> e
+              sai "dos doiscausou", que foi o que ela encontrou em 04/11. */}
+        </div>
+        {/* O QUE O PROCESSO FAZ, dito com precisão (Carolina, 04/11). A frase antiga prometia um
+            efeito que não acontecia — e a decisão dela não é fazer o efeito prometido, é outro:
+            a divergência continua apontada. */}
+        <div className="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-[11px] text-gray-700 mb-3">
+          O <b>número do processo</b> não faz a divergência desaparecer. Ela continua apurada e
+          continua aparecendo na série e na memória, marcada como <b>amparada</b> — e passa a ser
+          contada à parte, fora de "com crédito" e "com débito". O processo do <b>FAP</b> ampara
+          apenas a divergência de origem FAP; o do <b>RAT</b>, apenas a de origem grau. Se as duas
+          origens divergiram, são necessários os dois.
         </div>
         {pendentes > 0 && (
           <div className="rounded-lg bg-sky-50 border border-sky-200 px-3 py-2 text-[11px] text-sky-900 mb-3">
@@ -667,8 +710,16 @@ function RatAplicadoModal({ estab, onFechar, embutido = false }: { estab: any; o
                 <option value="2">2 — médio</option>
                 <option value="3">3 — grave</option>
               </select>
-              <input type="number" step="0.0001" min="0.5" max="2" className={`${inp} col-span-2`}
-                value={r.fap_aplicado ?? ""} onChange={(e) => upd(i, "fap_aplicado", e.target.value)} placeholder="1,0000" />
+              {/* Texto, não number: o campo precisa mostrar 1,0000, e input[type=number] não
+                  aceita vírgula nem conserva as casas. Formatado ao sair do campo. */}
+              <input type="text" inputMode="decimal" className={`${inp} col-span-2`}
+                value={r.fap_aplicado ?? ""}
+                onChange={(e) => upd(i, "fap_aplicado", e.target.value)}
+                onBlur={(e) => {
+                  const n = numeroBR(e.target.value);
+                  if (!Number.isNaN(n)) upd(i, "fap_aplicado", fmt.num(n, 4));
+                }}
+                placeholder="1,0000" />
               <div className={`${inp} col-span-2 bg-gray-50 border-gray-200 text-gray-600`}>
                 {efetivaDe(r) != null ? fmt.pct(efetivaDe(r)) : "—"}
               </div>
@@ -992,6 +1043,16 @@ function EstabModal({ form, setForm, onSalvar, onFechar, isPending, erro, embuti
 // ANOS COBERTOS. Lista fixa: em 2027 ela fica obsoleta em silêncio, e isso está anotado como
 // dívida — o certo é derivá-la da janela de apuração da empresa, que é quem define o período.
 const ANOS_FAP = [2021, 2022, 2023, 2024, 2025, 2026];
+
+// NÚMERO DIGITADO EM pt-BR (04/11). Os campos decimais do sistema são escritos com vírgula, e
+// o FAP tem quatro casas. Com vírgula presente, o ponto é separador de milhar; sem vírgula, o
+// ponto é o decimal — quem cola de uma planilha em inglês escreve "1.5" e isso tem de valer 1,5,
+// não 15, que cairia fora da faixa e produziria uma recusa sem sentido para quem digitou.
+const numeroBR = (v: any): number => {
+  const s = String(v ?? "").trim();
+  if (!s) return NaN;
+  return Number(s.includes(",") ? s.replace(/\./g, "").replace(",", ".") : s);
+};
 
 // A MENSAGEM QUE O SERVIDOR MANDOU, quando houver uma (Carolina, 03/11, ponto 1 do bloco FAP).
 //
@@ -1342,7 +1403,11 @@ export function Estabelecimentos() {
                   const pos = res?.posicao;
                   const falta: any[] = res?.o_que_falta || [];
                   const semCadastro = faltaCadastro(e.completude);
-                  const temPosicao = pos && (pos.com_credito + pos.com_debito + pos.sem_divergencia) > 0;
+                  // 'amparadas' entra na soma (04/11): uma série em que TODA divergência tem
+                  // processo informado tem posição apurada, e dizer "nada apurado" ali seria
+                  // falso — o trabalho foi feito, e o resultado é que tudo está amparado.
+                  const temPosicao = pos && (pos.com_credito + pos.com_debito
+                                             + pos.sem_divergencia + (pos.amparadas || 0)) > 0;
                   return (
                     <tr key={e.id} className="hover:bg-gray-50 cursor-pointer align-top"
                       onClick={() => navegar(`/estabelecimentos/${e.id}`)}>
@@ -1372,6 +1437,12 @@ export function Estabelecimentos() {
                                 competências: <b className="text-indigo-700">{pos.com_credito} com crédito</b> ·{" "}
                                 <b className="text-red-700">{pos.com_debito} com débito</b> ·{" "}
                                 {pos.sem_divergencia} sem divergência
+                                {/* Só aparece quando existe. Divergência amparada por processo
+                                    é contada à parte: não é crédito nem débito. */}
+                                {pos.amparadas ? (
+                                  <> · <b className="text-amber-700">{pos.amparadas} amparada
+                                    {pos.amparadas > 1 ? "s" : ""}</b></>
+                                ) : null}
                               </p>
                             ) : (
                               <p className="mt-1 text-gray-400">sem posição — nada apurado</p>
@@ -1612,13 +1683,18 @@ export function EstabelecimentoPagina() {
         </div>
         <div className="border border-gray-200 rounded-xl p-4">
           <p className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">Posição na janela — em competências</p>
-          {(pos.total ?? 0) === 0 || (pos.com_credito + pos.com_debito + pos.sem_divergencia) === 0 ? (
+          {(pos.total ?? 0) === 0 || (pos.com_credito + pos.com_debito + pos.sem_divergencia
+                                      + (pos.amparadas || 0)) === 0 ? (
             <p className="text-sm text-gray-500 mt-1">sem posição — nada apurado</p>
           ) : (
             <p className="text-sm text-gray-800 mt-1">
               <b className="text-indigo-700">{pos.com_credito} com crédito</b> ·{" "}
               <b className="text-red-700">{pos.com_debito} com débito</b> ·{" "}
               {pos.sem_divergencia} sem divergência
+              {pos.amparadas ? (
+                <> · <b className="text-amber-700">{pos.amparadas} amparada
+                  {pos.amparadas > 1 ? "s" : ""} por processo</b></>
+              ) : null}
             </p>
           )}
         </div>
@@ -1761,20 +1837,49 @@ export function EstabelecimentoPagina() {
                 <thead>
                   <tr className="text-[10px] uppercase tracking-wide text-gray-500 text-left">
                     <th className="py-1">Período</th><th>RAT</th><th>FAP</th><th>Efetiva</th>
+                    {/* PROCESSO NA LEITURA (Carolina, 04/11, ponto 2). O número ficava gravado e
+                        invisível: quem abria o bloco fechado não tinha como saber que havia
+                        processo informado, nem qual. */}
+                    <th>Processo</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {(ratApl || []).map((x: any, i: number) => (
-                    <tr key={i} className="text-gray-700">
+                    <tr key={i} className="text-gray-700 align-top">
                       <td className="py-2">{fmt.competencia(x.inicio)} {x.fim ? `a ${fmt.competencia(x.fim)}` : "em diante"}</td>
                       <td>{x.aliquota_rat == null ? "—" : fmt.pct(x.aliquota_rat)}</td>
                       <td>{x.fap_aplicado == null ? "—" : fmt.num(x.fap_aplicado, 4)}</td>
                       <td>{x.aliquota == null ? "—" : fmt.pct(x.aliquota)}</td>
+                      <td className="py-2">
+                        {x.processo_rat ? (
+                          <span className="block">Proc. RAT nº {x.processo_rat}</span>
+                        ) : null}
+                        {x.processo_fap ? (
+                          <span className="block">Proc. FAP nº {x.processo_fap}</span>
+                        ) : null}
+                        {!x.processo_rat && !x.processo_fap ? "—" : null}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             )}
+            {/* AUTORIA (Carolina, 04/11, ponto 2). A declaração mais recente entre os períodos;
+                sem nome quando a linha é anterior à migration 066, que não tem autor — e aí sai
+                só a data, nunca um nome inventado. */}
+            {(() => {
+              const d = (ratApl || []).filter((x: any) => x.declarado_em);
+              if (!d.length) return null;
+              const u = d.slice().sort((a: any, b: any) =>
+                String(b.declarado_em).localeCompare(String(a.declarado_em)))[0];
+              const varios = new Set(d.map((x: any) => `${x.declarado_por}|${x.declarado_em}`)).size > 1;
+              return (
+                <p className="text-[11px] text-gray-500 mt-3">
+                  {varios ? "Última declaração:" : "Declarado"}
+                  {u.declarado_por ? ` por ${u.declarado_por}` : ""} em {fmt.dataHora(u.declarado_em)}.
+                </p>
+              );
+            })()}
           </div>
         )}
       </Bloco>

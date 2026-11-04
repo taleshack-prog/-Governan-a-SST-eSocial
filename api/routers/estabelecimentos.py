@@ -27,7 +27,9 @@ from api.services.enquadramento_situacao import (
     situacao_de, divergencia_de, origem_divergencia, divergencia_amparada, ROTULO_ORIGEM,
     divergencia_confirmada, motivo_conferencia,
 )
-from api.services.fundamentacao import citacoes_do_periodo, citacao_de
+from api.services.fundamentacao import (
+    citacoes_do_periodo, citacao_de, fechamento_da_competencia,
+)
 from api.services.cprb_transicao import ANO_INICIO_TRANSICAO as ANO_INICIO_TRANSICAO_CPRB
 from api.services.memoria_registro import registrar_emissao, sha256_do_conteudo
 # As agregacoes da serie. Fonte UNICA, compartilhada com a memoria de calculo — ver o cabecalho
@@ -396,7 +398,13 @@ async def _enquadramento_corrente(estab_ids: list, db: AsyncSession) -> dict:
             "fap_aplicado": fap_apl,
             "divergencia_pp": divergencia_de(efetiva, aplicada),
             "origem_divergencia": orig,
+            "origem_label": ROTULO_ORIGEM.get(orig) if orig else None,
             "amparada": divergencia_amparada(orig, r.processo_rat, r.processo_fap),
+            # O NUMERO DO PROCESSO VAI JUNTO (Carolina, 04/11). A serie ja dizia 'amparada' e
+            # guardava o numero para si; a tela precisa escrever "amparada — proc. nº…", porque
+            # dizer que ha amparo sem dizer qual processo ampara nao serve a quem confere.
+            "processo_rat": r.processo_rat,
+            "processo_fap": r.processo_fap,
             "situacao": situacao_de(rat_aplicavel=r.rat_aplicavel, em_fila=r.em_fila,
                                     aliquota_devida=devida, rat_aplicado=rat_apl,
                                     fap_aplicado=fap_apl, conferido_por=r.conferido_por),
@@ -892,9 +900,86 @@ async def _erro_faixa_fap(ano: int, db: AsyncSession) -> str:
     SEM CITACAO CADASTRADA, a frase sai sem o parenteses. Nunca com texto de reserva: mensagem de
     erro que inventa fundamento legal e pior do que mensagem sem fundamento nenhum.
     """
-    c = await citacao_de("fap_publicado", date(ano, 12, 31), db)
-    regra = f"{ano}: o FAP deve estar entre {_fap_fmt(FAP_MIN)} e {_fap_fmt(FAP_MAX)}"
-    return f"{regra} ({c['dispositivo_curto']})." if c else f"{regra}."
+    return (f"{ano}: o FAP deve estar entre {_fap_fmt(FAP_MIN)} e {_fap_fmt(FAP_MAX)}"
+            f"{await _citacao_fap(date(ano, 12, 31), db)}.")
+
+
+async def _citacao_fap(em: date, db: AsyncSession) -> str:
+    """A citacao do FAP vigente na data, entre parenteses, ou vazio quando nao houver cadastro.
+
+    Dois lugares pedem esta frase — a faixa do FAP publicado e a do FAP aplicado — e a citacao
+    tem de ser a mesma nos dois. Duas buscas iguais escritas duas vezes divergem na primeira vez
+    que alguem mexer numa.
+    """
+    c = await citacao_de("fap_publicado", em, db)
+    return f" ({c['dispositivo_curto']})" if c else ""
+
+
+def _periodo_por_extenso(inicio: date, fim: date | None) -> str:
+    """"Período a partir de 11/2021" ou "Período de 11/2021 a 12/2022", como ela escreveu."""
+    ini = inicio.strftime("%m/%Y")
+    return f"Período de {ini} a {fim.strftime('%m/%Y')}" if fim else f"Período a partir de {ini}"
+
+
+async def _erro_faixa_fap_aplicado(inicio: date, fim: date | None, db: AsyncSession) -> str:
+    """A recusa do FAP APLICADO, no mesmo padrao do FAP publicado (Carolina, 04/11, ponto 4).
+
+    A mensagem antiga era "FAP aplicado 2.5 fora da faixa 0,5000–2,0000." — ponto decimal em vez
+    de virgula, sem dizer de que periodo se fala e sem a norma. Aqui o rotulo e o PERIODO, nao o
+    ano, porque o RAT aplicado e cadastrado por periodo; a citacao resolve pelo inicio dele.
+    """
+    return (f"{_periodo_por_extenso(inicio, fim)}: o FAP aplicado deve estar entre "
+            f"{_fap_fmt(FAP_MIN)} e {_fap_fmt(FAP_MAX)}"
+            f"{await _citacao_fap(fechamento_da_competencia(inicio), db)}.")
+
+
+# ---- O NUMERO DO PROCESSO (Carolina, 04/11, ponto 3) ----
+#
+# Ela digitou um numero terminado em ponto e o sistema aceitou. Numero de processo entra em peca
+# assinada e vai ser conferido por quem le; um digito trocado ali aponta para processo que nao
+# existe, ou pior, para o processo de outra pessoa.
+#
+# SO O CNJ E VALIDADO. Processo administrativo nao tem formato unico — cada orgao usa o seu —,
+# entao exigir mascara ali recusaria numero legitimo. A regra e: 20 digitos significa padrao
+# CNJ, e ai o formato e o digito verificador sao conferidos; qualquer outro comprimento passa.
+_CNJ_MASCARA = re.compile(r"^\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}$")
+
+
+def _processo_normalizado(num: str | None, rotulo: str) -> str | None:
+    """Devolve o numero como deve ser gravado, ou levanta 422 explicando o que esta errado.
+
+    Aceita a mascara canonica (0000000-00.0000.0.00.0000) ou os 20 digitos sem separador, que
+    sao o mesmo identificador — quem copia de um sistema costuma colar sem pontuacao. Qualquer
+    outra forma com 20 digitos e recusada: e ali que mora o engano de digitacao, como o ponto
+    sobrando que ela encontrou.
+
+    O digito verificador segue a ISO 7064 MOD 97-10, que e a norma do CNJ: lidos o numero
+    sequencial, o ano, o segmento, o tribunal e a origem, seguidos do verificador, o valor
+    inteiro dividido por 97 deixa resto 1.
+    """
+    if num is None or not str(num).strip():
+        return None
+    bruto = str(num).strip()
+    digitos = re.sub(r"\D", "", bruto)
+    if len(digitos) != 20:
+        return bruto            # nao e CNJ: processo administrativo passa como foi digitado
+    if not (_CNJ_MASCARA.match(bruto) or bruto == digitos):
+        raise HTTPException(
+            status_code=422,
+            detail=(f"{rotulo}: o número tem 20 dígitos, então é processo judicial (padrão CNJ), "
+                    f"e deve ser escrito como 0000000-00.0000.0.00.0000 — ou apenas os 20 "
+                    f"dígitos, sem pontuação. Recebido: {bruto}"),
+        )
+    if int(digitos[:7] + digitos[9:] + digitos[7:9]) % 97 != 1:
+        raise HTTPException(
+            status_code=422,
+            detail=(f"{rotulo}: o dígito verificador não confere ({digitos[7:9]}). "
+                    f"Confira o número — um dígito trocado aponta para outro processo."),
+        )
+    # Grava sempre na forma canonica, venha com ou sem pontuacao: dois registros do mesmo
+    # processo escritos de formas diferentes nao se encontram numa busca.
+    return (f"{digitos[:7]}-{digitos[7:9]}.{digitos[9:13]}.{digitos[13]}."
+            f"{digitos[14:16]}.{digitos[16:]}")
 
 
 @router.get("/{estab_id}/fap")
@@ -1002,6 +1087,15 @@ async def listar_rat_aplicado(
         # NÃO infere o par, porque rat=3/fap=1,0 seria valor presumido.
         "sem_desdobramento": r.aliquota_rat is None,
         "inicio": r.inicio.isoformat(), "fim": r.fim.isoformat() if r.fim else None,
+        # AUTORIA (Carolina, 04/11, ponto 2). Mesma regra de fuso do bloco FAP: 'declarado_em' é
+        # gravado naive em UTC, e um ISO sem marca faz o navegador ler como hora local e mostrar
+        # três horas a mais. None nas linhas anteriores à 066, que a tela exibe sem o nome.
+        "declarado_por": r.declarado_por,
+        "declarado_em": (
+            None if r.declarado_em is None
+            else (r.declarado_em if r.declarado_em.tzinfo
+                  else r.declarado_em.replace(tzinfo=timezone.utc)).isoformat()
+        ),
     } for r in rows]
 
 
@@ -1038,10 +1132,10 @@ async def salvar_rat_aplicado(
                     detail=(f"Alíquota RAT aplicada deve ser 1, 2 ou 3 (grau leve, médio ou "
                             f"grave). Recebido: {it.aliquota_rat}."),
                 )
-            if not (0.5 <= float(it.fap_aplicado) <= 2.0):
+            if not (FAP_MIN <= float(it.fap_aplicado) <= FAP_MAX):
                 raise HTTPException(
                     status_code=422,
-                    detail=f"FAP aplicado {it.fap_aplicado} fora da faixa 0,5000–2,0000.",
+                    detail=await _erro_faixa_fap_aplicado(it.inicio, it.fim, db),
                 )
             efetiva = round(float(it.aliquota_rat) * float(it.fap_aplicado), 4)
         else:
@@ -1059,8 +1153,13 @@ async def salvar_rat_aplicado(
                             f"(0,50% a 6,00% = RAT × FAP)."),
                 )
             efetiva = round(float(it.aliquota), 4)
-        resolvidos.append((it, efetiva))
-    _sem_sobreposicao([it for it, _ in resolvidos], "RAT aplicado")
+        # O número do processo é conferido ANTES de qualquer gravação, e devolvido na forma
+        # canônica. Fora do laço de gravação de propósito: se o segundo período tiver número
+        # inválido, nenhum dos dois é gravado — meio cadastro salvo é pior que nenhum.
+        proc_rat = _processo_normalizado(it.processo_rat, "Processo do RAT")
+        proc_fap = _processo_normalizado(it.processo_fap, "Processo do FAP")
+        resolvidos.append((it, efetiva, proc_rat, proc_fap))
+    _sem_sobreposicao([it for it, _, _, _ in resolvidos], "RAT aplicado")
 
     antigos = (await db.execute(
         select(EstabelecimentoRatAplicado)
@@ -1068,12 +1167,16 @@ async def salvar_rat_aplicado(
     )).scalars().all()
     for a in antigos:
         await db.delete(a)
-    for it, efetiva in resolvidos:
+    _autoria = _autor(current_user)
+    for it, efetiva, proc_rat, proc_fap in resolvidos:
         db.add(EstabelecimentoRatAplicado(
             estabelecimento_id=estab_id, aliquota=efetiva,
             aliquota_rat=it.aliquota_rat, fap_aplicado=it.fap_aplicado,
-            processo_rat=(it.processo_rat or None), processo_fap=(it.processo_fap or None),
+            processo_rat=proc_rat, processo_fap=proc_fap,
             inicio=it.inicio, fim=it.fim,
+            # AUTORIA (Carolina, 04/11, ponto 2; migration 066). Mesmo compromisso do FAP e das
+            # atividades: número que entra em peça assinada tem dono.
+            declarado_por=_autoria, declarado_em=datetime.utcnow(),
         ))
     await db.commit()
     from api.services.motor_enquadramento import apurar_estabelecimento

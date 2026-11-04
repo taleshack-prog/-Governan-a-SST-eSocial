@@ -45,26 +45,43 @@ def posicao_na_janela(serie: list[dict]) -> dict:
     'divergencia_pp' nulo e competencia NAO APURADA — distinta de zero, que e apurada e sem
     divergencia. Tratar as duas como a mesma coisa diria que uma competencia sem resultado esta
     conforme.
+
+    AMPARADAS SAO UM GRUPO PROPRIO (decisao da Carolina, 04/11). Quando ha processo informado
+    para a origem que divergiu, a divergencia NAO deixa de existir: continua calculada, continua
+    visivel, e continua sendo dita no documento. O que muda e que ela sai das contas de credito e
+    de debito, porque nao e valor a recuperar nem a recolher — e divergencia com decisao
+    amparando. Somar essas competencias a 'com credito' afirmaria credito que nao existe; joga-las
+    em 'sem divergencia' afirmaria conformidade que tambem nao existe. As duas leituras seriam
+    falsas num laudo, e por motivos opostos.
+
+    Quem decide o amparo e 'divergencia_amparada', ja calculada na serie: processo do FAP ampara
+    divergencia de origem FAP, processo do RAT ampara a de origem grau, e divergencia das duas
+    origens exige os dois processos.
     """
-    com_credito, com_debito, sem_divergencia, nao_apuradas = [], [], [], []
+    com_credito, com_debito, sem_divergencia, nao_apuradas, amparadas = [], [], [], [], []
     for r in serie:
         d = r.get("divergencia_pp")
         if d is None:
             nao_apuradas.append(r)
+        elif d == 0:
+            sem_divergencia.append(r)
+        elif r.get("amparada"):
+            # Divergencia real, com processo para a origem que divergiu. Fica fora do sinal.
+            amparadas.append(r)
         elif d > 0:
             com_credito.append(r)
-        elif d < 0:
-            com_debito.append(r)
         else:
-            sem_divergencia.append(r)
+            com_debito.append(r)
     return {
         "com_credito": com_credito,
         "com_debito": com_debito,
         "sem_divergencia": sem_divergencia,
+        "amparadas": amparadas,
         "nao_apuradas": nao_apuradas,
         "total": len(serie),
         # O sinal se inverte dentro da janela: o fato que a memoria destaca e que impede
-        # qualquer conclusao automatica sobre haver valor a recuperar.
+        # qualquer conclusao automatica sobre haver valor a recuperar. As amparadas ficam de
+        # fora: elas nao sustentam conclusao de recuperacao em sentido nenhum.
         "inverte_sinal": bool(com_credito and com_debito),
     }
 
@@ -73,7 +90,7 @@ def contagem_posicao(serie: list[dict]) -> dict:
     """So os numeros, para quem nao precisa das listas (a lista de estabelecimentos)."""
     p = posicao_na_janela(serie)
     return {k: len(p[k]) for k in
-            ("com_credito", "com_debito", "sem_divergencia", "nao_apuradas")} | {
+            ("com_credito", "com_debito", "sem_divergencia", "amparadas", "nao_apuradas")} | {
         "total": p["total"], "inverte_sinal": p["inverte_sinal"]}
 
 

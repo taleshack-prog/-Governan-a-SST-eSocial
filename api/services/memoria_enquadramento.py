@@ -322,17 +322,29 @@ def gerar_memoria_pdf(d: dict) -> bytes:
         _pos = posicao_na_janela(serie)
         _cred, _deb = _pos["com_credito"], _pos["com_debito"]
         _zero, _sem = _pos["sem_divergencia"], _pos["nao_apuradas"]
+        _amp = _pos["amparadas"]
         _partes = []
         if _cred:
             _partes.append(f"<b>{len(_cred)} com crédito</b> ({_onde(_cred)})")
         if _deb:
             _partes.append(f"<b>{len(_deb)} com débito</b> ({_onde(_deb)})")
+        # AMPARADAS, CONTADAS A PARTE (Carolina, 04/11). Entram na frase entre os grupos de sinal
+        # e os sem divergencia, porque e onde elas estao: ha divergencia, e ela tem processo.
+        if _amp:
+            _partes.append(f"<b>{len(_amp)} amparada(s) por processo</b> ({_onde(_amp)})")
         if _zero:
             _partes.append(f"{len(_zero)} sem divergência ({_onde(_zero)})")
         if _sem:
             _partes.append(f"{len(_sem)} não apurada(s) ({_onde(_sem)})")
         el.append(Spacer(1, 0.2 * cm))
         el.append(_p("<b>Na janela:</b> " + "; ".join(_partes) + ".", body))
+        if _amp:
+            el.append(_p(
+                "As competências amparadas <b>continuam divergentes</b>: a diferença entre o "
+                "aplicado e o devido permanece apurada e consta da tabela acima. O que a marca "
+                "registra é que há processo informado para a origem que divergiu, razão pela "
+                "qual essas competências ficam fora das contas de crédito e de débito — não são "
+                "valor a recuperar nem a recolher enquanto o processo as amparar.", small))
         if _cred and _deb:
             el.append(_p(
                 "O sinal da divergência <b>se inverte</b> ao longo do período analisado: há "
@@ -418,12 +430,39 @@ def gerar_memoria_pdf(d: dict) -> bytes:
                     f"<b>{rot}</b> — {len(comps)} competência(s), {faixa}. "
                     f"{DEFESA_ORIGEM.get(o, '')}", small))
             if amparadas:
+                # A REDAÇÃO MUDOU (Carolina, 04/11), e a mudança é de fundo, não de estilo.
+                #
+                # Este parágrafo dizia que "nessas competências a divergência não constitui
+                # achado". A decisão dela é a oposta: a divergência continua apontada, calculada
+                # e impressa. O processo não apaga o achado — ele registra que existe decisão
+                # amparando aquela alíquota, e é por isso que essas competências saem das contas
+                # de crédito e de débito, sem sair da apuração.
+                #
+                # E o amparo é por ORIGEM: processo do FAP ampara divergência de FAP, processo do
+                # RAT ampara divergência de grau. Numa competência em que as duas origens
+                # divergiram, os dois processos são nomeados. Dizer "amparada" sem dizer qual
+                # processo ampara o quê não serve a quem vai conferir a peça.
+                _por_proc: dict[str, list] = {}
+                for _r in serie:
+                    if not _r.get("amparada"):
+                        continue
+                    _o = _r.get("origem_divergencia")
+                    _quais = []
+                    if _o in (ORIGEM_GRAU, ORIGEM_AMBAS) and _r.get("processo_rat"):
+                        _quais.append(f"proc. RAT nº {_esc(str(_r['processo_rat']))}")
+                    if _o in (ORIGEM_FAP, ORIGEM_AMBAS) and _r.get("processo_fap"):
+                        _quais.append(f"proc. FAP nº {_esc(str(_r['processo_fap']))}")
+                    _por_proc.setdefault(" e ".join(_quais) or "processo não identificado",
+                                         []).append(_r)
                 el.append(_p(
-                    f"<b>{amparadas} competência(s)</b> têm processo administrativo ou judicial "
-                    "informado amparando a alíquota divergente (assinaladas com * na coluna "
-                    "Origem). O leiaute do eSocial só admite alíquota diversa da prevista com "
-                    "processo informado; nessas competências a divergência não constitui achado.",
-                    small))
+                    f"<b>{amparadas} competência(s)</b> têm processo informado para a origem que "
+                    "divergiu (assinaladas com * na coluna Origem). A divergência dessas "
+                    "competências <b>permanece apurada e consta da tabela acima</b>; o que o "
+                    "processo faz é ampará-la, e por isso elas são contadas à parte, fora de "
+                    "crédito e de débito. O leiaute do eSocial só admite alíquota diversa da "
+                    "prevista quando há processo informado.", small))
+                for _np, _rs in sorted(_por_proc.items()):
+                    el.append(_p(f"{_np} — amparando {_onde(_rs)}.", small))
             if sem_devido:
                 _q = len(sem_devido)
                 el.append(_p(

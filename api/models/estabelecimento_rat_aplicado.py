@@ -35,4 +35,11 @@ class EstabelecimentoRatAplicado(Base):
     processo_fap: Mapped[str | None] = mapped_column(String(120))
     inicio: Mapped[date] = mapped_column(Date, nullable=False)
     fim: Mapped[date | None] = mapped_column(Date)
+    # QUEM DECLAROU (migration 066, revisao da Carolina de 04/11). Mesma razao do FAP e das
+    # atividades: a aliquota que a empresa aplicou, e o numero do processo que a ampara, entram
+    # em peca assinada — e numero em peca assinada tem dono. Guarda o NOME, nao o e-mail (ver
+    # _autor em routers/estabelecimentos.py). NULL nas linhas anteriores a 066, e nao se
+    # preenche retroativamente.
+    declarado_por: Mapped[str | None] = mapped_column(String(160))
+    declarado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
