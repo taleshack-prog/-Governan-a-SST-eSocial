@@ -149,12 +149,29 @@ def resumo_por_ano(serie: list[dict]) -> list[dict]:
             v = _unico(vals)
             campos[chave] = v
             campos[f"{chave}_varia"] = v is None and len(vals) > 0 and len({x for x in vals}) > 1
+        # O PROCESSO APARECE NA LINHA DO ANO (Carolina, 05/11). A tabela mostrava "+0,90 p.p.
+        # crédito" e "−0,90 p.p. débito" sem marca nenhuma, enquanto o topo já dizia que havia
+        # amparadas. Quem lê o resumo por ano não via o que o topo via.
+        #
+        # Dois textos diferentes, porque são dois fatos diferentes: no débito amparado o processo
+        # TEM efeito sobre a conta, e no crédito ele é apenas contexto.
+        _amparadas = [r for r in rs if r.get("amparada")]
+        _creditos = [r for r in rs if (r.get("divergencia_pp") or 0) > 0]
+        _proc_amp = sorted({r.get("nota_processo") for r in _amparadas if r.get("nota_processo")})
+        _proc_cred = sorted({r.get("nota_processo") for r in _creditos if r.get("nota_processo")})
         saida.append({
             "ano": ano,
             "competencias": len(rs),
             **campos,
             "situacao": situacao,
             "estado": estado_na_janela(rs),
+            "amparadas": len(_amparadas),
+            # Um processo só: nomeia. Mais de um no mesmo ano: não escolhe nenhum, porque dizer
+            # "proc. nº X" quando são dois atribuiria ao X um alcance que ele não tem.
+            "amparo_label": (f"amparada — {_proc_amp[0]}" if len(_proc_amp) == 1
+                             else "amparada — vários processos" if _proc_amp else None),
+            "nota_processo": (f"há processo no período — {_proc_cred[0]}" if len(_proc_cred) == 1
+                              else "há processo no período" if _proc_cred else None),
         })
     return saida
 

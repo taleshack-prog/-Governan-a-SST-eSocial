@@ -25,7 +25,7 @@ from api.models.usuario import Usuario
 from api.auth import get_current_user, require_perfil, require_papel, tem_papel
 from api.services.enquadramento_situacao import (
     situacao_de, divergencia_de, origem_divergencia, divergencia_amparada, ROTULO_ORIGEM,
-    divergencia_confirmada, motivo_conferencia,
+    divergencia_confirmada, motivo_conferencia, processo_no_periodo,
 )
 from api.services.fundamentacao import (
     citacoes_do_periodo, citacao_de, fechamento_da_competencia,
@@ -399,7 +399,12 @@ async def _enquadramento_corrente(estab_ids: list, db: AsyncSession) -> dict:
             "divergencia_pp": divergencia_de(efetiva, aplicada),
             "origem_divergencia": orig,
             "origem_label": ROTULO_ORIGEM.get(orig) if orig else None,
-            "amparada": divergencia_amparada(orig, r.processo_rat, r.processo_fap),
+            "amparada": divergencia_amparada(orig, r.processo_rat, r.processo_fap,
+                                             divergencia_de(efetiva, aplicada)),
+            # NOTA INFORMATIVA (Carolina, 05/11): existe processo no período, mas a competência
+            # não é amparada — é crédito, e crédito continua crédito. A nota só diz que o
+            # período está sob discussão; não altera conta nenhuma.
+            "nota_processo": processo_no_periodo(r.processo_rat, r.processo_fap),
             # O NUMERO DO PROCESSO VAI JUNTO (Carolina, 04/11). A serie ja dizia 'amparada' e
             # guardava o numero para si; a tela precisa escrever "amparada — proc. nº…", porque
             # dizer que ha amparo sem dizer qual processo ampara nao serve a quem confere.
@@ -1347,7 +1352,9 @@ def _linha_enquadramento(r) -> dict:
         "fap_aplicado": fap_apl,
         "origem_divergencia": orig,
         "origem_label": ROTULO_ORIGEM.get(orig) if orig else None,
-        "amparada": divergencia_amparada(orig, r.processo_rat, r.processo_fap),
+        "amparada": divergencia_amparada(orig, r.processo_rat, r.processo_fap,
+                                         divergencia_de(efet, apl)),
+        "nota_processo": processo_no_periodo(r.processo_rat, r.processo_fap),
         "processo_rat": r.processo_rat,
         "processo_fap": r.processo_fap,
         "divergencia_pp": divergencia_de(efet, apl),
@@ -1682,7 +1689,9 @@ async def memoria_enquadramento(
             "aliquota_aplicada": apl,
             "rat_aplicado": rat_apl, "fap_aplicado": fap_apl,
             "origem_divergencia": orig,
-            "amparada": divergencia_amparada(orig, r.processo_rat, r.processo_fap),
+            "amparada": divergencia_amparada(orig, r.processo_rat, r.processo_fap,
+                                             divergencia_de(efet, apl)),
+            "nota_processo": processo_no_periodo(r.processo_rat, r.processo_fap),
             "processo_rat": r.processo_rat, "processo_fap": r.processo_fap,
             "divergencia_pp": divergencia_de(efet, apl),
             "divergencia_confirmada": divergencia_confirmada(rat_apl, fap_apl),

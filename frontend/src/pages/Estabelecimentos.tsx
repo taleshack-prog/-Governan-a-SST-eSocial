@@ -495,14 +495,23 @@ function PainelModal({ estab, onFechar, embutido = false, desempate }: { estab: 
                           ? `Divergência amparada por processo informado para a origem que divergiu (${r.origem_label || r.origem_divergencia}). Continua apurada e aparece na memória, mas fica fora das contas de crédito e de débito.`
                           : r.divergencia_pp > 0 ? "pagou a mais — crédito a recuperar" : r.divergencia_pp < 0 ? "pagou a menos — passivo a regularizar" : ""}>
                         {fmt.pp(r.divergencia_pp)}
-                        {/* A MARCA DO AMPARO (Carolina, 04/11). A divergência NÃO deixa de ser
-                            apontada: o número continua ali, com o sinal que sempre teve. O que a
-                            marca diz é que existe processo informado para a origem que divergiu,
-                            e por isso esta competência não entra em crédito nem em débito. */}
+                        {/* DUAS MARCAS DIFERENTES, porque são dois fatos diferentes.
+                            (Carolina, 04/11 e a correção de 05/11.)
+
+                            AMPARADA só no débito: o processo defende a empresa de uma cobrança.
+                            A divergência continua apontada, com o sinal que sempre teve, mas sai
+                            das contas de crédito e de débito.
+
+                            NO CRÉDITO, apenas nota: pagamento a maior continua sendo crédito
+                            recuperável, e segue contado como tal. A nota existe só para dizer
+                            que o período está sob discussão. */}
                         {r.amparada ? (
                           <span className="block text-[10px] font-normal leading-tight">
-                            amparada{(r.processo_fap || r.processo_rat)
-                              ? ` — proc. nº ${r.processo_fap || r.processo_rat}` : ""}
+                            amparada{r.nota_processo ? ` — ${r.nota_processo}` : ""}
+                          </span>
+                        ) : r.nota_processo && r.divergencia_pp > 0 ? (
+                          <span className="block text-[10px] font-normal leading-tight text-gray-500">
+                            há processo no período — {r.nota_processo}
                           </span>
                         ) : null}
                       </td>
@@ -681,11 +690,18 @@ function RatAplicadoModal({ estab, onFechar, embutido = false }: { estab: any; o
             efeito que não acontecia — e a decisão dela não é fazer o efeito prometido, é outro:
             a divergência continua apontada. */}
         <div className="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-[11px] text-gray-700 mb-3">
-          O <b>número do processo</b> não faz a divergência desaparecer. Ela continua apurada e
-          continua aparecendo na série e na memória, marcada como <b>amparada</b> — e passa a ser
-          contada à parte, fora de "com crédito" e "com débito". O processo do <b>FAP</b> ampara
-          apenas a divergência de origem FAP; o do <b>RAT</b>, apenas a de origem grau. Se as duas
-          origens divergiram, são necessários os dois.
+          O <b>número do processo</b> não faz a divergência desaparecer: ela continua apurada e
+          continua aparecendo na série e na memória. O que muda depende do sinal.
+          <br />
+          <b>Débito</b> (recolheu a menos) com processo da origem que divergiu fica marcado como{" "}
+          <b>amparada</b> e passa a ser contado à parte, fora de "com crédito" e "com débito".
+          <br />
+          <b>Crédito</b> (recolheu a mais) continua sendo crédito recuperável e segue contado como
+          tal — recebe apenas a nota "há processo no período". Uma decisão ampara quem recolheu a
+          menos; ela não retira da empresa o direito de reaver o que pagou a mais.
+          <br />
+          O processo do <b>FAP</b> ampara apenas a divergência de origem FAP; o do <b>RAT</b>,
+          apenas a de origem grau. Se as duas origens divergiram, são necessários os dois.
         </div>
         {pendentes > 0 && (
           <div className="rounded-lg bg-sky-50 border border-sky-200 px-3 py-2 text-[11px] text-sky-900 mb-3">
@@ -741,10 +757,11 @@ function RatAplicadoModal({ estab, onFechar, embutido = false }: { estab: any; o
         ))}
         <button type="button" className="text-[11px] text-teal-700 hover:underline"
           onClick={() => setRows((l) => [...l, { aliquota_rat: "", fap_aplicado: "", processo_rat: "", processo_fap: "", inicio: "", fim: "" }])}>+ adicionar período</button>
+        {/* A frase que estava aqui dizia que, com processo, "a divergência deixa de ser apontada
+            como achado" — contradizendo a caixa acima e a decisão da Carolina. Saiu em 05/11.
+            O que o processo faz está dito uma vez só, na caixa, e não se repete aqui. */}
         <p className="text-[11px] text-gray-400 mt-2">
-          Deixe o fim em branco no período que segue vigente. Informe processo apenas quando houver
-          decisão amparando alíquota diversa da prevista — nessas competências a divergência deixa de
-          ser apontada como achado.
+          Deixe o fim em branco no período que segue vigente.
         </p>
         {erro && <p className="text-xs text-red-500 mt-2">{erro}</p>}
         <div className="flex justify-end gap-2 mt-5">
@@ -1935,9 +1952,24 @@ export function EstabelecimentoPagina() {
                               {fmt.pp(d)} {d > 0 ? "crédito" : "débito"}
                             </b>}
                       </td>
-                      <td>{l.situacao === "conferencia" ? "em conferência"
+                      <td>
+                        {l.situacao === "conferencia" ? "em conferência"
                           : l.situacao === "nao_auditada" ? "não auditada"
-                          : l.situacao === "conferido" ? "conferida" : "apurada"}</td>
+                          : l.situacao === "conferido" ? "conferida" : "apurada"}
+                        {/* O PROCESSO NA LINHA DO ANO (Carolina, 05/11). Dois textos, porque são
+                            dois fatos: no débito amparado o processo tem efeito sobre a conta;
+                            no crédito é só contexto, e o crédito segue contado como crédito. */}
+                        {l.amparo_label ? (
+                          <span className="block text-[10px] text-amber-700 leading-tight">
+                            {l.amparo_label}
+                          </span>
+                        ) : null}
+                        {l.nota_processo ? (
+                          <span className="block text-[10px] text-gray-500 leading-tight">
+                            {l.nota_processo}
+                          </span>
+                        ) : null}
+                      </td>
                     </tr>
                   );
                 })}

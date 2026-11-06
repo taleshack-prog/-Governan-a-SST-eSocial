@@ -211,13 +211,30 @@ def origem_divergencia(aliquota_devida, fap_devido, rat_aplicado, fap_aplicado):
     return ORIGEM_NENHUMA
 
 
-def divergencia_amparada(origem, processo_rat, processo_fap) -> bool:
-    """True quando a divergência tem processo informado para a(s) origem(ns) que divergiu.
+def divergencia_amparada(origem, processo_rat, processo_fap, divergencia_pp=None) -> bool:
+    """True quando a divergência é DÉBITO e tem processo informado para a origem que divergiu.
 
     O leiaute do eSocial só aceita alíquota divergente da prevista se houver processo
     administrativo ou judicial informado. Sem considerar isso, o sistema apontaria achado onde
     existe decisão amparando — achado falso ao contrário, que é igualmente grave num laudo.
+
+    O SINAL IMPORTA, e eu havia ignorado isso (correção da Carolina, 05/11). Nas palavras dela:
+    "uma decisão sobre o FAP ampara quem recolheu a menos. Pagamento a maior continua sendo
+    crédito recuperável."
+
+    A razão é simples quando dita em voz alta: o processo defende a empresa de uma cobrança. Ele
+    não transforma dinheiro pago a mais em dinheiro que a empresa não tem direito de reaver. Sem
+    esta distinção, a primeira versão marcou como amparadas 22 competências de CRÉDITO e zerou o
+    valor recuperável no topo da tela — o sistema escondeu crédito da própria cliente, que é
+    exatamente o erro que ele existe para não cometer.
+
+    divergencia_pp None mantém o comportamento antigo por compatibilidade de assinatura, mas
+    nenhuma chamada do projeto faz isso: todas passam o valor. Se passar None, não ampara.
     """
+    if divergencia_pp is None or divergencia_pp >= 0:
+        # Crédito (pagou a mais) ou sem divergência: não há o que amparar. Crédito em período
+        # com processo recebe NOTA informativa, não amparo — ver processo_no_periodo().
+        return False
     tem_rat = bool(processo_rat and str(processo_rat).strip())
     tem_fap = bool(processo_fap and str(processo_fap).strip())
     if origem == ORIGEM_GRAU:
@@ -227,6 +244,27 @@ def divergencia_amparada(origem, processo_rat, processo_fap) -> bool:
     if origem == ORIGEM_AMBAS:
         return tem_rat and tem_fap
     return False
+
+
+def processo_no_periodo(processo_rat, processo_fap) -> str | None:
+    """O texto da nota informativa, ou None quando não há processo no período.
+
+    Decisão da Carolina (05/11): crédito em período que tem processo "continua contado como
+    crédito, com a nota informativa 'há processo no período — proc. nº…'".
+
+    A nota NÃO é amparo e não muda conta nenhuma. Ela existe porque quem lê a peça precisa saber
+    que aquele período está sob discussão — um crédito dentro de período contestado pode ter o
+    seu destino alterado pela decisão, e omitir isso seria esconder contexto de quem decide.
+
+    Nomeia os dois quando os dois existem: qual deles importa depende da origem da divergência,
+    e a nota é informativa justamente por não tomar essa decisão.
+    """
+    partes = []
+    if processo_rat and str(processo_rat).strip():
+        partes.append(f"proc. RAT nº {str(processo_rat).strip()}")
+    if processo_fap and str(processo_fap).strip():
+        partes.append(f"proc. FAP nº {str(processo_fap).strip()}")
+    return " e ".join(partes) if partes else None
 
 
 def divergencia_de(aliquota_efetiva, aliquota_aplicada):

@@ -344,7 +344,25 @@ def gerar_memoria_pdf(d: dict) -> bytes:
                 "aplicado e o devido permanece apurada e consta da tabela acima. O que a marca "
                 "registra é que há processo informado para a origem que divergiu, razão pela "
                 "qual essas competências ficam fora das contas de crédito e de débito — não são "
-                "valor a recuperar nem a recolher enquanto o processo as amparar.", small))
+                "valor a recuperar nem a recolher enquanto o processo as amparar. "
+                "<b>O amparo alcança apenas o débito</b>: a decisão defende a empresa de uma "
+                "cobrança, e não retira o direito de reaver o que foi recolhido a maior.", small))
+        # CRÉDITO EM PERÍODO COM PROCESSO (Carolina, 05/11). Não é amparo e não sai da conta: é
+        # contexto para quem lê. Um crédito dentro de período sob discussão pode ter o seu
+        # destino alterado pela decisão, e omitir isso seria esconder do leitor o que ele precisa
+        # para avaliar o próprio crédito que a peça afirma.
+        _cred_proc = [r for r in serie
+                      if (r.get("divergencia_pp") or 0) > 0 and r.get("nota_processo")]
+        if _cred_proc:
+            _por_nota: dict[str, list] = {}
+            for _r in _cred_proc:
+                _por_nota.setdefault(_r["nota_processo"], []).append(_r)
+            el.append(_p(
+                f"Em <b>{len(_cred_proc)} competência(s) com crédito</b> há processo informado no "
+                "período. O crédito <b>permanece contado como crédito</b> — a nota é informativa "
+                "e registra apenas que o período está sob discussão:", small))
+            for _n, _rs in sorted(_por_nota.items()):
+                el.append(_p(f"{_esc(_n)} — {_onde(_rs)}.", small))
         if _cred and _deb:
             el.append(_p(
                 "O sinal da divergência <b>se inverte</b> ao longo do período analisado: há "
@@ -455,8 +473,8 @@ def gerar_memoria_pdf(d: dict) -> bytes:
                     _por_proc.setdefault(" e ".join(_quais) or "processo não identificado",
                                          []).append(_r)
                 el.append(_p(
-                    f"<b>{amparadas} competência(s)</b> têm processo informado para a origem que "
-                    "divergiu (assinaladas com * na coluna Origem). A divergência dessas "
+                    f"<b>{amparadas} competência(s) com débito</b> têm processo informado para a "
+                    "origem que divergiu (assinaladas com * na coluna Origem). A divergência dessas "
                     "competências <b>permanece apurada e consta da tabela acima</b>; o que o "
                     "processo faz é ampará-la, e por isso elas são contadas à parte, fora de "
                     "crédito e de débito. O leiaute do eSocial só admite alíquota diversa da "

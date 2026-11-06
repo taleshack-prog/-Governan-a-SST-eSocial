@@ -27,6 +27,7 @@ from api.services import cprb_transicao
 from api.services.enquadramento_situacao import (
     situacao_de, divergencia_de, divergencia_confirmada, motivo_conferencia,
     origem_divergencia, divergencia_amparada, ROTULO_ORIGEM, EXPLICACAO_ORIGEM,
+    processo_no_periodo,
 )
 
 router = APIRouter()
@@ -931,7 +932,11 @@ async def matriz_enquadramento(
                 "origem_divergencia": orig,
                 "origem_label": ROTULO_ORIGEM.get(orig) if orig else None,
                 "origem_explicacao": EXPLICACAO_ORIGEM.get(orig) if orig else None,
-                "amparada": divergencia_amparada(orig, apurada.processo_rat, apurada.processo_fap),
+                # O SINAL ENTRA NA CONTA (Carolina, 05/11): só débito é amparado pelo processo.
+                # Crédito em período com processo recebe nota informativa, nunca amparo.
+                "amparada": divergencia_amparada(orig, apurada.processo_rat, apurada.processo_fap,
+                                                 divergencia_de(efetiva, aplicada)),
+                "nota_processo": processo_no_periodo(apurada.processo_rat, apurada.processo_fap),
                 # A divergencia existe como numero, mas so pode ser AFIRMADA com o aplicado
                 # desdobrado. Sem isso o mesmo valor admite duas leituras opostas — era a tela
                 # deste bloco que afirmava credito enquanto o quadro ao lado, no mesmo cartao,
