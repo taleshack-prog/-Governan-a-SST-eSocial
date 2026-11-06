@@ -1655,6 +1655,23 @@ export function EstabelecimentoPagina() {
   // A série mensal e a conferência ficam a um clique, fechadas por padrão (item 7).
   const [serieAberta, setSerieAberta] = useState(false);
 
+  // ITEM 6: OS BLOCOS ABREM EM LEITURA. Ela: "hoje a página é um formulário inteiro aberto, o que
+  // tira a visão ampla e deixa alterar dado sem querer." Em leitura o bloco mostra o que está
+  // valendo; "editar" troca aquele bloco — e só aquele — pelo formulário.
+  //
+  // ESTE HOOK PRECISA FICAR AQUI, ACIMA DO `if (!estab)` ABAIXO. Nao mover para perto do
+  // BotaoEditar, que e onde ele estava ate 06/11 e onde causava este defeito:
+  //
+  //   recarregar a pagina de detalhe -> a lista ainda nao chegou -> `estab` indefinido ->
+  //   o componente sai no `if (!estab)` e NAO executa este useState -> o dado chega ->
+  //   re-renderiza, passa do `if`, executa o useState -> React erro #310, "rendered more hooks
+  //   than during the previous render", e a tela inteira morre na borda de erro do router.
+  //
+  // Entrando pela lista nao quebrava: o cache do react-query ja tinha `estabs`, entao `estab`
+  // existia na primeira renderizacao e todos os hooks rodavam. Por isso passou despercebido.
+  // Regra geral: nenhum hook abaixo de um return antecipado.
+  const [editando, setEditando] = useState<string | null>(null);
+
   const ABAS = [
     ["identificacao", "Identificação"],
     ["atividades", "Atividades"],
@@ -1702,11 +1719,8 @@ export function EstabelecimentoPagina() {
     </section>
   );
 
-  // ITEM 6: OS BLOCOS ABREM EM LEITURA. Ela: "hoje a página é um formulário inteiro aberto, o que
-  // tira a visão ampla e deixa alterar dado sem querer." Em leitura o bloco mostra o que está
-  // valendo; "editar" troca aquele bloco — e só aquele — pelo formulário, que continua sendo o
-  // componente já revisado da janela antiga.
-  const [editando, setEditando] = useState<string | null>(null);
+  // O botão do item 6. O estado `editando` que ele usa é declarado lá em cima, acima do
+  // `if (!estab)` — ver a explicação longa junto da declaração.
   const BotaoEditar = ({ bloco }: { bloco: string }) => (
     <button onClick={() => setEditando((v) => (v === bloco ? null : bloco))}
       className="text-xs text-indigo-700 hover:underline">
