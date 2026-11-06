@@ -54,6 +54,31 @@ CAMPOS_CONTEUDO = (
 )
 
 
+def _alcanca_data(comp: date, inicio, fim) -> bool:
+    """A competencia cai dentro da abrangencia do processo do RAT.
+
+    Sem inicio, o processo nao alcanca nada: e a linha pendente, anterior a migration 067, cujo
+    numero esta cadastrado sem ninguem ter dito o que ele cobre. Presumir "cobre tudo" seria
+    repetir o defeito que a 067 corrige, e desta vez por omissao.
+
+    Fim nulo e "em diante" — processo em curso.
+    """
+    if inicio is None:
+        return False
+    return comp >= inicio and (fim is None or comp <= fim)
+
+
+def _alcanca_ano(comp: date, ano_inicio, ano_fim) -> bool:
+    """A competencia cai dentro dos anos de vigencia do FAP que o processo contesta.
+
+    Ano, e nao data, porque o FAP e publicado por ano: a contestacao e do FAP de 2025, e alcanca
+    as competencias de 2025 que estiverem dentro do periodo. Mesma regra do inicio ausente.
+    """
+    if ano_inicio is None:
+        return False
+    return comp.year >= ano_inicio and (ano_fim is None or comp.year <= ano_fim)
+
+
 def _comparavel(v):
     """Normaliza para comparar antes e depois sem falso positivo de tipo.
 
@@ -208,7 +233,25 @@ async def apurar_estabelecimento(estab_id, db: AsyncSession, autor: str | None =
         proc_rat = proc_fap = None
         for r in rats:
             if _vigente(comp, r.inicio, r.fim):
-                proc_rat, proc_fap = r.processo_rat, r.processo_fap
+                # A ABRANGENCIA DO PROCESSO E APLICADA AQUI (migration 067, Carolina 05/11).
+                #
+                # O numero so e congelado na competencia que o processo de fato alcanca. Um
+                # processo sobre o FAP de 2025 deixa de aparecer em 2024 e 2026 — era este o
+                # amparo em excesso que ela encontrou.
+                #
+                # Resolver aqui, e nao na hora de ler, tem uma razao: este e o ponto onde o
+                # sistema congela os fatos da competencia (migration 046). Feito aqui, tudo o
+                # que le a serie — tela, resumo, memoria — herda o recorte sem saber que ele
+                # existe, e nao ha quatro lugares para manter em acordo.
+                #
+                # Linha antiga, sem abrangencia: o processo NAO alcanca competencia nenhuma. E o
+                # estado pendente que ela pediu para ver — o numero esta cadastrado, mas nao
+                # ampara nada enquanto ninguem disser o que ele cobre. O contrario, presumir que
+                # cobre tudo, e justamente o defeito que esta migration corrige.
+                if _alcanca_data(comp, r.processo_rat_inicio, r.processo_rat_fim):
+                    proc_rat = r.processo_rat
+                if _alcanca_ano(comp, r.processo_fap_ano_inicio, r.processo_fap_ano_fim):
+                    proc_fap = r.processo_fap
                 if r.aliquota_rat is not None and r.fap_aplicado is not None:
                     rat_apl, fap_apl = float(r.aliquota_rat), float(r.fap_aplicado)
                     aliq_apl = round(rat_apl * fap_apl, 4)

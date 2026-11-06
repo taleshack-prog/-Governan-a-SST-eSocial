@@ -13,7 +13,7 @@
 # decisao amparando.
 import uuid
 from datetime import datetime, date
-from sqlalchemy import Numeric, Date, DateTime, ForeignKey, String
+from sqlalchemy import Numeric, Date, DateTime, ForeignKey, String, SmallInteger
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID
 from api.database import Base
@@ -35,6 +35,19 @@ class EstabelecimentoRatAplicado(Base):
     processo_fap: Mapped[str | None] = mapped_column(String(120))
     inicio: Mapped[date] = mapped_column(Date, nullable=False)
     fim: Mapped[date | None] = mapped_column(Date)
+    # ABRANGENCIA DO PROCESSO (migration 067, decisao da Carolina de 05/11).
+    #
+    # Formas diferentes porque as coisas contestadas sao diferentes: o FAP e publicado por ANO e
+    # a contestacao e daquele ano; o grau de risco decorre da atividade preponderante, que muda
+    # de mes para mes, e por isso o processo do RAT alcanca COMPETENCIAS.
+    #
+    # Nulaveis no banco porque as linhas anteriores a 067 nao tem abrangencia — ficam pendentes,
+    # visiveis na tela. Obrigatorias para quem grava: validacao na API, mais CHECK NOT VALID no
+    # banco. Fim nulo significa "em diante": processo em curso.
+    processo_rat_inicio: Mapped[date | None] = mapped_column(Date)
+    processo_rat_fim: Mapped[date | None] = mapped_column(Date)
+    processo_fap_ano_inicio: Mapped[int | None] = mapped_column(SmallInteger)
+    processo_fap_ano_fim: Mapped[int | None] = mapped_column(SmallInteger)
     # QUEM DECLAROU (migration 066, revisao da Carolina de 04/11). Mesma razao do FAP e das
     # atividades: a aliquota que a empresa aplicou, e o numero do processo que a ampara, entram
     # em peca assinada — e numero em peca assinada tem dono. Guarda o NOME, nao o e-mail (ver

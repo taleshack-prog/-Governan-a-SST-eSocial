@@ -1067,8 +1067,81 @@ class RatAplicadoIn(BaseModel):
     aliquota: float | None = None           # efetiva; só para linha antiga, sem desdobramento
     processo_rat: str | None = None
     processo_fap: str | None = None
+    # ABRANGÊNCIA DE CADA PROCESSO (migration 067, Carolina 05/11). Datas para o RAT, anos para
+    # o FAP — ver o cabeçalho da migration. Fim/ano_fim nulos significam "em diante".
+    processo_rat_inicio: date | None = None
+    processo_rat_fim: date | None = None
+    processo_fap_ano_inicio: int | None = None
+    processo_fap_ano_fim: int | None = None
     inicio: date
     fim: date | None = None
+
+
+def _abrangencia_do_processo(it) -> dict:
+    """Confere a abrangencia de cada processo e devolve o que deve ser gravado.
+
+    DECISAO DA CAROLINA (05/11): "Campo vazio: a abrangencia e obrigatoria. Sem ela, o processo
+    nao salva." A mensagem e a dela, literal.
+
+    A obrigatoriedade existe porque a alternativa e pior de um jeito invisivel: sem abrangencia,
+    o processo valia para o periodo inteiro, e um processo sobre o FAP de 2025 amparava 2024 e
+    2026 sem que ninguem fosse avisado. Campo vazio aparece na tela; amparo em excesso, nao.
+
+    'CABE NO PERIODO' TEM UMA BORDA, e aqui eu me afastei da palavra literal dela por um motivo
+    que vale conferir: o FAP e contestado por ANO CIVIL, e o periodo do RAT aplicado comeca no
+    mes que a empresa escolheu. Na KRETA o periodo comeca em 11/2021. Exigir que o ano de 2021
+    inteiro coubesse dentro dele recusaria um processo legitimo sobre o FAP de 2021, cujas
+    competencias alcancaveis sao 11 e 12/2021. Entao, para os ANOS do FAP, a regra e INTERSECAO:
+    basta o intervalo de anos tocar o periodo. Para as DATAS do RAT, que o usuario escolhe mes a
+    mes, a regra e contencao — ali nao ha borda imposta por calendario.
+    """
+    saida = {"processo_rat_inicio": None, "processo_rat_fim": None,
+             "processo_fap_ano_inicio": None, "processo_fap_ano_fim": None}
+    falta = "Informe quais anos (ou competências) este processo abrange."
+
+    tem_rat = bool(it.processo_rat and str(it.processo_rat).strip())
+    tem_fap = bool(it.processo_fap and str(it.processo_fap).strip())
+
+    if tem_rat:
+        if it.processo_rat_inicio is None:
+            raise HTTPException(status_code=422, detail=f"Processo do RAT: {falta}")
+        if it.processo_rat_fim is not None and it.processo_rat_fim < it.processo_rat_inicio:
+            raise HTTPException(
+                status_code=422,
+                detail="Processo do RAT: a competência final da abrangência é anterior à inicial.")
+        fora = (it.processo_rat_inicio < it.inicio
+                or (it.fim is not None and it.processo_rat_inicio > it.fim)
+                or (it.fim is not None and it.processo_rat_fim is not None
+                    and it.processo_rat_fim > it.fim))
+        if fora:
+            raise HTTPException(
+                status_code=422,
+                detail=(f"Processo do RAT: a abrangência precisa caber no "
+                        f"{_periodo_por_extenso(it.inicio, it.fim).lower()}."))
+        saida["processo_rat_inicio"] = it.processo_rat_inicio
+        saida["processo_rat_fim"] = it.processo_rat_fim
+
+    if tem_fap:
+        if it.processo_fap_ano_inicio is None:
+            raise HTTPException(status_code=422, detail=f"Processo do FAP: {falta}")
+        if (it.processo_fap_ano_fim is not None
+                and it.processo_fap_ano_fim < it.processo_fap_ano_inicio):
+            raise HTTPException(
+                status_code=422,
+                detail="Processo do FAP: o ano final da abrangência é anterior ao inicial.")
+        # Intersecao, nao contencao — ver a explicacao da borda no docstring.
+        ultimo_ano_proc = it.processo_fap_ano_fim or 9999
+        ultimo_ano_per = it.fim.year if it.fim else 9999
+        if ultimo_ano_proc < it.inicio.year or it.processo_fap_ano_inicio > ultimo_ano_per:
+            raise HTTPException(
+                status_code=422,
+                detail=(f"Processo do FAP: os anos informados não tocam o "
+                        f"{_periodo_por_extenso(it.inicio, it.fim).lower()}."))
+        saida["processo_fap_ano_inicio"] = it.processo_fap_ano_inicio
+        saida["processo_fap_ano_fim"] = it.processo_fap_ano_fim
+
+    # Abrangencia sem numero nao e gravada: sobra orfa e confunde quem for ler a linha depois.
+    return saida
 
 
 @router.get("/{estab_id}/rat-aplicado")
@@ -1092,6 +1165,16 @@ async def listar_rat_aplicado(
         # NÃO infere o par, porque rat=3/fap=1,0 seria valor presumido.
         "sem_desdobramento": r.aliquota_rat is None,
         "inicio": r.inicio.isoformat(), "fim": r.fim.isoformat() if r.fim else None,
+        # ABRANGÊNCIA (migration 067). Datas para o RAT, anos para o FAP.
+        "processo_rat_inicio": r.processo_rat_inicio.isoformat() if r.processo_rat_inicio else None,
+        "processo_rat_fim": r.processo_rat_fim.isoformat() if r.processo_rat_fim else None,
+        "processo_fap_ano_inicio": r.processo_fap_ano_inicio,
+        "processo_fap_ano_fim": r.processo_fap_ano_fim,
+        # PENDENTE: número cadastrado sem ninguém ter dito o que ele cobre. São as linhas
+        # anteriores à 067. Enquanto estiver assim o processo não ampara competência nenhuma —
+        # e a tela precisa dizer isso, em vez de deixar o número parecendo ativo.
+        "processo_rat_pendente": bool(r.processo_rat and r.processo_rat_inicio is None),
+        "processo_fap_pendente": bool(r.processo_fap and r.processo_fap_ano_inicio is None),
         # AUTORIA (Carolina, 04/11, ponto 2). Mesma regra de fuso do bloco FAP: 'declarado_em' é
         # gravado naive em UTC, e um ISO sem marca faz o navegador ler como hora local e mostrar
         # três horas a mais. None nas linhas anteriores à 066, que a tela exibe sem o nome.
@@ -1163,8 +1246,11 @@ async def salvar_rat_aplicado(
         # inválido, nenhum dos dois é gravado — meio cadastro salvo é pior que nenhum.
         proc_rat = _processo_normalizado(it.processo_rat, "Processo do RAT")
         proc_fap = _processo_normalizado(it.processo_fap, "Processo do FAP")
-        resolvidos.append((it, efetiva, proc_rat, proc_fap))
-    _sem_sobreposicao([it for it, _, _, _ in resolvidos], "RAT aplicado")
+        # Abrangência conferida junto, e antes de qualquer gravação: período com processo sem
+        # alcance não salva, e o que não salva não salva pela metade.
+        abr = _abrangencia_do_processo(it)
+        resolvidos.append((it, efetiva, proc_rat, proc_fap, abr))
+    _sem_sobreposicao([it for it, *_ in resolvidos], "RAT aplicado")
 
     antigos = (await db.execute(
         select(EstabelecimentoRatAplicado)
@@ -1173,11 +1259,12 @@ async def salvar_rat_aplicado(
     for a in antigos:
         await db.delete(a)
     _autoria = _autor(current_user)
-    for it, efetiva, proc_rat, proc_fap in resolvidos:
+    for it, efetiva, proc_rat, proc_fap, abr in resolvidos:
         db.add(EstabelecimentoRatAplicado(
             estabelecimento_id=estab_id, aliquota=efetiva,
             aliquota_rat=it.aliquota_rat, fap_aplicado=it.fap_aplicado,
             processo_rat=proc_rat, processo_fap=proc_fap,
+            **abr,
             inicio=it.inicio, fim=it.fim,
             # AUTORIA (Carolina, 04/11, ponto 2; migration 066). Mesmo compromisso do FAP e das
             # atividades: número que entra em peça assinada tem dono.

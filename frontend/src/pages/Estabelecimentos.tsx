@@ -651,6 +651,12 @@ function RatAplicadoModal({ estab, onFechar, embutido = false }: { estab: any; o
           // só viaja na linha antiga, que ainda não foi desdobrada
           aliquota: temRat ? null : numeroBR(r.aliquota),
           processo_rat: r.processo_rat || null, processo_fap: r.processo_fap || null,
+          // ABRANGÊNCIA (migration 067). Datas para o RAT, anos para o FAP. O servidor recusa
+          // número sem alcance, então estes campos viajam sempre que houver número.
+          processo_rat_inicio: r.processo_rat_inicio || null,
+          processo_rat_fim: r.processo_rat_fim || null,
+          processo_fap_ano_inicio: r.processo_fap_ano_inicio ? Number(r.processo_fap_ano_inicio) : null,
+          processo_fap_ano_fim: r.processo_fap_ano_fim ? Number(r.processo_fap_ano_fim) : null,
           inicio: r.inicio, fim: r.fim || null,
         };
       }));
@@ -746,12 +752,56 @@ function RatAplicadoModal({ estab, onFechar, embutido = false }: { estab: any; o
               <button type="button" className="col-span-2 text-red-400 text-sm mt-2" onClick={() => setRows((l) => l.filter((_, j) => j !== i))}>✕ remover</button>
             </div>
             {/* O leiaute do eSocial só aceita alíquota divergente da prevista se houver processo
-                informado. Sem isso, o sistema apontaria achado onde existe decisão amparando. */}
+                informado. Sem isso, o sistema apontaria achado onde existe decisão amparando.
+
+                CADA PROCESSO TEM O SEU ALCANCE (migration 067, Carolina 05/11), e as formas são
+                diferentes porque as coisas contestadas são diferentes: o FAP é publicado por ano
+                e se contesta o ano; o grau decorre da atividade preponderante, que muda de mês
+                para mês. Sem alcance o número não salva — e, enquanto não tiver, não ampara
+                competência nenhuma. */}
             <div className="grid grid-cols-2 gap-2 mt-2">
-              <input className={inp} value={r.processo_rat ?? ""} onChange={(e) => upd(i, "processo_rat", e.target.value)}
-                placeholder="Processo adm./judicial do RAT (se houver)" />
-              <input className={inp} value={r.processo_fap ?? ""} onChange={(e) => upd(i, "processo_fap", e.target.value)}
-                placeholder="Processo adm./judicial do FAP (se houver)" />
+              <div>
+                <input className={`${inp} w-full`} value={r.processo_rat ?? ""}
+                  onChange={(e) => upd(i, "processo_rat", e.target.value)}
+                  placeholder="Processo adm./judicial do RAT (se houver)" />
+                {r.processo_rat ? (
+                  <div className="grid grid-cols-2 gap-2 mt-1">
+                    <input type="month" className={inp} title="Primeira competência que o processo alcança"
+                      value={r.processo_rat_inicio ? String(r.processo_rat_inicio).slice(0, 7) : ""}
+                      onChange={(e) => upd(i, "processo_rat_inicio", e.target.value ? `${e.target.value}-01` : "")} />
+                    <input type="month" className={inp} title="Última competência alcançada — vazio é 'em diante'"
+                      value={r.processo_rat_fim ? String(r.processo_rat_fim).slice(0, 7) : ""}
+                      onChange={(e) => upd(i, "processo_rat_fim", e.target.value ? `${e.target.value}-01` : "")} />
+                  </div>
+                ) : null}
+                {r.processo_rat && !r.processo_rat_inicio ? (
+                  <p className="text-[10px] text-amber-700 mt-1">
+                    Informe quais competências este processo abrange.
+                  </p>
+                ) : null}
+              </div>
+              <div>
+                <input className={`${inp} w-full`} value={r.processo_fap ?? ""}
+                  onChange={(e) => upd(i, "processo_fap", e.target.value)}
+                  placeholder="Processo adm./judicial do FAP (se houver)" />
+                {r.processo_fap ? (
+                  <div className="grid grid-cols-2 gap-2 mt-1">
+                    <input type="number" className={inp} placeholder="de (ano)" min={1990} max={2100}
+                      title="Primeiro ano de vigência do FAP que o processo contesta"
+                      value={r.processo_fap_ano_inicio ?? ""}
+                      onChange={(e) => upd(i, "processo_fap_ano_inicio", e.target.value)} />
+                    <input type="number" className={inp} placeholder="até (ano)" min={1990} max={2100}
+                      title="Último ano contestado — vazio é 'em diante'"
+                      value={r.processo_fap_ano_fim ?? ""}
+                      onChange={(e) => upd(i, "processo_fap_ano_fim", e.target.value)} />
+                  </div>
+                ) : null}
+                {r.processo_fap && !r.processo_fap_ano_inicio ? (
+                  <p className="text-[10px] text-amber-700 mt-1">
+                    Informe quais anos este processo abrange.
+                  </p>
+                ) : null}
+              </div>
             </div>
           </div>
         ))}
@@ -1868,11 +1918,35 @@ export function EstabelecimentoPagina() {
                       <td>{x.fap_aplicado == null ? "—" : fmt.num(x.fap_aplicado, 4)}</td>
                       <td>{x.aliquota == null ? "—" : fmt.pct(x.aliquota)}</td>
                       <td className="py-2">
+                        {/* O número vem sempre com o alcance: um processo sem alcance declarado
+                            não ampara nada, e exibir só o número faria parecer que ampara. */}
                         {x.processo_rat ? (
-                          <span className="block">Proc. RAT nº {x.processo_rat}</span>
+                          <span className="block">
+                            Proc. RAT nº {x.processo_rat}{" "}
+                            {x.processo_rat_pendente ? (
+                              <b className="text-amber-700">— abrangência não informada</b>
+                            ) : (
+                              <span className="text-gray-500">
+                                ({fmt.competencia(x.processo_rat_inicio)}
+                                {x.processo_rat_fim ? ` a ${fmt.competencia(x.processo_rat_fim)}` : " em diante"})
+                              </span>
+                            )}
+                          </span>
                         ) : null}
                         {x.processo_fap ? (
-                          <span className="block">Proc. FAP nº {x.processo_fap}</span>
+                          <span className="block">
+                            Proc. FAP nº {x.processo_fap}{" "}
+                            {x.processo_fap_pendente ? (
+                              <b className="text-amber-700">— abrangência não informada</b>
+                            ) : (
+                              <span className="text-gray-500">
+                                ({x.processo_fap_ano_inicio}
+                                {x.processo_fap_ano_fim && x.processo_fap_ano_fim !== x.processo_fap_ano_inicio
+                                  ? ` a ${x.processo_fap_ano_fim}`
+                                  : x.processo_fap_ano_fim ? "" : " em diante"})
+                              </span>
+                            )}
+                          </span>
                         ) : null}
                         {!x.processo_rat && !x.processo_fap ? "—" : null}
                       </td>
