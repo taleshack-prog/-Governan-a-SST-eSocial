@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
+from uuid import uuid4
 import traceback
 
 from api.config import settings
@@ -76,30 +77,48 @@ async def lifespan(app: FastAPI):
     print(f"🛑 {settings.app_name} encerrando")
 
 
+# Documentacao da API (item (c) da Carolina, 06/11): /api/docs, /api/redoc e
+# /api/openapi.json respondiam sem autenticacao — a superficie inteira da API navegavel por
+# qualquer um. Agora so em desenvolvimento, ou se DOCS_PUBLICAS for ligada de proposito.
+_DOCS = settings.app_env == "development" or settings.docs_publicas
+
 app = FastAPI(
     title="SST eSocial Gov — API",
     description="Sistema de Governança SST/eSocial com IA. Validação de documentos, agentes nocivos e conformidade regulatória.",
     version="1.0.0",
     lifespan=lifespan,
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
-    openapi_url="/api/openapi.json",
+    docs_url="/api/docs" if _DOCS else None,
+    redoc_url="/api/redoc" if _DOCS else None,
+    openapi_url="/api/openapi.json" if _DOCS else None,
 )
 
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    tb = traceback.format_exc()
-    print(f"[500] {request.method} {request.url.path}\n{tb}")
+    """Item (b) da Carolina, 06/11: erro 500 devolve mensagem generica com codigo de
+    referencia; o stack trace fica no log.
+
+    O traceback nomeia caminho de arquivo, numero de linha e estrutura interna — mapa da casa
+    para quem estiver olhando. A referencia liga o que o usuario ve ao que ficou no log, sem
+    entregar nada: o suporte pede o codigo e acha a ocorrencia.
+    """
+    ref = uuid4().hex[:12]
+    print(f"[500 ref={ref}] {request.method} {request.url.path}\n{traceback.format_exc()}")
     return JSONResponse(
         status_code=500,
-        content={"detail": str(exc), "type": type(exc).__name__, "trace": tb},
+        content={
+            "detail": f"Erro interno no servidor. Informe a referência {ref} ao suporte.",
+            "referencia": ref,
+        },
     )
 
 # Middlewares
+# Item (d) da Carolina, 06/11: CORS restrito aos dominios do sistema. Antes era ["*"] fixo
+# aqui, e a lista do config.py nao era lida por ninguem.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins,
+    allow_origin_regex=settings.cors_origin_regex or None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -145,32 +164,13 @@ async def health():
     return {"status": "ok", "app": settings.app_name, "env": settings.app_env}
 
 
-@app.get("/api/debug/db", tags=["Health"])
-async def debug_db():
-    """Testa conexão com o banco e retorna o erro exato se falhar."""
-    from sqlalchemy import text
-    from api.database import engine
-    config = {
-        "host": settings.postgres_host,
-        "port": settings.postgres_port,
-        "db": settings.postgres_db,
-        "user": settings.db_user,
-        "password_set": bool(settings.db_password and settings.db_password != "changeme"),
-    }
-    try:
-        async with engine.connect() as conn:
-            row = await conn.execute(text(
-                "SELECT current_user, version(), "
-                "(SELECT rolsuper FROM pg_roles WHERE rolname = current_user), "
-                "(SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user)"
-            ))
-            r = row.fetchone()
-            # RN-24: se o papel for superuser ou tiver bypassrls, o RLS nao filtra nada.
-            privilegiado = bool(r[2]) or bool(r[3])
-            return {
-                "status": "ok", "config": config, "pg_user": r[0], "pg_version": r[1][:50],
-                "rolsuper": bool(r[2]), "rolbypassrls": bool(r[3]),
-                "rls_aplicavel": not privilegiado,
-            }
-    except Exception as e:
-        return {"status": "error", "config": config, "error": str(e), "type": type(e).__name__}
+# REMOVIDO em 06/11, item (a) da Carolina: o endpoint GET /api/debug/db.
+#
+# Ele respondia sem autenticacao e entregava host, porta, nome do banco, usuario do banco,
+# versao do Postgres e se o papel era superuser/bypassrls — e, em caso de falha, o erro de
+# conexao cru. Nas palavras dela: "entregar a configuracao do banco com papel de superusuario
+# e convite".
+#
+# A informacao de diagnostico NAO se perdeu: a mesma checagem de papel roda na partida, em
+# _checar_papel_rls(), e vai para o log do servico, onde so quem tem acesso ao projeto le.
+# Para conferir sob demanda, use o log da partida ou psql direto.

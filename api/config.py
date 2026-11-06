@@ -56,8 +56,31 @@ class Settings(BaseSettings):
     cnpj_provider: str = "brasilapi"          # brasilapi | serpro (futuro)
     cnpj_timeout: int = 12
 
-    # CORS
-    cors_origins: List[str] = ["http://localhost:3004", "http://localhost:3003", "http://localhost:3000", "http://localhost:3005", "http://localhost:8003"]
+    # SSL do banco (06/11) — chave propria, separada do APP_ENV por decisao da Carolina.
+    # Antes, APP_ENV governava o echo do SQL E o ssl obrigatorio. Amarrados, a correcao do log
+    # (segura) ficava refem da mudanca de SSL (reinicia servico). Agora cada uma vira sozinha.
+    # Padrao desligado: a rede privada da Railway ja cifra o trafego por WireGuard, entao o SSL
+    # aqui e segunda camada, nao protecao ausente. Ligar so depois de provado de dentro do conteiner.
+    db_ssl: bool = False
+
+    # Documentacao da API. Fechada fora de desenvolvimento: /api/docs e /api/openapi.json
+    # expunham a superficie inteira da API sem autenticacao.
+    docs_publicas: bool = False
+
+    # CORS — restrito aos dominios do sistema (decisao da Carolina, 06/11).
+    # Antes o main.py tinha allow_origins=["*"] fixo no codigo e esta lista nao era lida por
+    # ninguem. Qualquer site podia chamar a API do navegador.
+    cors_origins: List[str] = [
+        "https://www.radarprevi.com.br",
+        "https://radarprevi.com.br",
+        "https://governan-a-sst-e-social.vercel.app",
+        "https://governan-a-sst-e-social-1xq8.vercel.app",   # app do funcionario
+        "http://localhost:3000", "http://localhost:3003", "http://localhost:3004",
+        "http://localhost:3005", "http://localhost:8003", "http://localhost:5173",
+    ]
+    # Deploys de previa da Vercel nascem com URL unica a cada push. O regex cobre apenas o
+    # namespace da nossa equipe (hack-tech-farm) — nenhum outro dominio .vercel.app entra.
+    cors_origin_regex: str = r"^https://[a-z0-9-]+-hack-tech-farm\.vercel\.app$"
 
     # Logs
     log_level: str = "INFO"

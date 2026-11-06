@@ -56,8 +56,11 @@ ambiente de desenvolvimento e **não** reflete produção.
   Postgres** e portanto conecta como `postgres`, superusuário. O worker roda sem
   RLS. Não é vazamento, mas é assimetria conhecida — ver "Pendências".
 
-Confira o estado real a qualquer momento em `/api/debug/db`: `rls_aplicavel`
-precisa ser `true` e `rolsuper` precisa ser `false`.
+Confira o estado real **no log da partida do serviço**: `_checar_papel_rls()` roda a cada
+subida e imprime com que papel a aplicação conectou. `🔒 Isolamento por escritorio ativo` é
+o estado correto; o aviso em moldura de `=` significa papel privilegiado e RLS sem efeito.
+(Até 06/11 isso se conferia em `/api/debug/db`, removido por entregar a configuração do
+banco sem autenticação.)
 
 ---
 
@@ -73,7 +76,7 @@ foi vista falhando é guarda que se supõe que existe.
 | 2 | `SECRET_KEY` nos dois serviços | Sessões caíram; `/api/empresas/` devolve 401 sem token e com token forjado. |
 | 3 | `OPENROUTER_API_KEY` | PrevIA voltou a responder; painel mostra uso na chave nova. |
 | 4 | `ELEVENLABS_API_KEY` | Voz voltou; a chave antiga foi desativada **depois** e a voz seguiu funcionando. |
-| 5 | Senha do `radar_app` | `/api/debug/db` com `rls_aplicavel: true`; `psql` recusa a sabotada. |
+| 5 | Senha do `radar_app` | `/api/debug/db` com `rls_aplicavel: true` (endpoint removido em 06/11; hoje se confere no log da partida); `psql` recusa a sabotada. |
 | 6 | Acesso público do Redis **removido** | Ver abaixo. |
 
 ### O Redis saiu da internet
@@ -231,9 +234,21 @@ outro transforma uma máquina comprometida em acesso a vários sistemas de uma v
 Estas são de código e continuam abertas. Nenhuma é vazamento; todas são o motivo
 de um vazamento futuro poder custar caro ou passar despercebido.
 
-1. **`/api/debug/db` responde sem autenticação** e entrega host, banco, usuário e
-   versão do Postgres a qualquer um.
-2. **Todo erro 500 devolve o traceback completo ao cliente** (`api/main.py`).
+1. ~~**`/api/debug/db` responde sem autenticação** e entrega host, banco, usuário e
+   versão do Postgres a qualquer um.~~ **CORRIGIDO em 06/11** — endpoint removido. A
+   checagem de papel continua, no log da partida.
+2. ~~**Todo erro 500 devolve o traceback completo ao cliente** (`api/main.py`).~~
+   **CORRIGIDO em 06/11** — resposta genérica com código de referência; o traceback
+   fica no log, ligado à resposta pelo mesmo código.
+
+   Corrigidos na mesma leva, e que não constavam desta lista:
+   - **`/api/docs`, `/api/redoc` e `/api/openapi.json` eram públicos.** Fechados fora
+     de desenvolvimento (`DOCS_PUBLICAS` reabre de propósito).
+   - **CORS era `allow_origins=["*"]` fixo no código**, e a lista do `config.py` não
+     era lida por ninguém. Agora restrito aos domínios do sistema.
+   - **`APP_ENV` governava o `echo` do SQL e o SSL do banco juntos.** Separados:
+     `DB_SSL` é chave própria. O `echo` gravava toda consulta **com os parâmetros**
+     (CNPJ, razão social, nº de processo, autoria) no log do serviço.
 3. **Não há teto de tokens nem de chamadas** em lugar nenhum do código. O chat da
    PrevIA encaminha ao provedor o que o cliente mandar, sem validar tamanho; a
    importação de LTCAT faz uma chamada por pedaço do PDF, sem limite de pedaços, e

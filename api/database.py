@@ -31,7 +31,7 @@ def _build_engine():
         pool_size=5,
         max_overflow=10,
         pool_pre_ping=True,
-        connect_args={"ssl": "require"} if settings.app_env == "production" else {},
+        connect_args={"ssl": "require"} if settings.db_ssl else {},
     )
 
 engine = _build_engine()
@@ -128,7 +128,7 @@ def _build_sync_engine():
         pool_size=3,
         max_overflow=5,
         pool_pre_ping=True,
-        connect_args={"sslmode": "require"} if settings.app_env == "production" else {},
+        connect_args={"sslmode": "require"} if settings.db_ssl else {},
     )
 
 _sync_engine = _build_sync_engine()
